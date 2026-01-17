@@ -1,0 +1,51 @@
+{
+  "name": "@puresheet/core",
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.15.4",
+  "description": "High-performance grid library with Web Worker support",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "generate:data": "tsx tests/fixtures/generateTestData.ts"
+  },
+  "keywords": [
+    "grid",
+    "table",
+    "spreadsheet",
+    "data-grid",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "arquero": "^6.0.1"
+  },
+  "devDependencies": {
+    "@vitest/ui": "^2.0.5",
+    "@vitest/web-worker": "2.1.9",
+    "jsdom": "^27.4.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.4.2",
+    "vite-plugin-dts": "^4.0.3",
+    "vitest": "^2.0.5"
+  }
+}
