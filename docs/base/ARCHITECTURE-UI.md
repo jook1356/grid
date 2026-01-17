@@ -94,54 +94,203 @@ src/
 
 ## 3. 모듈별 상세 설계
 
-### 3.1 VirtualScroller
+### 3.1 VirtualScroller (Proxy Scrollbar 방식)
 
-100만 행을 효율적으로 렌더링하기 위한 가상화 스크롤러.
+100만 행과 **가변 행 높이**를 효율적으로 지원하기 위해 **Proxy Scrollbar** 방식을 채택합니다.
+
+> 상세 결정 과정: [가변 행 높이 가상화 전략](../decisions/003-variable-row-height-virtualization.md)
+
+#### 핵심 아이디어
+
+```
+┌─────────────────────────────────────────────┐
+│  Grid Container                              │
+│  ┌─────────────────────────────┬──────────┐ │
+│  │                             │ ▲        │ │
+│  │   Viewport (콘텐츠)          │ █ Proxy  │ │
+│  │   overflow: hidden          │ █ Scroll │ │
+│  │                             │ ▼        │ │
+│  └─────────────────────────────┴──────────┘ │
+└─────────────────────────────────────────────┘
+
+스크롤바 위치 → 비율 계산 → 행 인덱스 → 해당 행부터 렌더링
+```
+
+- **Proxy Scrollbar**: 네이티브 스크롤바를 별도 DOM에서 생성
+- **스크롤 비율 → 행 인덱스**: O(1) 계산으로 성능 확보
+- **가변 행 높이**: 행 높이를 개별 저장하지 않고 평균값 사용
+
+#### 설정 인터페이스
 
 ```typescript
 interface VirtualScrollerOptions {
-  rowHeight: number;           // 행 높이 (고정 또는 가변)
-  overscan: number;            // 버퍼 행 수 (위/아래)
-  containerHeight: number;     // 컨테이너 높이
-}
-
-class VirtualScroller {
-  private rowHeight = 32;
-  private overscan = 5;
-  private visibleStart = 0;
-  private visibleEnd = 0;
+  /**
+   * 초기 예상 행 높이 (픽셀)
+   * @default 40
+   */
+  estimatedRowHeight?: number;
   
   /**
-   * 스크롤 이벤트 처리
-   * IndexManager.getIndicesInRange()와 연동
+   * 평균 계산에 사용할 샘플 수
+   * @default 50
    */
-  onScroll(scrollTop: number): void {
-    const start = Math.floor(scrollTop / this.rowHeight) - this.overscan;
-    const end = start + this.visibleRowCount + this.overscan * 2;
+  sampleSize?: number;
+  
+  /**
+   * 버퍼 행 수 (위/아래 추가 렌더링)
+   * @default 5
+   */
+  overscan?: number;
+}
+```
+
+#### DOM 구조
+
+```html
+<div class="ps-grid-container">
+  <!-- 스크롤바 프록시: 네이티브 스크롤바 담당 -->
+  <div class="ps-scroll-proxy">
+    <div class="ps-scroll-spacer"></div>  <!-- height: totalRows × avgHeight -->
+  </div>
+  
+  <!-- 실제 콘텐츠: 스크롤바 숨김 -->
+  <div class="ps-viewport">
+    <div class="ps-row-container">
+      <!-- 가상화된 행들 (transform으로 위치 지정) -->
+    </div>
+  </div>
+</div>
+```
+
+#### CSS
+
+```css
+.ps-grid-container {
+  position: relative;
+  overflow: hidden;
+}
+
+/* 스크롤바 프록시 */
+.ps-scroll-proxy {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  pointer-events: none;
+}
+.ps-scroll-proxy::-webkit-scrollbar {
+  pointer-events: auto;
+}
+
+/* 실제 콘텐츠 */
+.ps-viewport {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 17px;  /* 스크롤바 너비 */
+  bottom: 0;
+  overflow: hidden;
+}
+
+/* 모바일: 스크롤바 오버레이 */
+@media (pointer: coarse) {
+  .ps-viewport { right: 0; }
+}
+```
+
+#### 핵심 구현
+
+```typescript
+class VirtualScroller {
+  // 상태
+  private totalRows = 0;
+  private estimatedRowHeight = 40;
+  private currentRowIndex = 0;
+  private overscan = 5;
+  
+  // 샘플링
+  private heightSamples: number[] = [];
+  private isHeightLocked = false;
+  private sampleSize = 50;
+  
+  // DOM
+  private scrollProxy: HTMLElement;
+  private viewport: HTMLElement;
+  private spacer: HTMLElement;
+  
+  /**
+   * 프록시 스크롤 → 행 인덱스 계산
+   */
+  private onProxyScroll = (): void => {
+    const { scrollTop, scrollHeight, clientHeight } = this.scrollProxy;
+    const maxScroll = scrollHeight - clientHeight;
+    const scrollRatio = maxScroll > 0 ? scrollTop / maxScroll : 0;
     
-    if (start !== this.visibleStart || end !== this.visibleEnd) {
-      this.visibleStart = Math.max(0, start);
-      this.visibleEnd = Math.min(end, this.totalRowCount);
-      this.emit('range:changed', { 
-        start: this.visibleStart, 
-        end: this.visibleEnd 
+    // 비율 → 행 인덱스 (O(1) 계산)
+    const maxRowIndex = Math.max(0, this.totalRows - this.getVisibleRowCount());
+    const targetRowIndex = Math.round(scrollRatio * maxRowIndex);
+    
+    if (targetRowIndex !== this.currentRowIndex) {
+      this.currentRowIndex = targetRowIndex;
+      this.emit('rowIndexChanged', {
+        startIndex: this.currentRowIndex,
+        endIndex: this.currentRowIndex + this.getVisibleRowCount() + this.overscan
       });
+    }
+  };
+  
+  /**
+   * 행 높이 측정 (초기 샘플링)
+   */
+  measureRow(index: number, height: number): void {
+    if (this.isHeightLocked) return;
+    
+    this.heightSamples.push(height);
+    
+    // 50개 샘플 수집 후 평균 고정
+    if (this.heightSamples.length >= this.sampleSize) {
+      const sum = this.heightSamples.reduce((a, b) => a + b, 0);
+      this.estimatedRowHeight = sum / this.heightSamples.length;
+      this.isHeightLocked = true;
+      this.updateSpacerHeight();
     }
   }
   
   /**
-   * 전체 높이 계산 (스크롤바 크기 결정)
+   * Spacer 높이 업데이트 (스크롤바 크기 결정)
    */
-  get totalHeight(): number {
-    return this.totalRowCount * this.rowHeight;
+  private updateSpacerHeight(): void {
+    const totalHeight = this.totalRows * this.estimatedRowHeight;
+    this.spacer.style.height = `${totalHeight}px`;
   }
+  
+  /**
+   * Viewport 휠/터치 → 프록시로 전달
+   */
+  private onViewportWheel = (e: WheelEvent): void => {
+    this.scrollProxy.scrollTop += e.deltaY;
+    e.preventDefault();
+  };
 }
 ```
 
-**핵심 개념:**
-- `overscan`: 스크롤 시 깜빡임 방지를 위해 화면 위/아래에 추가 행 렌더링
-- `transform: translateY()`: 보이는 영역만 실제 DOM에 배치
-- `will-change: transform`: GPU 가속 활용
+#### 장점
+
+| 항목 | 설명 |
+|------|------|
+| **O(1) 성능** | 스크롤 비율 → 행 인덱스 직접 계산 |
+| **메모리 효율** | 개별 행 높이 저장 불필요 (O(1)) |
+| **네이티브 스크롤** | 터치, 관성, 키보드 모두 지원 |
+| **접근성** | 스크린 리더 호환 |
+| **가변 행 높이** | 평균값 기반으로 자연스럽게 지원 |
+
+#### 관련 결정 문서
+
+- [가변 행 높이 가상화 전략](../decisions/003-variable-row-height-virtualization.md)
+- [가로 가상화 전략](../decisions/002-horizontal-virtualization.md)
 
 ### 3.2 컬럼 고정 (Pinned Columns)
 
@@ -722,19 +871,106 @@ export function usePureSheet(options: PureSheetOptions) {
 
 ## 8. 구현 순서
 
-1. **기반 구조** - `GridRenderer`, `VirtualScroller`, `BodyRenderer`
-2. **헤더** - `HeaderRenderer`, `HeaderCell`
-3. **셀 렌더링** - `CellRenderer`, DOM 풀링
-4. **컬럼 기능** - `ColumnManager`, 리사이즈, 고정, 재정렬
-5. **선택** - `SelectionManager`
-6. **편집** - `EditorManager`
-7. **통합** - `PureSheet` 파사드
-8. **프레임워크 래퍼** - React, Vue
-9. **테스트 및 문서화**
+### 1차 구현: 기본 가상화 그리드
+
+| 순서 | 모듈 | 설명 |
+|------|------|------|
+| 1 | `GridRenderer`, `VirtualScroller`, `BodyRenderer` | 기반 구조 + Proxy Scrollbar |
+| 2 | `HeaderRenderer`, `HeaderCell` | 헤더 렌더링 |
+| 3 | `CellRenderer` + DOM 풀링 | 셀 렌더링 최적화 |
+| 4 | `ColumnManager` | 리사이즈, 고정, 재정렬 |
+| 5 | `SelectionManager` | 행/셀 선택 |
+| 6 | `EditorManager` | 셀 편집 |
+| 7 | `PureSheet` 파사드 | 통합 API |
+| 8 | 테스트 및 문서화 | 단위/통합 테스트 |
+
+
+### 2차 구현: 고급 기능
+
+| 순서 | 기능 | 설명 | 상세 문서 |
+|------|------|------|----------|
+| 1 | **셀 병합** | 가로+세로 병합, 데이터/API 정의 | [004](../decisions/004-cell-merge-and-row-grouping.md) |
+| 2 | **행 그룹화** | 다중 레벨 그룹, 접기/펼치기, 집계 | [004](../decisions/004-cell-merge-and-row-grouping.md) |
+| 3 | **Multi-Row** | 1 데이터 행을 N줄로 표시 | [005](../decisions/005-multi-row-layout.md) |
+| 4 | 프레임워크 래퍼 | React, Vue 래퍼 | - |
+
+#### 셀 병합 API (2차)
+
+```typescript
+// 데이터 레벨: 컬럼 정의에서 자동 병합
+const columns = [
+  { key: 'category', mergeStrategy: 'same-value' }
+];
+
+// API 레벨: 동적 병합
+sheet.mergeCells('A1:C1');
+sheet.unmergeCells('A1:C1');
+```
+
+#### 행 그룹화 API (2차)
+
+```typescript
+// 컬럼 정의에서 그룹화
+const columns = [
+  { key: 'country', groupable: true, groupOrder: 1 },
+  { key: 'product', groupable: true, groupOrder: 2 },
+  { key: 'sales', aggregate: 'sum' }
+];
+
+// API로 그룹화
+sheet.groupBy(['country', 'product']);
+sheet.collapseGroup('country', 'Germany');
+sheet.expandAll();
+```
+
+#### Multi-Row 레이아웃 API (2차)
+
+```typescript
+// rowTemplate으로 1 데이터 행을 여러 줄로 표시
+const sheet = new PureSheet(container, {
+  columns: [
+    { key: 'id', header: 'ID' },
+    { key: 'name', header: 'Name' },
+    { key: 'email', header: 'Email' },
+    { key: 'dept', header: 'Dept' },
+    { key: 'phone', header: 'Phone' },
+    { key: 'salary', header: 'Salary' },
+  ],
+  rowTemplate: {
+    rowCount: 2,
+    layout: [
+      // 첫 번째 줄
+      [
+        { key: 'id', rowSpan: 2 },      // 2줄에 걸침
+        { key: 'name' },
+        { key: 'email', colSpan: 2 },   // 2칸 차지
+        { key: 'salary', rowSpan: 2 },
+      ],
+      // 두 번째 줄
+      [
+        { key: 'dept' },
+        { key: 'phone' },
+      ],
+    ],
+  },
+  data,
+});
+
+// 결과:
+// ┌────┬─────────┬────────────────────────┬──────────┐
+// │    │  Name   │         Email          │          │
+// │ ID ├─────────┼───────────┬────────────┤  Salary  │
+// │    │  Dept   │   Phone   │            │          │
+// └────┴─────────┴───────────┴────────────┴──────────┘
+```
 
 ---
 
 ## 관련 문서
 
 - [Core Architecture](./ARCHITECTURE.md)
-- [Worker 환경 지원 전략](./decisions/001-worker-environment-support.md)
+- [Worker 환경 지원 전략](../decisions/001-worker-environment-support.md)
+- [가로 가상화 전략](../decisions/002-horizontal-virtualization.md)
+- [가변 행 높이 가상화 전략](../decisions/003-variable-row-height-virtualization.md)
+- [셀 병합 및 행 그룹화 전략](../decisions/004-cell-merge-and-row-grouping.md)
+- [Multi-Row 레이아웃 전략](../decisions/005-multi-row-layout.md)
