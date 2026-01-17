@@ -292,7 +292,139 @@ class VirtualScroller {
 - [가변 행 높이 가상화 전략](../decisions/003-variable-row-height-virtualization.md)
 - [가로 가상화 전략](../decisions/002-horizontal-virtualization.md)
 
-### 3.2 컬럼 고정 (Pinned Columns)
+### 3.2 셀 렌더링 (하이브리드 방식)
+
+> 상세 결정 과정: [셀 렌더링 전략](../decisions/006-cell-rendering-strategy.md)
+
+**채택 방식:** Flexbox Row + Absolute Y (하이브리드)
+
+- **행**: `position: absolute` + `transform: translateY()` → 가상화, GPU 가속
+- **셀**: `display: flex` → 간단한 배치
+- **컬럼 고정**: `position: sticky`
+- **컬럼 너비**: CSS 변수로 관리
+
+#### DOM 구조
+
+```html
+<div class="ps-grid-container">
+  <!-- 헤더 -->
+  <div class="ps-header">
+    <div class="ps-header-row">
+      <div class="ps-cells-left">
+        <div class="ps-header-cell" style="width: var(--col-id-width)">ID</div>
+      </div>
+      <div class="ps-cells-center">
+        <div class="ps-header-cell" style="width: var(--col-name-width)">Name</div>
+        <div class="ps-header-cell" style="width: var(--col-email-width)">Email</div>
+      </div>
+      <div class="ps-cells-right">
+        <div class="ps-header-cell" style="width: var(--col-actions-width)">Actions</div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 바디: Proxy Scrollbar + 가상화 -->
+  <div class="ps-body">
+    <div class="ps-scroll-proxy">
+      <div class="ps-scroll-spacer"></div>
+    </div>
+    <div class="ps-viewport">
+      <div class="ps-row-container">
+        <!-- 가상화된 행 (transform으로 Y 위치) -->
+        <div class="ps-row" style="transform: translateY(0px)">
+          <div class="ps-cells-left">
+            <div class="ps-cell">1</div>
+          </div>
+          <div class="ps-cells-center">
+            <div class="ps-cell">홍길동</div>
+            <div class="ps-cell">hong@example.com</div>
+          </div>
+          <div class="ps-cells-right">
+            <div class="ps-cell">Edit</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+#### 핵심 CSS
+
+```css
+/* 컬럼 너비 CSS 변수 */
+.ps-grid-container {
+  --col-id-width: 60px;
+  --col-name-width: 150px;
+  --col-email-width: 200px;
+  --col-actions-width: 100px;
+}
+
+/* 행: 가상화 (absolute + transform) */
+.ps-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  will-change: transform;
+  contain: layout style;
+}
+
+/* 셀 컨테이너: 고정/스크롤 분리 */
+.ps-cells-left, .ps-cells-right {
+  position: sticky;
+  z-index: 2;
+  background: inherit;
+}
+.ps-cells-left { left: 0; }
+.ps-cells-right { right: 0; }
+
+.ps-cells-center {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+/* 셀 */
+.ps-cell {
+  flex-shrink: 0;
+  contain: content;
+}
+```
+
+#### DOM 풀링
+
+```typescript
+class RowPool {
+  private pool: HTMLElement[] = [];
+  private activeRows: Map<number, HTMLElement> = new Map();
+  
+  acquire(rowIndex: number): HTMLElement {
+    let row = this.pool.pop() ?? this.createRow();
+    this.activeRows.set(rowIndex, row);
+    return row;
+  }
+  
+  release(rowIndex: number): void {
+    const row = this.activeRows.get(rowIndex);
+    if (row) {
+      this.activeRows.delete(rowIndex);
+      this.pool.push(row);
+    }
+  }
+}
+```
+
+#### 컬럼 너비 관리
+
+```typescript
+// CSS 변수로 너비 관리 → 모든 셀 자동 반영
+setColumnWidth(key: string, width: number): void {
+  this.container.style.setProperty(`--col-${key}-width`, `${width}px`);
+}
+```
+
+### 3.3 컬럼 고정 (Pinned Columns)
 
 ```mermaid
 flowchart LR
@@ -974,3 +1106,4 @@ const sheet = new PureSheet(container, {
 - [가변 행 높이 가상화 전략](../decisions/003-variable-row-height-virtualization.md)
 - [셀 병합 및 행 그룹화 전략](../decisions/004-cell-merge-and-row-grouping.md)
 - [Multi-Row 레이아웃 전략](../decisions/005-multi-row-layout.md)
+- [셀 렌더링 전략](../decisions/006-cell-rendering-strategy.md)
