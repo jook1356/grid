@@ -1,0 +1,406 @@
+/**
+ * PureSheet 기본 스타일
+ *
+ * CSS 변수를 사용하여 테마 커스터마이징이 가능합니다.
+ * 컬럼 너비도 CSS 변수로 관리하여 리사이즈 시 효율적으로 업데이트합니다.
+ */
+
+/* =============================================================================
+   CSS 변수 (테마)
+   ============================================================================= */
+
+.ps-grid-container {
+  /* 색상 */
+  --ps-bg-color: #ffffff;
+  --ps-border-color: #e0e0e0;
+  --ps-header-bg: #f5f5f5;
+  --ps-header-text: #333333;
+  --ps-cell-text: #333333;
+  --ps-row-hover-bg: #f0f7ff;
+  --ps-row-selected-bg: #e3f2fd;
+  --ps-row-alt-bg: #fafafa;
+  --ps-focus-color: #1976d2;
+  --ps-shadow-color: rgba(0, 0, 0, 0.1);
+
+  /* 크기 */
+  --ps-header-height: 40px;
+  --ps-row-height: 36px;
+  --ps-scrollbar-width: 17px;
+  --ps-cell-padding: 0 12px;
+  --ps-border-width: 1px;
+
+  /* 폰트 */
+  --ps-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --ps-font-size: 14px;
+  --ps-header-font-weight: 600;
+}
+
+/* 다크 테마 */
+.ps-grid-container.ps-theme-dark {
+  --ps-bg-color: #1e1e1e;
+  --ps-border-color: #3c3c3c;
+  --ps-header-bg: #2d2d2d;
+  --ps-header-text: #e0e0e0;
+  --ps-cell-text: #d4d4d4;
+  --ps-row-hover-bg: #2a2d2e;
+  --ps-row-selected-bg: #094771;
+  --ps-row-alt-bg: #252526;
+  --ps-focus-color: #0e639c;
+  --ps-shadow-color: rgba(0, 0, 0, 0.3);
+}
+
+/* =============================================================================
+   Grid Container
+   ============================================================================= */
+
+.ps-grid-container {
+  height: 100%;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--ps-bg-color);
+  font-family: var(--ps-font-family);
+  font-size: var(--ps-font-size);
+  color: var(--ps-cell-text);
+  box-sizing: border-box;
+  border: var(--ps-border-width) solid var(--ps-border-color);
+}
+
+.ps-grid-container *,
+.ps-grid-container *::before,
+.ps-grid-container *::after {
+  box-sizing: border-box;
+}
+
+/* =============================================================================
+   Header
+   ============================================================================= */
+
+.ps-header {
+  flex-shrink: 0;
+  background: var(--ps-header-bg);
+  border-bottom: 2px solid var(--ps-border-color);
+  overflow: hidden;
+  z-index: 10;
+}
+
+.ps-header-row {
+  display: flex;
+  height: var(--ps-header-height);
+  min-width: max-content;
+}
+
+.ps-header-cell {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: var(--ps-cell-padding);
+  font-weight: var(--ps-header-font-weight);
+  color: var(--ps-header-text);
+  border-right: var(--ps-border-width) solid var(--ps-border-color);
+  user-select: none;
+  position: relative;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ps-header-cell:last-child {
+  border-right: none;
+}
+
+/* 헤더 리사이즈 핸들 */
+.ps-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 1;
+}
+
+.ps-resize-handle:hover {
+  background: var(--ps-focus-color);
+}
+
+/* 헤더 정렬 아이콘 */
+.ps-sort-icon {
+  margin-left: 4px;
+  opacity: 0.6;
+}
+
+.ps-header-cell.ps-sorted .ps-sort-icon {
+  opacity: 1;
+}
+
+/* =============================================================================
+   Body
+   ============================================================================= */
+
+.ps-body {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Proxy Scrollbar */
+.ps-scroll-proxy {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--ps-scrollbar-width);
+  overflow-y: auto;
+  overflow-x: hidden;
+  z-index: 5;
+}
+
+.ps-scroll-proxy::-webkit-scrollbar {
+  width: var(--ps-scrollbar-width);
+}
+
+.ps-scroll-proxy::-webkit-scrollbar-track {
+  background: var(--ps-bg-color);
+}
+
+.ps-scroll-proxy::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.ps-scroll-proxy::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+.ps-scroll-spacer {
+  width: 1px;
+  pointer-events: none;
+}
+
+/* Viewport */
+.ps-viewport {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: var(--ps-scrollbar-width);
+  bottom: 0;
+  overflow: hidden;
+}
+
+/* 모바일: 스크롤바 오버레이 */
+@media (pointer: coarse) {
+  .ps-viewport {
+    right: 0;
+  }
+
+  .ps-scroll-proxy {
+    width: 100%;
+    pointer-events: auto;
+  }
+}
+
+/* Row Container */
+.ps-row-container {
+  position: relative;
+  will-change: transform;
+}
+
+/* =============================================================================
+   Row
+   ============================================================================= */
+
+.ps-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  height: var(--ps-row-height);
+  background: var(--ps-bg-color);
+  border-bottom: var(--ps-border-width) solid var(--ps-border-color);
+  will-change: transform;
+  contain: layout style;
+}
+
+.ps-row:nth-child(even) {
+  background: var(--ps-row-alt-bg);
+}
+
+.ps-row:hover {
+  background: var(--ps-row-hover-bg);
+}
+
+.ps-row.ps-selected {
+  background: var(--ps-row-selected-bg);
+}
+
+.ps-row.ps-selected:hover {
+  background: var(--ps-row-selected-bg);
+}
+
+/* =============================================================================
+   Cells Container (고정/스크롤 분리)
+   ============================================================================= */
+
+.ps-cells-left,
+.ps-cells-center,
+.ps-cells-right {
+  display: flex;
+  align-items: center;
+}
+
+.ps-cells-left {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: inherit;
+  box-shadow: 2px 0 4px var(--ps-shadow-color);
+}
+
+.ps-cells-right {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background: inherit;
+  box-shadow: -2px 0 4px var(--ps-shadow-color);
+}
+
+.ps-cells-center {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* 고정 영역이 비어있으면 그림자 숨김 */
+.ps-cells-left:empty,
+.ps-cells-right:empty {
+  box-shadow: none;
+}
+
+/* =============================================================================
+   Cell
+   ============================================================================= */
+
+.ps-cell {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: var(--ps-cell-padding);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-right: var(--ps-border-width) solid var(--ps-border-color);
+  contain: content;
+}
+
+.ps-cell:last-child {
+  border-right: none;
+}
+
+/* 포커스된 셀 */
+.ps-cell.ps-focused {
+  outline: 2px solid var(--ps-focus-color);
+  outline-offset: -2px;
+}
+
+/* 편집 중인 셀 */
+.ps-cell.ps-editing {
+  padding: 0;
+  overflow: visible;
+}
+
+.ps-cell.ps-editing input,
+.ps-cell.ps-editing select {
+  width: 100%;
+  height: 100%;
+  padding: var(--ps-cell-padding);
+  border: 2px solid var(--ps-focus-color);
+  outline: none;
+  font-family: inherit;
+  font-size: inherit;
+  background: var(--ps-bg-color);
+  color: var(--ps-cell-text);
+}
+
+/* =============================================================================
+   Selection
+   ============================================================================= */
+
+.ps-checkbox-cell {
+  width: 40px;
+  justify-content: center;
+  padding: 0;
+}
+
+.ps-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--ps-focus-color);
+}
+
+/* =============================================================================
+   Drag & Drop
+   ============================================================================= */
+
+.ps-header-cell.ps-dragging {
+  opacity: 0.5;
+}
+
+.ps-drop-indicator {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--ps-focus-color);
+  z-index: 100;
+  pointer-events: none;
+}
+
+/* =============================================================================
+   Empty State
+   ============================================================================= */
+
+.ps-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #999;
+  font-size: 16px;
+}
+
+/* =============================================================================
+   Loading State
+   ============================================================================= */
+
+.ps-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.8);
+  z-index: 100;
+}
+
+.ps-loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--ps-border-color);
+  border-top-color: var(--ps-focus-color);
+  border-radius: 50%;
+  animation: ps-spin 0.8s linear infinite;
+}
+
+@keyframes ps-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

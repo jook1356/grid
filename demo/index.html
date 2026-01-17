@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PureSheet Demo</title>
+  <link rel="stylesheet" href="../src/ui/style/default.css">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    
+    h1 {
+      margin-bottom: 20px;
+      color: #333;
+    }
+    
+    .demo-container {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+    }
+    
+    .toolbar {
+      padding: 12px 16px;
+      background: #f9f9f9;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    
+    .toolbar button {
+      padding: 8px 16px;
+      background: #1976d2;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    
+    .toolbar button:hover {
+      background: #1565c0;
+    }
+    
+    .toolbar button.secondary {
+      background: #666;
+    }
+    
+    .toolbar button.secondary:hover {
+      background: #555;
+    }
+    
+    #grid {
+      height: 500px;
+    }
+    
+    .status-bar {
+      padding: 12px 16px;
+      background: #f9f9f9;
+      border-top: 1px solid #e0e0e0;
+      font-size: 14px;
+      color: #666;
+    }
+    
+    .info-panel {
+      margin-top: 20px;
+      padding: 16px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+    
+    .info-panel h3 {
+      margin-bottom: 12px;
+      color: #333;
+    }
+    
+    .info-panel pre {
+      background: #f5f5f5;
+      padding: 12px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🗃️ PureSheet Demo</h1>
+  
+  <div class="demo-container">
+    <div class="toolbar">
+      <button onclick="loadData(1000)">1,000 행 로드</button>
+      <button onclick="loadData(10000)">10,000 행 로드</button>
+      <button onclick="loadData(100000)">100,000 행 로드</button>
+      <button class="secondary" onclick="selectAll()">전체 선택</button>
+      <button class="secondary" onclick="clearSelection()">선택 해제</button>
+      <button class="secondary" onclick="toggleTheme()">테마 전환</button>
+    </div>
+    
+    <div id="grid"></div>
+    
+    <div class="status-bar" id="status">
+      준비됨
+    </div>
+  </div>
+  
+  <div class="info-panel">
+    <h3>선택된 행</h3>
+    <pre id="selectedRows">[]</pre>
+  </div>
+  
+  <script type="module">
+    // 빌드된 모듈 대신 직접 import (개발용)
+    // 실제 사용 시: import { PureSheet } from '@puresheet/core';
+    
+    // 테스트 데이터 생성
+    function generateData(count) {
+      const statuses = ['Active', 'Inactive', 'Pending', 'Suspended'];
+      const departments = ['Engineering', 'Sales', 'Marketing', 'HR', 'Finance'];
+      
+      return Array.from({ length: count }, (_, i) => ({
+        id: i + 1,
+        name: `User ${i + 1}`,
+        email: `user${i + 1}@example.com`,
+        department: departments[i % departments.length],
+        status: statuses[i % statuses.length],
+        salary: Math.floor(50000 + Math.random() * 100000),
+        joinDate: new Date(2020, Math.floor(Math.random() * 48), Math.floor(Math.random() * 28) + 1).toISOString().split('T')[0],
+      }));
+    }
+    
+    // PureSheet 인스턴스 (전역)
+    let sheet = null;
+    let isDarkTheme = false;
+    
+    // 상태 업데이트
+    function updateStatus(message) {
+      document.getElementById('status').textContent = message;
+    }
+    
+    function updateSelectedRows(rows) {
+      const display = rows.slice(0, 10).map(r => ({ id: r.id, name: r.name }));
+      if (rows.length > 10) {
+        display.push({ '...': `외 ${rows.length - 10}개` });
+      }
+      document.getElementById('selectedRows').textContent = JSON.stringify(display, null, 2);
+    }
+    
+    // 전역 함수 (버튼에서 호출)
+    window.loadData = async function(count) {
+      updateStatus(`${count.toLocaleString()}개 데이터 생성 중...`);
+      
+      const startTime = performance.now();
+      const data = generateData(count);
+      const genTime = performance.now() - startTime;
+      
+      updateStatus(`데이터 로드 중...`);
+      
+      if (sheet) {
+        const loadStart = performance.now();
+        await sheet.loadData(data);
+        const loadTime = performance.now() - loadStart;
+        
+        updateStatus(`${count.toLocaleString()}개 행 로드 완료 (생성: ${genTime.toFixed(0)}ms, 로드: ${loadTime.toFixed(0)}ms)`);
+      }
+    };
+    
+    window.selectAll = function() {
+      if (sheet) {
+        sheet.selectAll();
+        updateStatus('전체 선택됨');
+      }
+    };
+    
+    window.clearSelection = function() {
+      if (sheet) {
+        sheet.clearSelection();
+        updateStatus('선택 해제됨');
+        updateSelectedRows([]);
+      }
+    };
+    
+    window.toggleTheme = function() {
+      isDarkTheme = !isDarkTheme;
+      const container = document.querySelector('.ps-grid-container');
+      if (container) {
+        container.classList.toggle('ps-theme-dark', isDarkTheme);
+      }
+      updateStatus(`테마: ${isDarkTheme ? '다크' : '라이트'}`);
+    };
+    
+    // 초기화
+    async function init() {
+      const container = document.getElementById('grid');
+      
+      // GridCore와 GridRenderer를 직접 사용 (PureSheet 빌드 전)
+      const { GridCore, GridRenderer } = await import('../src/index.ts');
+      
+      const columns = [
+        { key: 'id', header: 'ID', width: 60, pinned: 'left' },
+        { key: 'name', header: 'Name', width: 150 },
+        { key: 'email', header: 'Email', width: 250 },
+        { key: 'department', header: 'Department', width: 120 },
+        { key: 'status', header: 'Status', width: 100 },
+        { key: 'salary', header: 'Salary', width: 100, formatter: (v) => '$' + v.toLocaleString() },
+        { key: 'joinDate', header: 'Join Date', width: 120 },
+      ];
+      
+      const gridCore = new GridCore({ columns });
+      await gridCore.initialize();
+      
+      const renderer = new GridRenderer(container, {
+        gridCore,
+        options: {
+          columns,
+          rowHeight: 36,
+          headerHeight: 40,
+          resizableColumns: true,
+          reorderableColumns: true,
+          theme: 'light',
+        },
+        onRowClick: (rowIndex, row) => {
+          console.log('Row clicked:', rowIndex, row);
+          updateSelectedRows([row]);
+        },
+      });
+      
+      // 임시로 sheet 객체 생성 (loadData 함수용)
+      sheet = {
+        loadData: async (data) => {
+          await gridCore.loadData(data);
+          renderer.refresh();
+        },
+        selectAll: () => {
+          console.log('Select all - not implemented in demo');
+        },
+        clearSelection: () => {
+          console.log('Clear selection - not implemented in demo');
+        },
+      };
+      
+      // 초기 데이터 로드
+      await window.loadData(1000);
+    }
+    
+    init().catch(console.error);
+  </script>
+</body>
+</html>
