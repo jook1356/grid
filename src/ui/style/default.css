@@ -119,9 +119,8 @@
   white-space: nowrap;
 }
 
-.ps-header-cell:last-child {
-  border-right: none;
-}
+/* 헤더 마지막 셀도 오른쪽 border 유지 (그리드 우측 경계) */
+/* .ps-header-cell:last-child { border-right: none; } */
 
 /* 헤더 리사이즈 핸들 */
 .ps-resize-handle {
@@ -332,9 +331,8 @@
   contain: content;
 }
 
-.ps-cell:last-child {
-  border-right: none;
-}
+/* 마지막 셀도 오른쪽 border 유지 (그리드 우측 경계) */
+/* .ps-cell:last-child { border-right: none; } */
 
 /* 포커스된 셀 */
 .ps-cell.ps-focused {
@@ -537,10 +535,8 @@
   border-left: none;
 }
 
-/* 마지막 그리드 컬럼에 있는 셀은 오른쪽 테두리 없음 */
-.ps-multi-row-cell.ps-last-column {
-  border-right: none;
-}
+/* 마지막 그리드 컬럼에 있는 셀도 오른쪽 테두리 유지 (그리드 우측 경계) */
+/* .ps-multi-row-cell.ps-last-column { border-right: none; } */
 
 /* 마지막 그리드 행에 있는 셀은 아래쪽 점선 없음 */
 .ps-multi-row-cell.ps-last-row {
@@ -563,10 +559,8 @@
   margin-left: 0;
 }
 
-/* 마지막 컬럼인 rowSpan 셀은 오른쪽 border 없음 (일관성) */
-.ps-multi-row-cell.ps-rowspan.ps-last-column {
-  border-right: none;
-}
+/* 마지막 컬럼인 rowSpan 셀도 오른쪽 border 유지 (그리드 우측 경계) */
+/* .ps-multi-row-cell.ps-rowspan.ps-last-column { border-right: none; } */
 
 /* 헤더의 rowSpan 셀 */
 .ps-multi-row-header-grid .ps-multi-row-cell.ps-rowspan {
