@@ -169,6 +169,13 @@ export class BodyRenderer {
     const state = this.virtualScroller.getState();
     const activeRows = this.rowPool.updateVisibleRange(state.startIndex, state.endIndex);
 
+    // 화면에 보이는 첫 번째 행 인덱스 (overscan 미포함)
+    // Y 위치 계산의 기준점으로 사용
+    const visibleStartIndex = this.virtualScroller.getVisibleStartIndex();
+
+    // 맨 아래 스크롤 시 마지막 행이 잘리지 않도록 하는 오프셋
+    const rowOffset = this.virtualScroller.getRowOffset();
+
     const columnGroups = this.getColumnGroups();
     const totalRowCount = this.gridCore.getVisibleRowCount();
 
@@ -181,8 +188,9 @@ export class BodyRenderer {
       const rowData = this.gridCore.getRowByVisibleIndex(rowIndex);
       if (!rowData) continue;
 
-      // startIndex를 전달하여 상대 위치 계산
-      this.renderRow(rowElement, rowIndex, rowData, columnGroups, state.startIndex);
+      // visibleStartIndex를 전달하여 상대 위치 계산
+      // overscan 영역의 행은 음수 offsetY를 가짐 (viewport 위쪽)
+      this.renderRow(rowElement, rowIndex, rowData, columnGroups, visibleStartIndex, rowOffset);
     }
   }
 
@@ -194,13 +202,16 @@ export class BodyRenderer {
     rowIndex: number,
     rowData: Row,
     columnGroups: ColumnGroups,
-    startIndex: number
+    visibleStartIndex: number,
+    rowOffset: number = 0
   ): void {
     // Y 위치 설정 (viewport 기준 상대 위치)
     // Proxy Scrollbar 방식에서는 viewport가 스크롤되지 않으므로
-    // startIndex 기준 상대 위치로 계산해야 함
-    const relativeIndex = rowIndex - startIndex;
-    const offsetY = relativeIndex * this.rowHeight;
+    // visibleStartIndex(화면에 보이는 첫 번째 행) 기준 상대 위치로 계산
+    // overscan 영역의 행은 음수 offsetY를 가짐 (viewport 위쪽에 숨겨짐)
+    // rowOffset: 맨 아래 스크롤 시 마지막 행이 잘리지 않도록 하는 보정값
+    const relativeIndex = rowIndex - visibleStartIndex;
+    const offsetY = relativeIndex * this.rowHeight + rowOffset;
     rowElement.style.transform = `translateY(${offsetY}px)`;
 
     // 데이터 속성

@@ -244,6 +244,39 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
     return this.estimatedRowHeight;
   }
 
+  /**
+   * 화면에 보이는 첫 번째 행 인덱스 (overscan 미포함)
+   *
+   * renderRow에서 Y 위치 계산 시 이 값을 기준으로 해야 합니다.
+   * getState().startIndex는 overscan을 포함하므로 렌더링 범위용입니다.
+   */
+  getVisibleStartIndex(): number {
+    return this.currentStartIndex;
+  }
+
+  /**
+   * 행 위치 보정 오프셋 (맨 아래 스크롤 시 마지막 행이 잘리지 않도록)
+   *
+   * 문제: ceil()로 계산된 visibleCount * rowHeight > viewportHeight 일 수 있음
+   * 예: viewport=500px, rowHeight=36px → visibleCount=14, 14*36=504px → 4px 잘림
+   *
+   * 해결: 맨 아래 스크롤 시 음수 오프셋을 적용하여 마지막 행이 viewport 하단에 맞춰지도록 함
+   */
+  getRowOffset(): number {
+    const visibleCount = this.getVisibleRowCount();
+    const maxStartIndex = Math.max(0, this.totalRows - visibleCount);
+
+    // 맨 아래 스크롤인지 확인
+    if (this.currentStartIndex >= maxStartIndex && this.totalRows > 0) {
+      const contentHeight = visibleCount * this.estimatedRowHeight;
+      // 음수 오프셋: 콘텐츠가 viewport보다 크면 위로 이동
+      const offset = this.viewportHeight - contentHeight;
+      return offset; // 보통 음수 (예: 500 - 504 = -4)
+    }
+
+    return 0;
+  }
+
   // ===========================================================================
   // 이벤트 핸들러 (Private)
   // ===========================================================================
