@@ -48,3 +48,22 @@ export type {
   WorkerRequest,
   WorkerResponse,
 } from './processor.types';
+
+// 그룹화 및 Multi-Row 타입
+export type {
+  AggregateType,
+  CustomAggregateFunction,
+  AggregateFn,
+  GroupIdentifier,
+  GroupHeaderRow,
+  DataRow,
+  VirtualRow,
+  GroupingConfig,
+  GroupExpandState,
+  GroupNode,
+  RowLayoutItem,
+  RowTemplate,
+  MergeStrategy,
+  CellMeta,
+  MergeRange,
+} from './grouping.types';

@@ -3,13 +3,16 @@
  *
  * VirtualScroller와 연동하여 보이는 행만 렌더링합니다.
  * RowPool을 사용하여 DOM 요소를 재사용합니다.
+ * GroupManager를 통해 그룹화된 데이터를 렌더링합니다.
  */
 
 import type { GridCore } from '../../core/GridCore';
-import type { Row, ColumnDef } from '../../types';
+import type { Row, ColumnDef, CellValue } from '../../types';
+import type { VirtualRow, GroupHeaderRow, DataRow, GroupingConfig } from '../../types/grouping.types';
 import type { ColumnState, ColumnGroups, CellPosition } from '../types';
 import { VirtualScroller } from '../VirtualScroller';
 import { RowPool } from './RowPool';
+import { GroupManager } from '../grouping/GroupManager';
 
 /**
  * BodyRenderer 설정
@@ -21,12 +24,16 @@ export interface BodyRendererOptions {
   gridCore: GridCore;
   /** 컬럼 상태 */
   columns: ColumnState[];
+  /** 그룹화 설정 (선택) */
+  groupingConfig?: GroupingConfig;
   /** 행 클릭 콜백 */
   onRowClick?: (rowIndex: number, row: Row, event: MouseEvent) => void;
   /** 셀 클릭 콜백 */
   onCellClick?: (position: CellPosition, value: unknown, event: MouseEvent) => void;
   /** 셀 더블클릭 콜백 */
   onCellDblClick?: (position: CellPosition, value: unknown, event: MouseEvent) => void;
+  /** 그룹 토글 콜백 */
+  onGroupToggle?: (groupId: string, collapsed: boolean) => void;
 }
 
 /**
@@ -54,11 +61,16 @@ export class BodyRenderer {
   // 모듈
   private virtualScroller: VirtualScroller;
   private rowPool: RowPool;
+  private groupManager: GroupManager;
+
+  // 가상 행 (그룹화된 경우 그룹 헤더 포함)
+  private virtualRows: VirtualRow[] = [];
 
   // 콜백
   private onRowClick?: BodyRendererOptions['onRowClick'];
   private onCellClick?: BodyRendererOptions['onCellClick'];
   private onCellDblClick?: BodyRendererOptions['onCellDblClick'];
+  private onGroupToggle?: BodyRendererOptions['onGroupToggle'];
 
   constructor(container: HTMLElement, options: BodyRendererOptions) {
     this.container = container;
@@ -68,6 +80,7 @@ export class BodyRenderer {
     this.onRowClick = options.onRowClick;
     this.onCellClick = options.onCellClick;
     this.onCellDblClick = options.onCellDblClick;
+    this.onGroupToggle = options.onGroupToggle;
 
     // 컬럼 정의 맵 생성
     for (const col of this.gridCore.getColumns()) {
@@ -93,6 +106,11 @@ export class BodyRenderer {
 
     this.rowPool = new RowPool(this.rowContainer, this.columns.length);
 
+    // GroupManager 초기화
+    this.groupManager = new GroupManager({
+      config: options.groupingConfig,
+    });
+
     // VirtualScroller 연결
     this.virtualScroller.attach(this.scrollProxy, this.viewport, this.spacer);
 
@@ -102,7 +120,7 @@ export class BodyRenderer {
     this.viewport.addEventListener('dblclick', this.handleDblClick.bind(this));
 
     // 초기 행 수 설정
-    this.virtualScroller.setTotalRows(this.gridCore.getVisibleRowCount());
+    this.updateVirtualRows();
   }
 
   // ===========================================================================
@@ -113,7 +131,7 @@ export class BodyRenderer {
    * 데이터 변경 시 새로고침
    */
   refresh(): void {
-    this.virtualScroller.setTotalRows(this.gridCore.getVisibleRowCount());
+    this.updateVirtualRows();
     this.renderVisibleRows();
   }
 
@@ -124,6 +142,50 @@ export class BodyRenderer {
     this.columns = columns;
     this.rowPool.updateColumnCount(columns.length);
     this.renderVisibleRows();
+  }
+
+  /**
+   * 그룹화 설정
+   */
+  setGroupingConfig(config: GroupingConfig | null): void {
+    if (config) {
+      this.groupManager.setConfig(config);
+    } else {
+      this.groupManager.setGroupColumns([]);
+    }
+    this.refresh();
+  }
+
+  /**
+   * 그룹 접기/펼치기
+   */
+  toggleGroup(groupId: string): void {
+    this.groupManager.toggleGroup(groupId);
+    this.refresh();
+  }
+
+  /**
+   * 모든 그룹 펼치기
+   */
+  expandAllGroups(): void {
+    this.groupManager.expandAll();
+    this.refresh();
+  }
+
+  /**
+   * 모든 그룹 접기
+   */
+  collapseAllGroups(): void {
+    const data = this.gridCore.getAllData();
+    this.groupManager.collapseAll(data);
+    this.refresh();
+  }
+
+  /**
+   * GroupManager 인스턴스 반환
+   */
+  getGroupManager(): GroupManager {
+    return this.groupManager;
   }
 
   /**
@@ -170,6 +232,15 @@ export class BodyRenderer {
   // ===========================================================================
 
   /**
+   * VirtualRows 업데이트
+   */
+  private updateVirtualRows(): void {
+    const data = this.gridCore.getAllData();
+    this.virtualRows = this.groupManager.flattenWithGroups(data);
+    this.virtualScroller.setTotalRows(this.virtualRows.length);
+  }
+
+  /**
    * 보이는 행 렌더링
    */
   private renderVisibleRows(): void {
@@ -177,14 +248,13 @@ export class BodyRenderer {
     const activeRows = this.rowPool.updateVisibleRange(state.startIndex, state.endIndex);
 
     // 화면에 보이는 첫 번째 행 인덱스 (overscan 미포함)
-    // Y 위치 계산의 기준점으로 사용
     const visibleStartIndex = this.virtualScroller.getVisibleStartIndex();
 
     // 맨 아래 스크롤 시 마지막 행이 잘리지 않도록 하는 오프셋
     const rowOffset = this.virtualScroller.getRowOffset();
 
     const columnGroups = this.getColumnGroups();
-    const totalRowCount = this.gridCore.getVisibleRowCount();
+    const totalRowCount = this.virtualRows.length;
 
     for (const [rowIndex, rowElement] of activeRows) {
       if (rowIndex >= totalRowCount) {
@@ -192,41 +262,122 @@ export class BodyRenderer {
         continue;
       }
 
-      const rowData = this.gridCore.getRowByVisibleIndex(rowIndex);
-      if (!rowData) continue;
+      const virtualRow = this.virtualRows[rowIndex];
+      if (!virtualRow) continue;
 
-      // visibleStartIndex를 전달하여 상대 위치 계산
-      // overscan 영역의 행은 음수 offsetY를 가짐 (viewport 위쪽)
-      this.renderRow(rowElement, rowIndex, rowData, columnGroups, visibleStartIndex, rowOffset);
+      // VirtualRow 타입에 따라 렌더링
+      if (virtualRow.type === 'group-header') {
+        this.renderGroupHeader(rowElement, rowIndex, virtualRow, visibleStartIndex, rowOffset);
+      } else {
+        this.renderDataRow(rowElement, rowIndex, virtualRow, columnGroups, visibleStartIndex, rowOffset);
+      }
     }
   }
 
   /**
-   * 단일 행 렌더링
+   * 그룹 헤더 행 렌더링
    */
-  private renderRow(
+  private renderGroupHeader(
     rowElement: HTMLElement,
     rowIndex: number,
-    rowData: Row,
-    columnGroups: ColumnGroups,
+    groupRow: GroupHeaderRow,
     visibleStartIndex: number,
     rowOffset: number = 0
   ): void {
-    // Y 위치 설정 (viewport 기준 상대 위치)
-    // Proxy Scrollbar 방식에서는 viewport가 스크롤되지 않으므로
-    // visibleStartIndex(화면에 보이는 첫 번째 행) 기준 상대 위치로 계산
-    // overscan 영역의 행은 음수 offsetY를 가짐 (viewport 위쪽에 숨겨짐)
-    // rowOffset: 맨 아래 스크롤 시 마지막 행이 잘리지 않도록 하는 보정값
+    // Y 위치 설정
     const relativeIndex = rowIndex - visibleStartIndex;
     const offsetY = relativeIndex * this.rowHeight + rowOffset;
     rowElement.style.transform = `translateY(${offsetY}px)`;
 
+    // 그룹 헤더 스타일
+    rowElement.classList.add('ps-group-header');
+    rowElement.classList.remove('ps-selected');
+    rowElement.dataset['rowIndex'] = String(rowIndex);
+    rowElement.dataset['groupId'] = groupRow.groupId;
+    rowElement.dataset['rowType'] = 'group-header';
+
+    // 셀 컨테이너 비우고 그룹 헤더 콘텐츠로 교체
+    const leftContainer = rowElement.querySelector('.ps-cells-left') as HTMLElement;
+    const centerContainer = rowElement.querySelector('.ps-cells-center') as HTMLElement;
+    const rightContainer = rowElement.querySelector('.ps-cells-right') as HTMLElement;
+
+    // 왼쪽과 오른쪽 컨테이너 비우기
+    leftContainer.innerHTML = '';
+    rightContainer.innerHTML = '';
+
+    // 중앙에 그룹 헤더 콘텐츠 표시
+    centerContainer.innerHTML = '';
+    centerContainer.style.paddingLeft = `${groupRow.level * 20 + 8}px`;
+
+    // 토글 아이콘
+    const toggleIcon = this.createElement('span', 'ps-group-toggle');
+    toggleIcon.textContent = groupRow.collapsed ? '▶' : '▼';
+    toggleIcon.style.cursor = 'pointer';
+    toggleIcon.style.marginRight = '8px';
+    centerContainer.appendChild(toggleIcon);
+
+    // 그룹 라벨
+    const label = this.createElement('span', 'ps-group-label');
+    label.innerHTML = `<strong>${groupRow.value}</strong> (${groupRow.itemCount} items)`;
+    centerContainer.appendChild(label);
+
+    // 집계 값 표시
+    const aggregates = Object.entries(groupRow.aggregates);
+    if (aggregates.length > 0) {
+      const aggContainer = this.createElement('span', 'ps-group-aggregates');
+      aggContainer.style.marginLeft = '16px';
+      aggContainer.style.color = '#666';
+      for (const [key, value] of aggregates) {
+        const aggSpan = this.createElement('span', 'ps-group-aggregate');
+        aggSpan.style.marginRight = '12px';
+        aggSpan.textContent = `${key}: ${this.formatAggregateValue(value)}`;
+        aggContainer.appendChild(aggSpan);
+      }
+      centerContainer.appendChild(aggContainer);
+    }
+  }
+
+  /**
+   * 집계 값 포맷팅
+   */
+  private formatAggregateValue(value: CellValue): string {
+    if (value === null || value === undefined) return '-';
+    if (typeof value === 'number') {
+      return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    }
+    return String(value);
+  }
+
+  /**
+   * 데이터 행 렌더링
+   */
+  private renderDataRow(
+    rowElement: HTMLElement,
+    rowIndex: number,
+    dataRow: DataRow,
+    columnGroups: ColumnGroups,
+    visibleStartIndex: number,
+    rowOffset: number = 0
+  ): void {
+    const rowData = dataRow.data;
+
+    // Y 위치 설정 (viewport 기준 상대 위치)
+    const relativeIndex = rowIndex - visibleStartIndex;
+    const offsetY = relativeIndex * this.rowHeight + rowOffset;
+    rowElement.style.transform = `translateY(${offsetY}px)`;
+
+    // 그룹 헤더 스타일 제거
+    rowElement.classList.remove('ps-group-header');
+    rowElement.dataset['rowType'] = 'data';
+
     // 데이터 속성
     rowElement.dataset['rowIndex'] = String(rowIndex);
+    rowElement.dataset['dataIndex'] = String(dataRow.dataIndex);
     const rowId = rowData['id'];
     if (rowId !== undefined) {
       rowElement.dataset['rowId'] = String(rowId);
     }
+    delete rowElement.dataset['groupId'];
 
     // 선택 상태
     const isSelected = rowId !== undefined && this.selectedRows.has(rowId);
@@ -236,6 +387,10 @@ export class BodyRenderer {
     const leftContainer = rowElement.querySelector('.ps-cells-left') as HTMLElement;
     const centerContainer = rowElement.querySelector('.ps-cells-center') as HTMLElement;
     const rightContainer = rowElement.querySelector('.ps-cells-right') as HTMLElement;
+
+    // 그룹 레벨에 따른 들여쓰기
+    const indentLevel = dataRow.groupPath.length;
+    centerContainer.style.paddingLeft = indentLevel > 0 ? `${indentLevel * 20}px` : '';
 
     // 셀 렌더링
     this.renderCells(leftContainer, columnGroups.left, rowData, rowIndex);
@@ -326,7 +481,6 @@ export class BodyRenderer {
    */
   private handleClick(event: MouseEvent): void {
     const target = event.target as HTMLElement;
-    const cell = target.closest('.ps-cell') as HTMLElement | null;
     const row = target.closest('.ps-row') as HTMLElement | null;
 
     if (!row) return;
@@ -334,8 +488,25 @@ export class BodyRenderer {
     const rowIndex = parseInt(row.dataset['rowIndex'] ?? '-1', 10);
     if (rowIndex < 0) return;
 
-    const rowData = this.gridCore.getRowByVisibleIndex(rowIndex);
-    if (!rowData) return;
+    // 그룹 헤더 클릭 처리
+    const rowType = row.dataset['rowType'];
+    if (rowType === 'group-header') {
+      const groupId = row.dataset['groupId'];
+      if (groupId) {
+        this.toggleGroup(groupId);
+        if (this.onGroupToggle) {
+          this.onGroupToggle(groupId, this.groupManager.isCollapsed(groupId));
+        }
+      }
+      return;
+    }
+
+    // 데이터 행 처리
+    const virtualRow = this.virtualRows[rowIndex];
+    if (!virtualRow || virtualRow.type !== 'data') return;
+
+    const rowData = virtualRow.data;
+    const cell = target.closest('.ps-cell') as HTMLElement | null;
 
     // 셀 클릭
     if (cell && this.onCellClick) {
@@ -348,7 +519,7 @@ export class BodyRenderer {
 
     // 행 클릭
     if (this.onRowClick) {
-      this.onRowClick(rowIndex, rowData, event);
+      this.onRowClick(virtualRow.dataIndex, rowData, event);
     }
   }
 
@@ -362,17 +533,20 @@ export class BodyRenderer {
 
     if (!row || !cell) return;
 
+    // 그룹 헤더는 더블클릭 무시
+    if (row.dataset['rowType'] === 'group-header') return;
+
     const rowIndex = parseInt(row.dataset['rowIndex'] ?? '-1', 10);
     if (rowIndex < 0) return;
 
     const columnKey = cell.dataset['columnKey'];
     if (!columnKey) return;
 
-    const rowData = this.gridCore.getRowByVisibleIndex(rowIndex);
-    if (!rowData) return;
+    const virtualRow = this.virtualRows[rowIndex];
+    if (!virtualRow || virtualRow.type !== 'data') return;
 
     if (this.onCellDblClick) {
-      const value = rowData[columnKey];
+      const value = virtualRow.data[columnKey];
       this.onCellDblClick({ rowIndex, columnKey }, value, event);
     }
   }

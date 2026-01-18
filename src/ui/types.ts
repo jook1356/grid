@@ -6,6 +6,7 @@
  */
 
 import type { CellValue, ColumnDef, Row } from '../types';
+import type { GroupingConfig, RowTemplate } from '../types/grouping.types';
 
 // =============================================================================
 // 셀 위치
@@ -184,6 +185,12 @@ export interface PureSheetOptions {
 
   /** 테마 @default 'light' */
   theme?: ThemeType;
+
+  /** 그룹화 설정 (선택) */
+  groupingConfig?: GroupingConfig;
+
+  /** Multi-Row 템플릿 (선택) */
+  rowTemplate?: RowTemplate;
 }
 
 // =============================================================================

@@ -37,6 +37,8 @@ export interface GridRendererOptions {
     value: unknown,
     event: MouseEvent
   ) => void;
+  /** 그룹 토글 콜백 */
+  onGroupToggle?: (groupId: string, collapsed: boolean) => void;
 }
 
 /**
@@ -62,6 +64,7 @@ export class GridRenderer {
   private onRowClick?: GridRendererOptions['onRowClick'];
   private onCellClick?: GridRendererOptions['onCellClick'];
   private onCellDblClick?: GridRendererOptions['onCellDblClick'];
+  private onGroupToggle?: GridRendererOptions['onGroupToggle'];
 
   // ResizeObserver
   private resizeObserver: ResizeObserver | null = null;
@@ -73,6 +76,7 @@ export class GridRenderer {
     this.onRowClick = options.onRowClick;
     this.onCellClick = options.onCellClick;
     this.onCellDblClick = options.onCellDblClick;
+    this.onGroupToggle = options.onGroupToggle;
 
     // 스타일 삽입
     this.injectStyles();
@@ -250,13 +254,22 @@ export class GridRenderer {
       rowHeight: this.options.rowHeight ?? 36,
       gridCore: this.gridCore,
       columns: this.columnStates,
+      groupingConfig: this.options.groupingConfig,
       onRowClick: this.onRowClick,
       onCellClick: this.onCellClick,
       onCellDblClick: this.onCellDblClick,
+      onGroupToggle: this.onGroupToggle,
     });
 
     // 가로 스크롤 동기화 설정
     this.setupHorizontalScrollSync();
+  }
+
+  /**
+   * BodyRenderer 인스턴스 반환
+   */
+  getBodyRenderer(): BodyRenderer | null {
+    return this.bodyRenderer;
   }
 
   /**

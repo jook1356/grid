@@ -437,3 +437,105 @@
     transform: rotate(360deg);
   }
 }
+
+/* =============================================================================
+   Group Header
+   ============================================================================= */
+
+.ps-row.ps-group-header {
+  background: linear-gradient(to right, var(--ps-header-bg), var(--ps-bg-color));
+  border-bottom: 1px solid var(--ps-border-color);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ps-row.ps-group-header:hover {
+  background: linear-gradient(to right, #e3f2fd, var(--ps-bg-color));
+}
+
+.ps-theme-dark .ps-row.ps-group-header {
+  background: linear-gradient(to right, #2d2d2d, var(--ps-bg-color));
+}
+
+.ps-theme-dark .ps-row.ps-group-header:hover {
+  background: linear-gradient(to right, #094771, var(--ps-bg-color));
+}
+
+.ps-group-toggle {
+  font-size: 10px;
+  color: var(--ps-cell-text);
+  transition: transform 0.2s;
+}
+
+.ps-group-label {
+  font-weight: 500;
+}
+
+.ps-group-label strong {
+  color: var(--ps-focus-color);
+}
+
+.ps-group-aggregates {
+  font-size: 13px;
+}
+
+.ps-group-aggregate {
+  color: var(--ps-header-text);
+}
+
+/* =============================================================================
+   Multi-Row Layout
+   ============================================================================= */
+
+/* Multi-Row 헤더 */
+.ps-multirow-header {
+  display: flex;
+  align-items: stretch;
+}
+
+/* Multi-Row 데이터 컨테이너 */
+.ps-multirow-container {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 2px solid var(--ps-border-color);
+}
+
+.ps-multirow-container:hover .ps-multirow-row {
+  background: var(--ps-row-hover-bg);
+}
+
+/* Multi-Row 내 개별 행 */
+.ps-multirow-row {
+  display: flex;
+  border-bottom: 1px dashed var(--ps-border-color);
+}
+
+.ps-multirow-row:last-child {
+  border-bottom: none;
+}
+
+/* Multi-Row 셀 (rowSpan/colSpan 지원) */
+.ps-multirow-cell {
+  display: flex;
+  align-items: center;
+  padding: var(--ps-cell-padding);
+  border-right: var(--ps-border-width) solid var(--ps-border-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ps-multirow-cell:last-child {
+  border-right: none;
+}
+
+/* rowSpan이 적용된 셀 */
+.ps-multirow-cell[style*="height"] {
+  position: absolute;
+  background: var(--ps-bg-color);
+}
+
+/* 선택된 Multi-Row */
+.ps-multirow-container.ps-selected .ps-multirow-row {
+  background: var(--ps-row-selected-bg);
+}

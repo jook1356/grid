@@ -24,3 +24,9 @@ export type { SortState } from './header';
 
 // Interaction 모듈
 export { SelectionManager, EditorManager, ColumnManager } from './interaction';
+
+// Grouping 모듈
+export { GroupManager } from './grouping';
+
+// Multi-Row 모듈
+export { MultiRowRenderer } from './multirow';

@@ -6,179 +6,6 @@
   <title>행 그룹화 (Row Grouping) - PureSheet Demo</title>
   <link rel="stylesheet" href="../shared/styles.css">
   <link rel="stylesheet" href="../../src/ui/style/default.css">
-  <style>
-    /* 그룹화 미리보기용 스타일 */
-    .preview-grid {
-      background: white;
-      border: 1px solid #e0e0e0;
-      border-radius: 8px;
-      overflow: hidden;
-      font-size: 14px;
-    }
-    
-    .preview-header {
-      display: grid;
-      grid-template-columns: 40px 200px 120px 100px 100px 120px;
-      background: #f5f5f5;
-      border-bottom: 2px solid #e0e0e0;
-    }
-    
-    .preview-header-cell {
-      padding: 12px;
-      font-weight: 600;
-      border-right: 1px solid #e0e0e0;
-    }
-    
-    .preview-header-cell:last-child {
-      border-right: none;
-    }
-    
-    /* 그룹 헤더 */
-    .group-header {
-      display: flex;
-      align-items: center;
-      padding: 10px 12px;
-      background: linear-gradient(to right, #e3f2fd, #fff);
-      border-bottom: 1px solid #e0e0e0;
-      cursor: pointer;
-      user-select: none;
-      transition: background 0.2s;
-    }
-    
-    .group-header:hover {
-      background: linear-gradient(to right, #bbdefb, #fff);
-    }
-    
-    .group-header.level-2 {
-      padding-left: 32px;
-      background: linear-gradient(to right, #fff3e0, #fff);
-    }
-    
-    .group-header.level-2:hover {
-      background: linear-gradient(to right, #ffe0b2, #fff);
-    }
-    
-    .group-toggle {
-      width: 20px;
-      height: 20px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-right: 8px;
-      font-size: 12px;
-      color: #666;
-      transition: transform 0.2s;
-    }
-    
-    .group-toggle.collapsed {
-      transform: rotate(-90deg);
-    }
-    
-    .group-label {
-      font-weight: 600;
-      flex: 1;
-    }
-    
-    .group-count {
-      background: #1976d2;
-      color: white;
-      padding: 2px 8px;
-      border-radius: 10px;
-      font-size: 12px;
-      margin-right: 12px;
-    }
-    
-    .group-aggregate {
-      display: flex;
-      gap: 16px;
-      font-size: 13px;
-      color: #666;
-    }
-    
-    .group-aggregate .value {
-      font-weight: 600;
-      color: #333;
-    }
-    
-    /* 데이터 행 */
-    .data-row {
-      display: grid;
-      grid-template-columns: 40px 200px 120px 100px 100px 120px;
-      border-bottom: 1px solid #e8e8e8;
-      transition: background 0.15s;
-    }
-    
-    .data-row:hover {
-      background: #f8f9fa;
-    }
-    
-    .data-row.indent-1 .indent-cell {
-      padding-left: 32px;
-    }
-    
-    .data-row.indent-2 .indent-cell {
-      padding-left: 52px;
-    }
-    
-    .data-cell {
-      padding: 10px 12px;
-      border-right: 1px solid #e8e8e8;
-    }
-    
-    .data-cell:last-child {
-      border-right: none;
-    }
-    
-    .data-cell.checkbox {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    
-    .data-cell.salary {
-      text-align: right;
-      font-weight: 500;
-      color: #2e7d32;
-    }
-    
-    /* 상태 배지 */
-    .status-badge {
-      display: inline-block;
-      padding: 3px 10px;
-      border-radius: 12px;
-      font-size: 12px;
-      font-weight: 500;
-    }
-    
-    .status-badge.active {
-      background: #e8f5e9;
-      color: #2e7d32;
-    }
-    
-    .status-badge.inactive {
-      background: #ffebee;
-      color: #c62828;
-    }
-    
-    .status-badge.pending {
-      background: #fff3e0;
-      color: #e65100;
-    }
-    
-    /* 숨김 */
-    .hidden {
-      display: none !important;
-    }
-    
-    /* 집계 행 */
-    .aggregate-footer {
-      display: grid;
-      grid-template-columns: 40px 200px 120px 100px 100px 120px;
-      background: #fafafa;
-      border-top: 2px solid #e0e0e0;
-      font-weight: 600;
-    }
-  </style>
 </head>
 <body>
   <!-- 네비게이션 -->
@@ -192,7 +19,7 @@
   <!-- 헤더 -->
   <div class="demo-header">
     <h1>📂 행 그룹화 (Row Grouping)</h1>
-    <span class="badge badge-planned">2차 구현 예정</span>
+    <span class="badge badge-implemented">구현됨</span>
   </div>
   
   <!-- 설명 -->
@@ -200,7 +27,7 @@
     <p>
       <strong>행 그룹화</strong>는 특정 컬럼의 값을 기준으로 행을 계층적으로 묶어 표시합니다.
       그룹을 접고 펼칠 수 있으며, 각 그룹에 대한 집계(합계, 평균, 개수 등)도 표시할 수 있습니다.
-      <code>groupBy()</code> API로 다중 레벨 그룹화가 가능합니다.
+      그룹 헤더를 클릭하여 접기/펼치기를 테스트해보세요.
     </p>
   </div>
   
@@ -235,68 +62,50 @@
       </div>
     </div>
     
-    <!-- 미리보기 영역 -->
-    <div id="grid" style="height: 500px; overflow: auto;">
-      <div class="preview-grid" id="previewGrid">
-        <!-- JavaScript로 렌더링 -->
-      </div>
-    </div>
+    <div id="grid"></div>
     
     <div class="status-bar" id="status">
-      미리보기 - 그룹 헤더를 클릭하여 접기/펼치기
+      준비됨 - 그룹 헤더를 클릭하여 접기/펼치기
     </div>
   </div>
   
   <!-- 코드 예제 -->
   <div class="code-example">
     <h3>API 사용법</h3>
-    <pre><span class="comment">// 컬럼 정의에서 그룹화 설정</span>
-<span class="keyword">const</span> columns = [
-  { key: <span class="string">'department'</span>, groupable: <span class="keyword">true</span>, groupOrder: <span class="number">1</span> },
-  { key: <span class="string">'status'</span>, groupable: <span class="keyword">true</span>, groupOrder: <span class="number">2</span> },
-  { key: <span class="string">'salary'</span>, aggregate: <span class="string">'sum'</span> },  <span class="comment">// 집계 함수</span>
-];
-
-<span class="comment">// API로 그룹화 적용</span>
-sheet.<span class="function">groupBy</span>([<span class="string">'department'</span>]);              <span class="comment">// 단일 그룹</span>
-sheet.<span class="function">groupBy</span>([<span class="string">'department'</span>, <span class="string">'status'</span>]);    <span class="comment">// 다중 그룹</span>
+    <pre><span class="comment">// 그룹화 설정</span>
+bodyRenderer.<span class="function">setGroupingConfig</span>({
+  columns: [<span class="string">'department'</span>],
+  aggregates: {
+    salary: <span class="string">'sum'</span>,  <span class="comment">// 'sum' | 'avg' | 'count' | 'min' | 'max'</span>
+  },
+});
 
 <span class="comment">// 그룹 접기/펼치기</span>
-sheet.<span class="function">collapseGroup</span>(<span class="string">'department'</span>, <span class="string">'Engineering'</span>);
-sheet.<span class="function">expandGroup</span>(<span class="string">'department'</span>, <span class="string">'Engineering'</span>);
-sheet.<span class="function">expandAll</span>();
-sheet.<span class="function">collapseAll</span>();
+bodyRenderer.<span class="function">toggleGroup</span>(<span class="string">'department:Engineering'</span>);
+bodyRenderer.<span class="function">expandAllGroups</span>();
+bodyRenderer.<span class="function">collapseAllGroups</span>();
 
-<span class="comment">// 집계 함수 설정</span>
-sheet.<span class="function">setAggregation</span>(<span class="string">'salary'</span>, <span class="string">'avg'</span>);  <span class="comment">// sum, avg, min, max, count</span></pre>
+<span class="comment">// GroupManager 직접 사용</span>
+<span class="keyword">const</span> groupManager = bodyRenderer.<span class="function">getGroupManager</span>();
+groupManager.<span class="function">setAggregate</span>(<span class="string">'salary'</span>, <span class="string">'avg'</span>);</pre>
   </div>
   
-  <!-- 추가 정보 -->
+  <!-- 그룹 상태 -->
   <div class="info-panel">
-    <h3>🔍 그룹화 옵션</h3>
-    <pre>1. 집계 함수
-   - sum: 합계
-   - avg: 평균
-   - min: 최솟값
-   - max: 최댓값
-   - count: 개수
-
-2. 그룹 표시 옵션
-   - 그룹 헤더에 집계값 표시
-   - 그룹 푸터에 소계 표시 (선택)
-   - 최종 합계 행 표시 (선택)
-
-3. 다중 그룹
-   - 최대 N개 레벨 지원
-   - 각 레벨별 들여쓰기
-   - 계층적 접기/펼치기
-
-4. 성능 최적화
-   - 접힌 그룹의 행은 렌더링하지 않음
-   - 가상화와 함께 작동</pre>
+    <h3>📊 현재 그룹 상태</h3>
+    <pre id="groupState">{
+  "columns": ["department"],
+  "aggregate": "sum"
+}</pre>
   </div>
   
-  <script>
+  <script type="module">
+    // GridCore와 GridRenderer import
+    const { GridCore, GridRenderer } = await import('../../src/index.ts');
+    
+    let gridCore = null;
+    let renderer = null;
+    
     // 100개 샘플 데이터 생성
     const names = ['김철수', '이영희', '박민수', '정수진', '최동현', '한지민', '강호동', '유재석', '신동엽', '송혜교'];
     const departments = ['Engineering', 'Marketing', 'Sales', 'HR', 'Finance'];
@@ -311,269 +120,119 @@ sheet.<span class="function">setAggregation</span>(<span class="string">'salary'
       joinDate: `202${Math.floor(i % 5)}-${String((i % 12) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}`
     }));
     
-    // 그룹 상태
-    let collapsedGroups = new Set();
-    
     function updateStatus(message) {
       document.getElementById('status').textContent = message;
     }
     
-    function getStatusBadge(status) {
-      const classes = {
-        'Active': 'active',
-        'Inactive': 'inactive',
-        'Pending': 'pending'
+    function updateGroupStateDisplay() {
+      const groupBy = document.getElementById('groupBySelect').value;
+      const aggregate = document.getElementById('aggregateSelect').value;
+      
+      const state = {
+        columns: groupBy === 'none' ? [] : groupBy.split(','),
+        aggregate: aggregate,
       };
-      return `<span class="status-badge ${classes[status] || ''}">${status}</span>`;
+      
+      document.getElementById('groupState').textContent = JSON.stringify(state, null, 2);
     }
     
-    function calculateAggregate(data, key, fn) {
-      const values = data.map(d => d[key]).filter(v => typeof v === 'number');
-      switch (fn) {
-        case 'sum': return values.reduce((a, b) => a + b, 0);
-        case 'avg': return values.length ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 0;
-        case 'count': return values.length;
-        case 'min': return Math.min(...values);
-        case 'max': return Math.max(...values);
-        default: return values.reduce((a, b) => a + b, 0);
-      }
-    }
-    
+    // 그룹화 적용
     window.applyGrouping = function() {
       const groupBy = document.getElementById('groupBySelect').value;
       const aggregate = document.getElementById('aggregateSelect').value;
-      const grid = document.getElementById('previewGrid');
+      
+      if (!renderer) return;
+      
+      const bodyRenderer = renderer.getBodyRenderer();
+      if (!bodyRenderer) return;
       
       if (groupBy === 'none') {
-        renderFlatGrid(grid, aggregate);
-        return;
+        bodyRenderer.setGroupingConfig(null);
+        updateStatus('그룹 해제됨');
+      } else {
+        const columns = groupBy.split(',');
+        bodyRenderer.setGroupingConfig({
+          columns,
+          aggregates: {
+            salary: aggregate,
+          },
+        });
+        updateStatus(`${columns.join(' → ')} 기준 그룹화됨 - 헤더 클릭으로 접기/펼치기`);
       }
       
-      const groupFields = groupBy.split(',');
-      renderGroupedGrid(grid, groupFields, aggregate);
+      updateGroupStateDisplay();
     };
     
-    function renderFlatGrid(grid, aggregate) {
-      let html = `
-        <div class="preview-header">
-          <div class="preview-header-cell">✓</div>
-          <div class="preview-header-cell">이름</div>
-          <div class="preview-header-cell">부서</div>
-          <div class="preview-header-cell">상태</div>
-          <div class="preview-header-cell">급여</div>
-          <div class="preview-header-cell">입사일</div>
-        </div>
-      `;
+    // 모든 그룹 펼치기
+    window.expandAll = function() {
+      if (!renderer) return;
+      const bodyRenderer = renderer.getBodyRenderer();
+      if (bodyRenderer) {
+        bodyRenderer.expandAllGroups();
+        updateStatus('모든 그룹 펼침');
+      }
+    };
+    
+    // 모든 그룹 접기
+    window.collapseAll = function() {
+      if (!renderer) return;
+      const bodyRenderer = renderer.getBodyRenderer();
+      if (bodyRenderer) {
+        bodyRenderer.collapseAllGroups();
+        updateStatus('모든 그룹 접음');
+      }
+    };
+    
+    // 초기화
+    async function init() {
+      const container = document.getElementById('grid');
       
-      sampleData.forEach(row => {
-        html += `
-          <div class="data-row">
-            <div class="data-cell checkbox"><input type="checkbox"></div>
-            <div class="data-cell">${row.name}</div>
-            <div class="data-cell">${row.department}</div>
-            <div class="data-cell">${getStatusBadge(row.status)}</div>
-            <div class="data-cell salary">$${row.salary.toLocaleString()}</div>
-            <div class="data-cell">${row.joinDate}</div>
-          </div>
-        `;
+      const columns = [
+        { key: 'id', header: 'ID', width: 60 },
+        { key: 'name', header: 'Name', width: 150 },
+        { key: 'department', header: 'Department', width: 120 },
+        { key: 'status', header: 'Status', width: 100 },
+        { key: 'salary', header: 'Salary', width: 120, formatter: (v) => '$' + (v?.toLocaleString() || '0') },
+        { key: 'joinDate', header: 'Join Date', width: 120 },
+      ];
+      
+      gridCore = new GridCore({ columns });
+      await gridCore.initialize();
+      
+      renderer = new GridRenderer(container, {
+        gridCore,
+        options: {
+          columns,
+          rowHeight: 36,
+          headerHeight: 40,
+          resizableColumns: true,
+          theme: 'light',
+          // 초기 그룹화 설정
+          groupingConfig: {
+            columns: ['department'],
+            aggregates: {
+              salary: 'sum',
+            },
+          },
+        },
+        onRowClick: (rowIndex, row) => {
+          console.log('Row clicked:', rowIndex, row);
+        },
+        onGroupToggle: (groupId, collapsed) => {
+          console.log('Group toggled:', groupId, collapsed);
+          updateStatus(`그룹 "${groupId}" ${collapsed ? '접힘' : '펼침'}`);
+        },
       });
       
-      // 합계 행
-      const total = calculateAggregate(sampleData, 'salary', aggregate);
-      const aggregateLabel = { sum: '합계', avg: '평균', count: '개수' }[aggregate];
+      // 데이터 로드
+      await gridCore.loadData(sampleData);
+      renderer.refresh();
       
-      html += `
-        <div class="aggregate-footer">
-          <div class="data-cell"></div>
-          <div class="data-cell">${aggregateLabel}</div>
-          <div class="data-cell"></div>
-          <div class="data-cell">${sampleData.length}명</div>
-          <div class="data-cell salary">$${total.toLocaleString()}</div>
-          <div class="data-cell"></div>
-        </div>
-      `;
-      
-      grid.innerHTML = html;
-      updateStatus('그룹 없음 - 모든 행 표시');
+      updateGroupStateDisplay();
+      updateStatus('100개 행 로드 완료 - 그룹 헤더를 클릭하여 접기/펼치기');
     }
     
-    function renderGroupedGrid(grid, groupFields, aggregate) {
-      let html = `
-        <div class="preview-header">
-          <div class="preview-header-cell">✓</div>
-          <div class="preview-header-cell">이름</div>
-          <div class="preview-header-cell">부서</div>
-          <div class="preview-header-cell">상태</div>
-          <div class="preview-header-cell">급여</div>
-          <div class="preview-header-cell">입사일</div>
-        </div>
-      `;
-      
-      const aggregateLabel = { sum: '합계', avg: '평균', count: '개수' }[aggregate];
-      
-      if (groupFields.length === 1) {
-        // 단일 레벨 그룹화
-        const field = groupFields[0];
-        const groups = {};
-        
-        sampleData.forEach(row => {
-          const key = row[field];
-          if (!groups[key]) groups[key] = [];
-          groups[key].push(row);
-        });
-        
-        Object.entries(groups).forEach(([groupKey, rows]) => {
-          const groupId = `${field}:${groupKey}`;
-          const isCollapsed = collapsedGroups.has(groupId);
-          const total = calculateAggregate(rows, 'salary', aggregate);
-          
-          html += `
-            <div class="group-header" onclick="toggleGroup('${groupId}')">
-              <div class="group-toggle ${isCollapsed ? 'collapsed' : ''}">▼</div>
-              <div class="group-label">
-                ${field === 'department' ? '🏢' : '📊'} ${groupKey}
-              </div>
-              <div class="group-count">${rows.length}</div>
-              <div class="group-aggregate">
-                <span>${aggregateLabel}: <span class="value">$${total.toLocaleString()}</span></span>
-              </div>
-            </div>
-          `;
-          
-          rows.forEach(row => {
-            html += `
-              <div class="data-row indent-1 ${isCollapsed ? 'hidden' : ''}" data-group="${groupId}">
-                <div class="data-cell checkbox"><input type="checkbox"></div>
-                <div class="data-cell indent-cell">${row.name}</div>
-                <div class="data-cell">${row.department}</div>
-                <div class="data-cell">${getStatusBadge(row.status)}</div>
-                <div class="data-cell salary">$${row.salary.toLocaleString()}</div>
-                <div class="data-cell">${row.joinDate}</div>
-              </div>
-            `;
-          });
-        });
-        
-      } else if (groupFields.length === 2) {
-        // 다중 레벨 그룹화
-        const [field1, field2] = groupFields;
-        const groups = {};
-        
-        sampleData.forEach(row => {
-          const key1 = row[field1];
-          const key2 = row[field2];
-          if (!groups[key1]) groups[key1] = {};
-          if (!groups[key1][key2]) groups[key1][key2] = [];
-          groups[key1][key2].push(row);
-        });
-        
-        Object.entries(groups).forEach(([groupKey1, subGroups]) => {
-          const groupId1 = `${field1}:${groupKey1}`;
-          const isCollapsed1 = collapsedGroups.has(groupId1);
-          const allRows = Object.values(subGroups).flat();
-          const total1 = calculateAggregate(allRows, 'salary', aggregate);
-          
-          html += `
-            <div class="group-header" onclick="toggleGroup('${groupId1}')">
-              <div class="group-toggle ${isCollapsed1 ? 'collapsed' : ''}">▼</div>
-              <div class="group-label">🏢 ${groupKey1}</div>
-              <div class="group-count">${allRows.length}</div>
-              <div class="group-aggregate">
-                <span>${aggregateLabel}: <span class="value">$${total1.toLocaleString()}</span></span>
-              </div>
-            </div>
-          `;
-          
-          Object.entries(subGroups).forEach(([groupKey2, rows]) => {
-            const groupId2 = `${groupId1}/${field2}:${groupKey2}`;
-            const isCollapsed2 = collapsedGroups.has(groupId2);
-            const total2 = calculateAggregate(rows, 'salary', aggregate);
-            
-            html += `
-              <div class="group-header level-2 ${isCollapsed1 ? 'hidden' : ''}" 
-                   onclick="event.stopPropagation(); toggleGroup('${groupId2}')"
-                   data-parent="${groupId1}">
-                <div class="group-toggle ${isCollapsed2 ? 'collapsed' : ''}">▼</div>
-                <div class="group-label">📊 ${groupKey2}</div>
-                <div class="group-count">${rows.length}</div>
-                <div class="group-aggregate">
-                  <span>${aggregateLabel}: <span class="value">$${total2.toLocaleString()}</span></span>
-                </div>
-              </div>
-            `;
-            
-            rows.forEach(row => {
-              html += `
-                <div class="data-row indent-2 ${isCollapsed1 || isCollapsed2 ? 'hidden' : ''}" 
-                     data-group="${groupId2}" data-parent="${groupId1}">
-                  <div class="data-cell checkbox"><input type="checkbox"></div>
-                  <div class="data-cell indent-cell">${row.name}</div>
-                  <div class="data-cell">${row.department}</div>
-                  <div class="data-cell">${getStatusBadge(row.status)}</div>
-                  <div class="data-cell salary">$${row.salary.toLocaleString()}</div>
-                  <div class="data-cell">${row.joinDate}</div>
-                </div>
-              `;
-            });
-          });
-        });
-      }
-      
-      // 전체 합계
-      const grandTotal = calculateAggregate(sampleData, 'salary', aggregate);
-      html += `
-        <div class="aggregate-footer">
-          <div class="data-cell"></div>
-          <div class="data-cell">전체 ${aggregateLabel}</div>
-          <div class="data-cell"></div>
-          <div class="data-cell">${sampleData.length}명</div>
-          <div class="data-cell salary">$${grandTotal.toLocaleString()}</div>
-          <div class="data-cell"></div>
-        </div>
-      `;
-      
-      grid.innerHTML = html;
-      updateStatus(`${groupFields.join(' → ')} 기준 그룹화 - 헤더 클릭으로 접기/펼치기`);
-    }
-    
-    window.toggleGroup = function(groupId) {
-      if (collapsedGroups.has(groupId)) {
-        collapsedGroups.delete(groupId);
-      } else {
-        collapsedGroups.add(groupId);
-      }
-      applyGrouping();
-    };
-    
-    window.expandAll = function() {
-      collapsedGroups.clear();
-      applyGrouping();
-      updateStatus('모든 그룹 펼침');
-    };
-    
-    window.collapseAll = function() {
-      const groupBy = document.getElementById('groupBySelect').value;
-      if (groupBy === 'none') return;
-      
-      const groupFields = groupBy.split(',');
-      
-      // 최상위 그룹만 접기
-      if (groupFields[0] === 'department') {
-        ['Engineering', 'Marketing', 'Sales', 'HR', 'Finance'].forEach(dept => {
-          collapsedGroups.add(`department:${dept}`);
-        });
-      } else if (groupFields[0] === 'status') {
-        ['Active', 'Inactive', 'Pending'].forEach(status => {
-          collapsedGroups.add(`status:${status}`);
-        });
-      }
-      
-      applyGrouping();
-      updateStatus('모든 그룹 접음');
-    };
-    
-    // 초기 렌더링
-    applyGrouping();
+    init().catch(console.error);
   </script>
 </body>
 </html>
