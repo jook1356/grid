@@ -219,7 +219,8 @@ export class RowPool {
     container.style.display = 'grid';
     container.style.position = 'absolute';
     container.style.left = '0';
-    container.style.right = '0';
+    // right: 0 제거 - 빈 공간까지 확장되는 문제 방지
+    // width는 gridTemplateColumns에 의해 자동 결정됨
 
     // Grid 템플릿 설정
     if (this.multiRowTemplate) {

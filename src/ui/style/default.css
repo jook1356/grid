@@ -547,6 +547,15 @@
   z-index: 2;
   background: var(--ps-bg-color);
   border-right: var(--ps-border-width) solid var(--ps-border-color);
+  /* 왼쪽 border 추가하고, margin-left로 인접 셀 border와 겹치게 함 (2px 방지) */
+  border-left: var(--ps-border-width) solid var(--ps-border-color);
+  margin-left: calc(-1 * var(--ps-border-width));
+}
+
+/* 첫 번째 컬럼인 rowSpan 셀은 왼쪽 border/margin 없음 */
+.ps-multi-row-cell.ps-rowspan.ps-first-column {
+  border-left: none;
+  margin-left: 0;
 }
 
 /* 헤더의 rowSpan 셀 */
