@@ -49,6 +49,11 @@
           <option value="status">Status</option>
           <option value="salary">Salary</option>
           <option value="joinDate">Join Date</option>
+          <option value="extra1">Extra 1</option>
+          <option value="extra2">Extra 2</option>
+          <option value="extra3">Extra 3</option>
+          <option value="extra4">Extra 4</option>
+          <option value="extra5">Extra 5</option>
         </select>
         
         <button onclick="pinColumn('left')" class="success">← 왼쪽 고정</button>
@@ -75,7 +80,7 @@
     <h3>📊 현재 컬럼 상태</h3>
     <pre id="columnState">{
   "leftPinned": ["id"],
-  "center": ["name", "email", "department", "status", "salary", "joinDate"],
+  "center": ["name", "email", "department", "status", "salary", "joinDate", "extra1", "extra2", "extra3", "extra4", "extra5"],
   "rightPinned": []
 }</pre>
   </div>
@@ -128,7 +133,7 @@ sheet.<span class="function">unpinColumn</span>(<span class="string">'name'</spa
     let renderer = null;
     let columnState = {
       leftPinned: ['id'],
-      center: ['name', 'email', 'department', 'status', 'salary', 'joinDate'],
+      center: ['name', 'email', 'department', 'status', 'salary', 'joinDate', 'extra1', 'extra2', 'extra3', 'extra4', 'extra5'],
       rightPinned: []
     };
     
@@ -180,9 +185,10 @@ sheet.<span class="function">unpinColumn</span>(<span class="string">'name'</spa
       updateColumnStateDisplay();
       updateStatus(`"${columnKey}" 컬럼이 ${position === 'left' ? '왼쪽' : '오른쪽'}에 고정되었습니다.`);
       
-      // 실제 구현 시:
-      // renderer.getColumnManager().pinColumn(columnKey, position);
-      // renderer.refresh();
+      // 실제 렌더러에 고정 적용
+      if (renderer) {
+        renderer.setColumnPinned(columnKey, position);
+      }
     };
     
     window.unpinColumn = function() {
@@ -208,12 +214,32 @@ sheet.<span class="function">unpinColumn</span>(<span class="string">'name'</spa
       
       updateColumnStateDisplay();
       updateStatus(`"${columnKey}" 컬럼 고정이 해제되었습니다.`);
+      
+      // 실제 렌더러에 고정 해제 적용
+      if (renderer) {
+        renderer.setColumnPinned(columnKey, 'none');
+      }
     };
     
     window.resetColumns = function() {
+      // 모든 컬럼을 기본 상태로 복원
+      const allColumns = ['id', 'name', 'email', 'department', 'status', 'salary', 'joinDate', 'extra1', 'extra2', 'extra3', 'extra4', 'extra5'];
+      
+      // 모든 컬럼 고정 해제
+      allColumns.forEach(key => {
+        if (renderer) {
+          renderer.setColumnPinned(key, 'none');
+        }
+      });
+      
+      // id만 왼쪽 고정
+      if (renderer) {
+        renderer.setColumnPinned('id', 'left');
+      }
+      
       columnState = {
         leftPinned: ['id'],
-        center: ['name', 'email', 'department', 'status', 'salary', 'joinDate'],
+        center: ['name', 'email', 'department', 'status', 'salary', 'joinDate', 'extra1', 'extra2', 'extra3', 'extra4', 'extra5'],
         rightPinned: []
       };
       updateColumnStateDisplay();
