@@ -254,6 +254,31 @@ export class GridRenderer {
       onCellClick: this.onCellClick,
       onCellDblClick: this.onCellDblClick,
     });
+
+    // 가로 스크롤 동기화 설정
+    this.setupHorizontalScrollSync();
+  }
+
+  /**
+   * 헤더와 바디의 가로 스크롤 동기화
+   */
+  private setupHorizontalScrollSync(): void {
+    if (!this.headerElement || !this.bodyRenderer) return;
+
+    const viewport = this.bodyRenderer.getViewport();
+    const header = this.headerElement;
+
+    // Viewport 스크롤 시 → 헤더도 스크롤
+    viewport.addEventListener('scroll', () => {
+      header.scrollLeft = viewport.scrollLeft;
+    }, { passive: true });
+
+    // 헤더 스크롤 시 → Viewport도 스크롤 (드래그 등으로 직접 스크롤할 경우)
+    header.addEventListener('scroll', () => {
+      if (Math.abs(viewport.scrollLeft - header.scrollLeft) > 1) {
+        viewport.scrollLeft = header.scrollLeft;
+      }
+    }, { passive: true });
   }
 
   /**

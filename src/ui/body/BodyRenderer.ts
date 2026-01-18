@@ -143,6 +143,13 @@ export class BodyRenderer {
   }
 
   /**
+   * Viewport 요소 반환 (스크롤 동기화용)
+   */
+  getViewport(): HTMLElement {
+    return this.viewport;
+  }
+
+  /**
    * Viewport 크기 변경 처리
    */
   handleResize(): void {

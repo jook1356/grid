@@ -4,99 +4,51 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PureSheet Demo</title>
+  <link rel="stylesheet" href="shared/styles.css">
   <link rel="stylesheet" href="../src/ui/style/default.css">
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-    
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      padding: 20px;
-      background: #f5f5f5;
-    }
-    
-    h1 {
-      margin-bottom: 20px;
-      color: #333;
-    }
-    
-    .demo-container {
-      background: white;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-      overflow: hidden;
-    }
-    
-    .toolbar {
-      padding: 12px 16px;
-      background: #f9f9f9;
-      border-bottom: 1px solid #e0e0e0;
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    
-    .toolbar button {
-      padding: 8px 16px;
-      background: #1976d2;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-    }
-    
-    .toolbar button:hover {
-      background: #1565c0;
-    }
-    
-    .toolbar button.secondary {
-      background: #666;
-    }
-    
-    .toolbar button.secondary:hover {
-      background: #555;
-    }
-    
-    #grid {
-      height: 500px;
-    }
-    
-    .status-bar {
-      padding: 12px 16px;
-      background: #f9f9f9;
-      border-top: 1px solid #e0e0e0;
-      font-size: 14px;
-      color: #666;
-    }
-    
-    .info-panel {
-      margin-top: 20px;
-      padding: 16px;
-      background: white;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    }
-    
-    .info-panel h3 {
-      margin-bottom: 12px;
-      color: #333;
-    }
-    
-    .info-panel pre {
-      background: #f5f5f5;
-      padding: 12px;
-      border-radius: 4px;
-      overflow-x: auto;
-      font-size: 13px;
-    }
-  </style>
 </head>
 <body>
-  <h1>🗃️ PureSheet Demo</h1>
+  <!-- 네비게이션 -->
+  <nav class="demo-nav">
+    <a href="index.html" class="active">🏠 홈</a>
+    <a href="examples/column-pinning.html">📌 컬럼 고정</a>
+    <a href="examples/multi-row.html">📑 Multi-Row</a>
+    <a href="examples/grouping.html">📂 행 그룹화</a>
+  </nav>
+  
+  <h1 style="margin-bottom: 8px;">🗃️ PureSheet Demo</h1>
+  <p style="color: #666; margin-bottom: 24px;">고성능 가상화 그리드 라이브러리</p>
+  
+  <!-- 예제 카드 그리드 -->
+  <div class="example-grid">
+    <div class="example-card">
+      <h3>📌 컬럼 고정</h3>
+      <p>왼쪽/오른쪽에 컬럼을 고정하여 가로 스크롤 시에도 항상 표시됩니다.</p>
+      <a href="examples/column-pinning.html">예제 보기 →</a>
+    </div>
+    
+    <div class="example-card">
+      <h3>📑 Multi-Row 레이아웃</h3>
+      <p>하나의 데이터 행을 여러 줄로 표시하여 복잡한 정보를 가독성 있게 보여줍니다.</p>
+      <a href="examples/multi-row.html">예제 보기 →</a>
+    </div>
+    
+    <div class="example-card">
+      <h3>📂 행 그룹화</h3>
+      <p>데이터를 계층적으로 그룹화하고 집계(합계, 평균 등)를 표시합니다.</p>
+      <a href="examples/grouping.html">예제 보기 →</a>
+    </div>
+    
+    <div class="example-card">
+      <h3>⚡ 대용량 데이터</h3>
+      <p>100만+ 행을 60fps로 부드럽게 스크롤합니다. 아래에서 테스트해보세요!</p>
+      <a href="#grid" onclick="window.loadData && loadData(1000000)">100만 행 로드 →</a>
+    </div>
+  </div>
+  
+  <h2 style="margin-top: 32px; margin-bottom: 16px; font-size: 1.25rem; color: #333;">
+    ⚡ 성능 테스트
+  </h2>
   
   <div class="demo-container">
     <div class="toolbar">
@@ -126,20 +78,29 @@
     // 빌드된 모듈 대신 직접 import (개발용)
     // 실제 사용 시: import { PureSheet } from '@puresheet/core';
     
-    // 테스트 데이터 생성
-    function generateData(count) {
-      const statuses = ['Active', 'Inactive', 'Pending', 'Suspended'];
-      const departments = ['Engineering', 'Sales', 'Marketing', 'HR', 'Finance'];
-      
-      return Array.from({ length: count }, (_, i) => ({
-        id: i + 1,
-        name: `User ${i + 1}`,
-        email: `user${i + 1}@example.com`,
-        department: departments[i % departments.length],
-        status: statuses[i % statuses.length],
-        salary: Math.floor(50000 + Math.random() * 100000),
-        joinDate: new Date(2020, Math.floor(Math.random() * 48), Math.floor(Math.random() * 28) + 1).toISOString().split('T')[0],
-      }));
+    // 데이터 생성 웹 워커 (백그라운드에서 대량 데이터 생성)
+    const dataWorker = new Worker(
+      new URL('./dataWorker.ts', import.meta.url),
+      { type: 'module' }
+    );
+    
+    // 워커 메시지 핸들러 (Promise로 래핑)
+    function generateDataInWorker(count) {
+      return new Promise((resolve) => {
+        const handler = (event) => {
+          const message = event.data;
+          
+          if (message.type === 'progress') {
+            updateStatus(`${count.toLocaleString()}개 데이터 생성 중... ${message.percent}%`);
+          } else if (message.type === 'complete') {
+            dataWorker.removeEventListener('message', handler);
+            resolve({ data: message.data, time: message.time });
+          }
+        };
+        
+        dataWorker.addEventListener('message', handler);
+        dataWorker.postMessage({ type: 'generate', count });
+      });
     }
     
     // PureSheet 인스턴스 (전역)
@@ -163,9 +124,8 @@
     window.loadData = async function(count) {
       updateStatus(`${count.toLocaleString()}개 데이터 생성 중...`);
       
-      const startTime = performance.now();
-      const data = generateData(count);
-      const genTime = performance.now() - startTime;
+      // 웹 워커에서 데이터 생성 (UI 블로킹 없음)
+      const { data, time: genTime } = await generateDataInWorker(count);
       
       updateStatus(`데이터 로드 중...`);
       

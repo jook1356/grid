@@ -81,8 +81,21 @@
   flex-shrink: 0;
   background: var(--ps-header-bg);
   border-bottom: 2px solid var(--ps-border-color);
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   z-index: 10;
+  /* 세로 스크롤바와 정렬을 위해 오른쪽 패딩 */
+  padding-right: var(--ps-scrollbar-width);
+}
+
+/* 헤더 스크롤바 숨김 (바디와 동기화됨) */
+.ps-header::-webkit-scrollbar {
+  display: none;
+}
+
+.ps-header {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 .ps-header-row {
@@ -187,7 +200,26 @@
   left: 0;
   right: var(--ps-scrollbar-width);
   bottom: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* 가로 스크롤바 스타일 */
+.ps-viewport::-webkit-scrollbar {
+  height: 10px;
+}
+
+.ps-viewport::-webkit-scrollbar-track {
+  background: var(--ps-bg-color);
+}
+
+.ps-viewport::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.ps-viewport::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
 }
 
 /* 모바일: 스크롤바 오버레이 */
@@ -205,6 +237,7 @@
 /* Row Container */
 .ps-row-container {
   position: relative;
+  min-width: max-content;
   will-change: transform;
 }
 
@@ -215,9 +248,9 @@
 .ps-row {
   position: absolute;
   left: 0;
-  right: 0;
   display: flex;
   height: var(--ps-row-height);
+  min-width: max-content;
   background: var(--ps-bg-color);
   border-bottom: var(--ps-border-width) solid var(--ps-border-color);
   will-change: transform;

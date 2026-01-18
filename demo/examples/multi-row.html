@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multi-Row 레이아웃 - PureSheet Demo</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+  <link rel="stylesheet" href="../../src/ui/style/default.css">
+  <style>
+    /* Multi-Row 미리보기용 스타일 */
+    .preview-grid {
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      overflow: hidden;
+      font-size: 14px;
+    }
+    
+    .preview-header-row {
+      display: grid;
+      grid-template-columns: 60px 1fr 1fr 1fr 100px;
+      background: #f5f5f5;
+      border-bottom: 2px solid #e0e0e0;
+    }
+    
+    .preview-header-cell {
+      padding: 10px 12px;
+      font-weight: 600;
+      border-right: 1px solid #e0e0e0;
+    }
+    
+    .preview-header-cell:last-child {
+      border-right: none;
+    }
+    
+    /* Multi-Row 데이터 행 */
+    .preview-data-row {
+      display: grid;
+      grid-template-columns: 60px 1fr;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    
+    .preview-data-row:last-child {
+      border-bottom: none;
+    }
+    
+    .preview-data-row:hover {
+      background: #f8f9fa;
+    }
+    
+    /* ID 셀: 2줄에 걸침 */
+    .preview-id-cell {
+      grid-row: span 2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px;
+      border-right: 1px solid #e0e0e0;
+      background: #fafafa;
+      font-weight: 600;
+    }
+    
+    /* 내부 행들 */
+    .preview-inner-rows {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .preview-inner-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 100px;
+    }
+    
+    .preview-inner-row:first-child {
+      border-bottom: 1px dashed #e8e8e8;
+    }
+    
+    .preview-cell {
+      padding: 8px 12px;
+      border-right: 1px solid #e0e0e0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
+    .preview-cell:last-child {
+      border-right: none;
+    }
+    
+    .preview-cell.email {
+      grid-column: span 2;
+      color: #1976d2;
+    }
+    
+    /* 행 인덱스 표시 */
+    .row-indicator {
+      font-size: 11px;
+      color: #999;
+      margin-left: 4px;
+    }
+    
+    /* 레이아웃 설명 다이어그램 */
+    .layout-diagram {
+      display: flex;
+      gap: 40px;
+      margin-top: 20px;
+      flex-wrap: wrap;
+    }
+    
+    .diagram-item {
+      flex: 1;
+      min-width: 300px;
+    }
+    
+    .diagram-item h4 {
+      margin-bottom: 12px;
+      font-size: 14px;
+      color: #666;
+    }
+    
+    .diagram-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    
+    .diagram-table td, .diagram-table th {
+      border: 1px solid #ccc;
+      padding: 8px 12px;
+      text-align: center;
+    }
+    
+    .diagram-table th {
+      background: #f0f0f0;
+      font-weight: 500;
+    }
+    
+    .diagram-table .span-cell {
+      background: #e3f2fd;
+    }
+  </style>
+</head>
+<body>
+  <!-- 네비게이션 -->
+  <nav class="demo-nav">
+    <a href="../index.html">🏠 홈</a>
+    <a href="column-pinning.html">📌 컬럼 고정</a>
+    <a href="multi-row.html" class="active">📑 Multi-Row</a>
+    <a href="grouping.html">📂 행 그룹화</a>
+  </nav>
+  
+  <!-- 헤더 -->
+  <div class="demo-header">
+    <h1>📑 Multi-Row 레이아웃</h1>
+    <span class="badge badge-planned">2차 구현 예정</span>
+  </div>
+  
+  <!-- 설명 -->
+  <div class="demo-description">
+    <p>
+      <strong>Multi-Row 레이아웃</strong>은 하나의 데이터 행을 여러 줄로 표시하는 기능입니다.
+      복잡한 정보를 가독성 있게 표현하거나, 모바일 환경에서 좁은 화면을 효율적으로 활용할 때 유용합니다.
+      <code>rowTemplate</code>에서 <code>colSpan</code>과 <code>rowSpan</code>을 지정하여 셀 병합도 가능합니다.
+    </p>
+  </div>
+  
+  <div class="demo-container">
+    <div class="toolbar">
+      <div class="toolbar-group">
+        <button onclick="showLayout1()">레이아웃 1 (2줄)</button>
+        <button onclick="showLayout2()">레이아웃 2 (3줄)</button>
+        <button onclick="showLayout3()" class="secondary">단일 행 (기본)</button>
+      </div>
+    </div>
+    
+    <!-- 미리보기 영역 -->
+    <div id="grid" style="height: 500px; overflow: auto; padding: 0;">
+      <div class="preview-grid" id="previewGrid">
+        <!-- JavaScript로 렌더링 -->
+      </div>
+    </div>
+    
+    <div class="status-bar" id="status">
+      미리보기 - 실제 구현은 2차 개발에 포함됩니다
+    </div>
+  </div>
+  
+  <!-- 레이아웃 다이어그램 -->
+  <div class="info-panel">
+    <h3>📐 레이아웃 구조</h3>
+    <div class="layout-diagram">
+      <div class="diagram-item">
+        <h4>레이아웃 1: 2줄 레이아웃</h4>
+        <table class="diagram-table">
+          <tr>
+            <th rowspan="2" class="span-cell">ID<br><small>(rowSpan: 2)</small></th>
+            <th>Name</th>
+            <th colspan="2" class="span-cell">Email (colSpan: 2)</th>
+            <th rowspan="2" class="span-cell">Salary<br><small>(rowSpan: 2)</small></th>
+          </tr>
+          <tr>
+            <th>Dept</th>
+            <th>Status</th>
+            <th>Join Date</th>
+          </tr>
+        </table>
+      </div>
+      
+      <div class="diagram-item">
+        <h4>레이아웃 2: 3줄 레이아웃</h4>
+        <table class="diagram-table">
+          <tr>
+            <th rowspan="3" class="span-cell">ID</th>
+            <th colspan="3" class="span-cell">Name + Email (colSpan: 3)</th>
+          </tr>
+          <tr>
+            <th>Department</th>
+            <th>Status</th>
+            <th>Salary</th>
+          </tr>
+          <tr>
+            <th colspan="3" class="span-cell">Join Date + 추가 정보</th>
+          </tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 코드 예제 -->
+  <div class="code-example">
+    <h3>API 사용법</h3>
+    <pre><span class="keyword">const</span> sheet = <span class="keyword">new</span> <span class="function">PureSheet</span>(container, {
+  columns: [
+    { key: <span class="string">'id'</span>, header: <span class="string">'ID'</span> },
+    { key: <span class="string">'name'</span>, header: <span class="string">'Name'</span> },
+    { key: <span class="string">'email'</span>, header: <span class="string">'Email'</span> },
+    { key: <span class="string">'dept'</span>, header: <span class="string">'Dept'</span> },
+    { key: <span class="string">'status'</span>, header: <span class="string">'Status'</span> },
+    { key: <span class="string">'salary'</span>, header: <span class="string">'Salary'</span> },
+  ],
+  
+  <span class="comment">// Multi-Row 템플릿 정의</span>
+  rowTemplate: {
+    rowCount: <span class="number">2</span>,  <span class="comment">// 데이터 1개 = 시각적 2줄</span>
+    layout: [
+      <span class="comment">// 첫 번째 줄</span>
+      [
+        { key: <span class="string">'id'</span>, rowSpan: <span class="number">2</span> },      <span class="comment">// 2줄에 걸침</span>
+        { key: <span class="string">'name'</span> },
+        { key: <span class="string">'email'</span>, colSpan: <span class="number">2</span> },   <span class="comment">// 2칸 차지</span>
+        { key: <span class="string">'salary'</span>, rowSpan: <span class="number">2</span> },
+      ],
+      <span class="comment">// 두 번째 줄</span>
+      [
+        { key: <span class="string">'dept'</span> },
+        { key: <span class="string">'status'</span> },
+      ],
+    ],
+  },
+  data,
+});</pre>
+  </div>
+  
+  <!-- 추가 설명 -->
+  <div class="info-panel">
+    <h3>🔍 사용 사례</h3>
+    <pre>1. 모바일 반응형
+   - 좁은 화면에서 많은 정보를 가독성 있게 표시
+   - 가로 스크롤 최소화
+
+2. 상세 정보 표시
+   - 연락처 목록: 이름 + 이메일 / 전화번호 + 주소
+   - 상품 목록: 상품명 + 가격 / 설명 + 재고
+
+3. 카드 스타일 그리드
+   - 전통적인 테이블보다 시각적으로 풍부한 레이아웃
+   - 각 레코드가 명확히 구분됨
+
+4. 인쇄/리포트
+   - 제한된 용지 폭에 더 많은 정보 표시</pre>
+  </div>
+  
+  <script>
+    // 100개 샘플 데이터 생성
+    const names = ['김철수', '이영희', '박민수', '정수진', '최동현', '한지민', '강호동', '유재석', '신동엽', '송혜교'];
+    const depts = ['Engineering', 'Marketing', 'Sales', 'HR', 'Finance'];
+    const statuses = ['Active', 'Inactive', 'Pending'];
+    
+    const sampleData = Array.from({ length: 100 }, (_, i) => ({
+      id: i + 1,
+      name: names[i % names.length] + (Math.floor(i / 10) || ''),
+      email: `user${i + 1}@example.com`,
+      dept: depts[i % depts.length],
+      status: statuses[i % statuses.length],
+      salary: 50000 + Math.floor(Math.random() * 50000),
+      joinDate: `202${Math.floor(i % 5)}-${String((i % 12) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}`
+    }));
+    
+    function updateStatus(message) {
+      document.getElementById('status').textContent = message;
+    }
+    
+    // 레이아웃 1: 2줄 레이아웃
+    window.showLayout1 = function() {
+      const grid = document.getElementById('previewGrid');
+      
+      let html = `
+        <div class="preview-header-row">
+          <div class="preview-header-cell" style="grid-row: span 2;">ID</div>
+          <div class="preview-header-cell">Name</div>
+          <div class="preview-header-cell" style="grid-column: span 2;">Email</div>
+          <div class="preview-header-cell" style="grid-row: span 2;">Salary</div>
+        </div>
+      `;
+      
+      sampleData.forEach((row) => {
+        html += `
+          <div class="preview-data-row">
+            <div class="preview-id-cell">${row.id}</div>
+            <div class="preview-inner-rows">
+              <div class="preview-inner-row">
+                <div class="preview-cell">${row.name}</div>
+                <div class="preview-cell email" style="grid-column: span 2;">${row.email}</div>
+                <div class="preview-cell" style="grid-row: span 2; display: flex; align-items: center;">$${row.salary.toLocaleString()}</div>
+              </div>
+              <div class="preview-inner-row">
+                <div class="preview-cell">${row.dept}</div>
+                <div class="preview-cell">${row.status}</div>
+                <div class="preview-cell">${row.joinDate}</div>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+      
+      grid.innerHTML = html;
+      updateStatus('레이아웃 1: 2줄 레이아웃 (ID와 Salary가 rowSpan=2, Email이 colSpan=2)');
+    };
+    
+    // 레이아웃 2: 3줄 레이아웃
+    window.showLayout2 = function() {
+      const grid = document.getElementById('previewGrid');
+      
+      let html = '';
+      
+      sampleData.forEach((row) => {
+        html += `
+          <div style="display: grid; grid-template-columns: 50px 1fr; border-bottom: 2px solid #e0e0e0;">
+            <div style="grid-row: span 3; display: flex; align-items: center; justify-content: center; background: #f5f5f5; border-right: 1px solid #e0e0e0; font-weight: 600; font-size: 18px;">
+              ${row.id}
+            </div>
+            <div style="padding: 10px 12px; border-bottom: 1px dashed #e8e8e8;">
+              <strong>${row.name}</strong> &lt;${row.email}&gt;
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px dashed #e8e8e8;">
+              <div style="padding: 8px 12px; border-right: 1px solid #eee;">${row.dept}</div>
+              <div style="padding: 8px 12px; border-right: 1px solid #eee;">
+                <span style="display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; background: ${row.status === 'Active' ? '#e8f5e9' : '#fff3e0'}; color: ${row.status === 'Active' ? '#2e7d32' : '#e65100'};">
+                  ${row.status}
+                </span>
+              </div>
+              <div style="padding: 8px 12px; font-weight: 600; color: #1976d2;">$${row.salary.toLocaleString()}</div>
+            </div>
+            <div style="padding: 8px 12px; color: #666; font-size: 13px;">
+              📅 입사일: ${row.joinDate}
+            </div>
+          </div>
+        `;
+      });
+      
+      grid.innerHTML = html;
+      updateStatus('레이아웃 2: 3줄 레이아웃 (카드 스타일)');
+    };
+    
+    // 레이아웃 3: 단일 행 (기본)
+    window.showLayout3 = function() {
+      const grid = document.getElementById('previewGrid');
+      
+      let html = `
+        <div style="display: grid; grid-template-columns: 50px 100px 200px 100px 80px 100px 100px; background: #f5f5f5; border-bottom: 2px solid #e0e0e0;">
+          <div style="padding: 10px; font-weight: 600; border-right: 1px solid #e0e0e0;">ID</div>
+          <div style="padding: 10px; font-weight: 600; border-right: 1px solid #e0e0e0;">Name</div>
+          <div style="padding: 10px; font-weight: 600; border-right: 1px solid #e0e0e0;">Email</div>
+          <div style="padding: 10px; font-weight: 600; border-right: 1px solid #e0e0e0;">Dept</div>
+          <div style="padding: 10px; font-weight: 600; border-right: 1px solid #e0e0e0;">Status</div>
+          <div style="padding: 10px; font-weight: 600; border-right: 1px solid #e0e0e0;">Salary</div>
+          <div style="padding: 10px; font-weight: 600;">Join Date</div>
+        </div>
+      `;
+      
+      sampleData.forEach((row) => {
+        html += `
+          <div style="display: grid; grid-template-columns: 50px 100px 200px 100px 80px 100px 100px; border-bottom: 1px solid #e0e0e0;">
+            <div style="padding: 10px; border-right: 1px solid #e0e0e0;">${row.id}</div>
+            <div style="padding: 10px; border-right: 1px solid #e0e0e0;">${row.name}</div>
+            <div style="padding: 10px; border-right: 1px solid #e0e0e0; color: #1976d2;">${row.email}</div>
+            <div style="padding: 10px; border-right: 1px solid #e0e0e0;">${row.dept}</div>
+            <div style="padding: 10px; border-right: 1px solid #e0e0e0;">${row.status}</div>
+            <div style="padding: 10px; border-right: 1px solid #e0e0e0;">$${row.salary.toLocaleString()}</div>
+            <div style="padding: 10px;">${row.joinDate}</div>
+          </div>
+        `;
+      });
+      
+      grid.innerHTML = html;
+      updateStatus('단일 행 레이아웃 (기본 그리드)');
+    };
+    
+    // 초기 레이아웃
+    window.showLayout1();
+  </script>
+</body>
+</html>
