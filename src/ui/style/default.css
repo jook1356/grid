@@ -484,58 +484,114 @@
 }
 
 /* =============================================================================
-   Multi-Row Layout
+   Multi-Row Layout (CSS Grid 기반)
    ============================================================================= */
 
-/* Multi-Row 헤더 */
-.ps-multirow-header {
-  display: flex;
-  align-items: stretch;
+/* Multi-Row 헤더 컨테이너 */
+.ps-multi-row-header {
+  position: relative;
 }
 
-/* Multi-Row 데이터 컨테이너 */
+/* Multi-Row 헤더 그리드 */
+.ps-multi-row-header-grid {
+  display: grid;
+  background: var(--ps-header-bg);
+}
+
+/* Multi-Row 데이터 컨테이너 (CSS Grid) */
 .ps-multirow-container {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   border-bottom: 2px solid var(--ps-border-color);
+  background: var(--ps-bg-color);
 }
 
-.ps-multirow-container:hover .ps-multirow-row {
+.ps-multirow-container:nth-child(even) {
+  background: var(--ps-row-alt-bg);
+}
+
+.ps-multirow-container:hover {
   background: var(--ps-row-hover-bg);
 }
 
-/* Multi-Row 내 개별 행 */
-.ps-multirow-row {
-  display: flex;
-  border-bottom: 1px dashed var(--ps-border-color);
-}
-
-.ps-multirow-row:last-child {
-  border-bottom: none;
-}
-
-/* Multi-Row 셀 (rowSpan/colSpan 지원) */
-.ps-multirow-cell {
+/* Multi-Row 셀 (Grid 배치) */
+.ps-multi-row-cell {
   display: flex;
   align-items: center;
   padding: var(--ps-cell-padding);
   border-right: var(--ps-border-width) solid var(--ps-border-color);
+  border-bottom: 1px dashed var(--ps-border-color);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  background: inherit;
+  position: relative;
 }
 
-.ps-multirow-cell:last-child {
+/* 첫 번째 그리드 컬럼에 있는 셀은 왼쪽 border 없음 (컨테이너 border 사용) */
+.ps-multi-row-cell.ps-first-column {
+  border-left: none;
+}
+
+/* 마지막 그리드 컬럼에 있는 셀은 오른쪽 테두리 없음 */
+.ps-multi-row-cell.ps-last-column {
   border-right: none;
 }
 
-/* rowSpan이 적용된 셀 */
-.ps-multirow-cell[style*="height"] {
-  position: absolute;
+/* 마지막 그리드 행에 있는 셀은 아래쪽 점선 없음 */
+.ps-multi-row-cell.ps-last-row {
+  border-bottom: none;
+}
+
+/* rowSpan이 있는 셀 - 위로 올려서 border 표시 */
+.ps-multi-row-cell.ps-rowspan {
+  z-index: 2;
   background: var(--ps-bg-color);
+  border-right: var(--ps-border-width) solid var(--ps-border-color);
+}
+
+/* 헤더의 rowSpan 셀 */
+.ps-multi-row-header-grid .ps-multi-row-cell.ps-rowspan {
+  background: var(--ps-header-bg);
+}
+
+/* 마지막 행의 셀은 아래쪽 점선 없음 (컨테이너 border로 대체) */
+.ps-multirow-container .ps-multi-row-cell {
+  /* grid-row가 마지막 행인 셀의 border-bottom을 없애는 것은 JS에서 처리 */
+}
+
+/* rowSpan이 있는 셀 - 배경색 명시 (겹침 방지) */
+.ps-multi-row-cell[style*="span"] {
+  background: var(--ps-bg-color);
+  z-index: 1;
+}
+
+.ps-multirow-container:nth-child(even) .ps-multi-row-cell[style*="span"] {
+  background: var(--ps-row-alt-bg);
+}
+
+.ps-multirow-container:hover .ps-multi-row-cell[style*="span"] {
+  background: var(--ps-row-hover-bg);
+}
+
+/* 헤더의 Multi-Row 셀 */
+.ps-multi-row-header-grid .ps-header-cell {
+  background: var(--ps-header-bg);
+  font-weight: var(--ps-header-font-weight);
+  color: var(--ps-header-text);
+  border-bottom: 1px solid var(--ps-border-color);
+}
+
+/* 헤더 마지막 행은 굵은 테두리 */
+.ps-multi-row-header-grid .ps-header-cell:last-child,
+.ps-multi-row-header-grid .ps-header-cell[style*="span"] {
+  /* grid-row-end가 마지막인 셀은 JS에서 처리 */
 }
 
 /* 선택된 Multi-Row */
-.ps-multirow-container.ps-selected .ps-multirow-row {
+.ps-multirow-container.ps-selected {
+  background: var(--ps-row-selected-bg);
+}
+
+.ps-multirow-container.ps-selected .ps-multi-row-cell[style*="span"] {
   background: var(--ps-row-selected-bg);
 }

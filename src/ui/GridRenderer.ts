@@ -9,6 +9,7 @@
 
 import type { GridCore } from '../core/GridCore';
 import type { ColumnDef } from '../types';
+import type { RowTemplate, RowLayoutItem } from '../types/grouping.types';
 import type { ColumnState, PureSheetOptions, ColumnGroups } from './types';
 import { BodyRenderer } from './body/BodyRenderer';
 
@@ -255,6 +256,7 @@ export class GridRenderer {
       gridCore: this.gridCore,
       columns: this.columnStates,
       groupingConfig: this.options.groupingConfig,
+      rowTemplate: this.options.rowTemplate,
       onRowClick: this.onRowClick,
       onCellClick: this.onCellClick,
       onCellDblClick: this.onCellDblClick,
@@ -321,14 +323,22 @@ export class GridRenderer {
 
     this.headerElement.innerHTML = '';
 
-    const headerRow = document.createElement('div');
-    headerRow.className = 'ps-header-row';
-
-    const columnGroups = this.getColumnGroups();
     const columnDefs = new Map<string, ColumnDef>();
     for (const col of this.gridCore.getColumns()) {
       columnDefs.set(col.key, col);
     }
+
+    // Multi-Row 모드일 때는 다르게 렌더링
+    if (this.options.rowTemplate) {
+      this.renderMultiRowHeader(columnDefs);
+      return;
+    }
+
+    // 일반 헤더 렌더링
+    const headerRow = document.createElement('div');
+    headerRow.className = 'ps-header-row';
+
+    const columnGroups = this.getColumnGroups();
 
     // Left 헤더 셀
     const leftContainer = this.createHeaderCellsContainer('ps-cells-left', columnGroups.left, columnDefs);
@@ -343,6 +353,259 @@ export class GridRenderer {
     headerRow.appendChild(rightContainer);
 
     this.headerElement.appendChild(headerRow);
+  }
+
+  /**
+   * Multi-Row 헤더 렌더링 (CSS Grid 사용)
+   */
+  private renderMultiRowHeader(columnDefs: Map<string, ColumnDef>): void {
+    if (!this.headerElement || !this.options.rowTemplate) return;
+
+    const template = this.options.rowTemplate;
+    const baseRowHeight = this.options.rowHeight ?? 36;
+
+    // 셀 배치 계산
+    const cellPlacements = this.calculateMultiRowCellPlacements(template);
+
+    // 그리드 컬럼 정보 계산
+    const gridColumnInfos = this.calculateGridColumnInfos(template);
+    const gridColumnCount = gridColumnInfos.length;
+
+    // Grid 컨테이너
+    const gridContainer = document.createElement('div');
+    gridContainer.className = 'ps-multi-row-header-grid';
+    gridContainer.style.display = 'grid';
+    gridContainer.style.gridTemplateRows = `repeat(${template.rowCount}, ${baseRowHeight}px)`;
+    gridContainer.style.gridTemplateColumns = this.buildGridTemplateColumns(template, columnDefs, gridColumnInfos);
+
+    // 각 셀 렌더링
+    for (const placement of cellPlacements) {
+      const cell = this.createMultiRowHeaderCell(
+        placement, 
+        columnDefs, 
+        gridColumnCount, 
+        template.rowCount,
+        gridColumnInfos
+      );
+      gridContainer.appendChild(cell);
+    }
+
+    this.headerElement.appendChild(gridContainer);
+  }
+
+  /**
+   * Multi-Row 셀 배치 계산
+   */
+  private calculateMultiRowCellPlacements(template: RowTemplate): Array<{
+    item: RowLayoutItem;
+    gridRow: number;
+    gridColumn: number;
+    rowSpan: number;
+    colSpan: number;
+  }> {
+    const placements: Array<{
+      item: RowLayoutItem;
+      gridRow: number;
+      gridColumn: number;
+      rowSpan: number;
+      colSpan: number;
+    }> = [];
+
+    const rowCount = template.rowCount;
+    const occupied: boolean[][] = Array.from({ length: rowCount }, () => []);
+
+    for (let rowIdx = 0; rowIdx < template.layout.length; rowIdx++) {
+      const layoutRow = template.layout[rowIdx];
+      let currentCol = 0;
+
+      for (const item of layoutRow) {
+        // 이미 차지된 셀 건너뛰기
+        while (occupied[rowIdx]?.[currentCol]) {
+          currentCol++;
+        }
+
+        const rowSpan = item.rowSpan ?? 1;
+        const colSpan = item.colSpan ?? 1;
+
+        placements.push({
+          item,
+          gridRow: rowIdx + 1,
+          gridColumn: currentCol + 1,
+          rowSpan,
+          colSpan,
+        });
+
+        // 차지하는 영역 표시
+        for (let r = rowIdx; r < rowIdx + rowSpan && r < rowCount; r++) {
+          for (let c = currentCol; c < currentCol + colSpan; c++) {
+            if (!occupied[r]) occupied[r] = [];
+            occupied[r][c] = true;
+          }
+        }
+
+        currentCol += colSpan;
+      }
+    }
+
+    return placements;
+  }
+
+  /**
+   * Grid 템플릿 컬럼 생성
+   * 각 그리드 컬럼에 대해 "primaryKey" 셀의 CSS 변수를 사용
+   */
+  private buildGridTemplateColumns(
+    template: RowTemplate,
+    columnDefs: Map<string, ColumnDef>,
+    gridColumnInfos: Array<{ primaryKey: string }>
+  ): string {
+    const columnWidths: string[] = [];
+
+    for (const info of gridColumnInfos) {
+      if (!info.primaryKey) {
+        columnWidths.push('100px');
+        continue;
+      }
+
+      const colDef = columnDefs.get(info.primaryKey);
+      const colState = this.columnStates.find(c => c.key === info.primaryKey);
+      const defaultWidth = colState?.width ?? colDef?.width ?? 100;
+      columnWidths.push(`var(--col-${info.primaryKey}-width, ${defaultWidth}px)`);
+    }
+
+    return columnWidths.join(' ');
+  }
+
+  /**
+   * 그리드 컬럼 정보 계산
+   */
+  private calculateGridColumnInfos(template: RowTemplate): Array<{ 
+    primaryKey: string; 
+    cellKeys: string[];
+  }> {
+    const rowCount = template.rowCount;
+    const occupied: Array<Array<{ key: string; colSpan: number } | null>> = 
+      Array.from({ length: rowCount }, () => []);
+
+    // 그리드 컬럼 수 계산
+    let gridColumnCount = 0;
+    for (const item of template.layout[0] ?? []) {
+      gridColumnCount += item.colSpan ?? 1;
+    }
+
+    // 그리드 컬럼 정보 초기화
+    const gridColumnInfos: Array<{ primaryKey: string; cellKeys: string[] }> = 
+      Array.from({ length: gridColumnCount }, () => ({ primaryKey: '', cellKeys: [] }));
+
+    for (let rowIdx = 0; rowIdx < template.layout.length; rowIdx++) {
+      const layoutRow = template.layout[rowIdx];
+      let currentCol = 0;
+
+      for (const item of layoutRow) {
+        while (occupied[rowIdx]?.[currentCol]) {
+          currentCol++;
+        }
+
+        const rowSpan = item.rowSpan ?? 1;
+        const colSpan = item.colSpan ?? 1;
+
+        for (let r = rowIdx; r < rowIdx + rowSpan && r < rowCount; r++) {
+          for (let c = currentCol; c < currentCol + colSpan; c++) {
+            if (!occupied[r]) occupied[r] = [];
+            occupied[r][c] = { key: item.key, colSpan };
+
+            if (gridColumnInfos[c]) {
+              if (!gridColumnInfos[c].cellKeys.includes(item.key)) {
+                gridColumnInfos[c].cellKeys.push(item.key);
+              }
+              // colSpan이 1인 셀을 primaryKey로 우선 선택
+              if (colSpan === 1 && !gridColumnInfos[c].primaryKey) {
+                gridColumnInfos[c].primaryKey = item.key;
+              }
+            }
+          }
+        }
+
+        currentCol += colSpan;
+      }
+    }
+
+    // primaryKey가 없는 그리드 컬럼은 첫 번째 셀 key 사용
+    for (const info of gridColumnInfos) {
+      if (!info.primaryKey && info.cellKeys.length > 0) {
+        info.primaryKey = info.cellKeys[0];
+      }
+    }
+
+    return gridColumnInfos;
+  }
+
+  /**
+   * Multi-Row 헤더 셀 생성 (CSS Grid 배치)
+   */
+  private createMultiRowHeaderCell(
+    placement: { item: RowLayoutItem; gridRow: number; gridColumn: number; rowSpan: number; colSpan: number },
+    columnDefs: Map<string, ColumnDef>,
+    gridColumnCount: number,
+    rowCount: number,
+    gridColumnInfos: Array<{ primaryKey: string; cellKeys: string[] }>
+  ): HTMLElement {
+    const { item, gridRow, gridColumn, rowSpan, colSpan } = placement;
+    const colDef = columnDefs.get(item.key);
+
+    const cell = document.createElement('div');
+    cell.className = 'ps-header-cell ps-multi-row-cell';
+    cell.dataset['columnKey'] = item.key;
+
+    // Grid 배치
+    cell.style.gridRow = rowSpan > 1 ? `${gridRow} / span ${rowSpan}` : String(gridRow);
+    cell.style.gridColumn = colSpan > 1 ? `${gridColumn} / span ${colSpan}` : String(gridColumn);
+
+    // 첫 번째 그리드 컬럼에 있는 셀
+    if (gridColumn === 1) {
+      cell.classList.add('ps-first-column');
+    }
+
+    // 마지막 그리드 컬럼에 있는 셀인지 확인 (border-right 제거용)
+    const endColumn = gridColumn + colSpan - 1;
+    if (endColumn >= gridColumnCount) {
+      cell.classList.add('ps-last-column');
+    }
+
+    // 마지막 그리드 행에 있는 셀인지 확인
+    const endRow = gridRow + rowSpan - 1;
+    if (endRow >= rowCount) {
+      cell.classList.add('ps-last-row');
+    }
+
+    // rowSpan이 있는 셀
+    if (rowSpan > 1) {
+      cell.classList.add('ps-rowspan');
+    }
+
+    // 스타일
+    cell.style.display = 'flex';
+    cell.style.alignItems = 'center';
+
+    // 헤더 텍스트
+    cell.textContent = colDef?.header ?? item.key;
+    cell.title = colDef?.header ?? item.key;
+
+    // 리사이즈 핸들
+    // 리사이즈 시 이 셀이 끝나는 그리드 컬럼의 primaryKey를 사용
+    if (this.options.resizableColumns !== false) {
+      const resizeHandle = document.createElement('div');
+      resizeHandle.className = 'ps-resize-handle';
+      
+      // 이 셀이 끝나는 그리드 컬럼 (0-based index)
+      const endColIndex = gridColumn + colSpan - 2; // gridColumn is 1-based
+      const resizeKey = gridColumnInfos[endColIndex]?.primaryKey ?? item.key;
+      
+      resizeHandle.addEventListener('mousedown', (e) => this.startResize(e, resizeKey));
+      cell.appendChild(resizeHandle);
+    }
+
+    return cell;
   }
 
   /**

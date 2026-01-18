@@ -4,15 +4,17 @@
  * VirtualScroller와 연동하여 보이는 행만 렌더링합니다.
  * RowPool을 사용하여 DOM 요소를 재사용합니다.
  * GroupManager를 통해 그룹화된 데이터를 렌더링합니다.
+ * MultiRowRenderer를 통해 Multi-Row 레이아웃을 지원합니다.
  */
 
 import type { GridCore } from '../../core/GridCore';
 import type { Row, ColumnDef, CellValue } from '../../types';
-import type { VirtualRow, GroupHeaderRow, DataRow, GroupingConfig } from '../../types/grouping.types';
+import type { VirtualRow, GroupHeaderRow, DataRow, GroupingConfig, RowTemplate } from '../../types/grouping.types';
 import type { ColumnState, ColumnGroups, CellPosition } from '../types';
 import { VirtualScroller } from '../VirtualScroller';
 import { RowPool } from './RowPool';
 import { GroupManager } from '../grouping/GroupManager';
+import { MultiRowRenderer } from '../multirow/MultiRowRenderer';
 
 /**
  * BodyRenderer 설정
@@ -26,6 +28,8 @@ export interface BodyRendererOptions {
   columns: ColumnState[];
   /** 그룹화 설정 (선택) */
   groupingConfig?: GroupingConfig;
+  /** Multi-Row 템플릿 (선택) */
+  rowTemplate?: RowTemplate;
   /** 행 클릭 콜백 */
   onRowClick?: (rowIndex: number, row: Row, event: MouseEvent) => void;
   /** 셀 클릭 콜백 */
@@ -62,6 +66,10 @@ export class BodyRenderer {
   private virtualScroller: VirtualScroller;
   private rowPool: RowPool;
   private groupManager: GroupManager;
+  private multiRowRenderer: MultiRowRenderer | null = null;
+
+  // Multi-Row 설정
+  private rowTemplate: RowTemplate | null = null;
 
   // 가상 행 (그룹화된 경우 그룹 헤더 포함)
   private virtualRows: VirtualRow[] = [];
@@ -110,6 +118,18 @@ export class BodyRenderer {
     this.groupManager = new GroupManager({
       config: options.groupingConfig,
     });
+
+    // Multi-Row 템플릿이 있으면 MultiRowRenderer 및 RowPool 초기화
+    if (options.rowTemplate) {
+      this.rowTemplate = options.rowTemplate;
+      this.multiRowRenderer = new MultiRowRenderer(
+        options.rowTemplate,
+        this.columnDefs,
+        this.rowHeight
+      );
+      // RowPool에도 템플릿 설정 (Multi-Row 컨테이너 구조 사용)
+      this.rowPool.setMultiRowTemplate(options.rowTemplate);
+    }
 
     // VirtualScroller 연결
     this.virtualScroller.attach(this.scrollProxy, this.viewport, this.spacer);
@@ -189,6 +209,44 @@ export class BodyRenderer {
   }
 
   /**
+   * Multi-Row 템플릿 설정
+   */
+  setRowTemplate(template: RowTemplate | null): void {
+    this.rowTemplate = template;
+
+    // RowPool에도 템플릿 설정 (구조 변경 시 풀 초기화됨)
+    this.rowPool.setMultiRowTemplate(template);
+
+    if (template) {
+      this.multiRowRenderer = new MultiRowRenderer(
+        template,
+        this.columnDefs,
+        this.rowHeight
+      );
+    } else {
+      this.multiRowRenderer = null;
+    }
+
+    // 활성 행 초기화 후 다시 렌더링
+    this.rowPool.clear();
+    this.refresh();
+  }
+
+  /**
+   * Multi-Row 렌더러 반환
+   */
+  getMultiRowRenderer(): MultiRowRenderer | null {
+    return this.multiRowRenderer;
+  }
+
+  /**
+   * Multi-Row 모드인지 확인
+   */
+  isMultiRowMode(): boolean {
+    return this.multiRowRenderer !== null;
+  }
+
+  /**
    * 선택 상태 업데이트
    */
   updateSelection(selectedRows: Set<string | number>, focusedCell: CellPosition | null): void {
@@ -237,7 +295,22 @@ export class BodyRenderer {
   private updateVirtualRows(): void {
     const data = this.gridCore.getAllData();
     this.virtualRows = this.groupManager.flattenWithGroups(data);
+
+    // Multi-Row 모드에서는 총 행 수가 달라짐
+    // (데이터 수가 아닌, 가상 행 수 × Multi-Row 템플릿 rowCount)
+    // VirtualScroller는 여전히 "데이터 행" 수로 관리하고,
+    // 렌더링 시에만 여러 visual row를 그림
     this.virtualScroller.setTotalRows(this.virtualRows.length);
+  }
+
+  /**
+   * Multi-Row 모드에서 사용할 실제 행 높이
+   */
+  private getEffectiveRowHeight(): number {
+    if (this.multiRowRenderer) {
+      return this.multiRowRenderer.getTotalRowHeight();
+    }
+    return this.rowHeight;
   }
 
   /**
@@ -245,7 +318,6 @@ export class BodyRenderer {
    */
   private renderVisibleRows(): void {
     const state = this.virtualScroller.getState();
-    const activeRows = this.rowPool.updateVisibleRange(state.startIndex, state.endIndex);
 
     // 화면에 보이는 첫 번째 행 인덱스 (overscan 미포함)
     const visibleStartIndex = this.virtualScroller.getVisibleStartIndex();
@@ -255,6 +327,15 @@ export class BodyRenderer {
 
     const columnGroups = this.getColumnGroups();
     const totalRowCount = this.virtualRows.length;
+
+    // Multi-Row 모드
+    if (this.multiRowRenderer) {
+      this.renderMultiRowMode(state, visibleStartIndex, rowOffset, totalRowCount);
+      return;
+    }
+
+    // 일반 모드
+    const activeRows = this.rowPool.updateVisibleRange(state.startIndex, state.endIndex);
 
     for (const [rowIndex, rowElement] of activeRows) {
       if (rowIndex >= totalRowCount) {
@@ -271,6 +352,47 @@ export class BodyRenderer {
       } else {
         this.renderDataRow(rowElement, rowIndex, virtualRow, columnGroups, visibleStartIndex, rowOffset);
       }
+    }
+  }
+
+  /**
+   * Multi-Row 모드 렌더링
+   *
+   * RowPool을 사용하여 컨테이너를 재활용합니다.
+   * 스크롤 시 DOM 생성을 최소화하여 성능을 개선합니다.
+   */
+  private renderMultiRowMode(
+    state: { startIndex: number; endIndex: number },
+    visibleStartIndex: number,
+    rowOffset: number,
+    totalRowCount: number
+  ): void {
+    if (!this.multiRowRenderer) return;
+
+    const effectiveRowHeight = this.multiRowRenderer.getTotalRowHeight();
+
+    // RowPool을 사용하여 보이는 범위의 행 컨테이너 획득/반환
+    const activeRows = this.rowPool.updateVisibleRange(state.startIndex, state.endIndex);
+
+    for (const [rowIndex, container] of activeRows) {
+      if (rowIndex >= totalRowCount) {
+        this.rowPool.release(rowIndex);
+        continue;
+      }
+
+      const virtualRow = this.virtualRows[rowIndex];
+      if (!virtualRow || virtualRow.type !== 'data') continue;
+
+      const relativeIndex = rowIndex - visibleStartIndex;
+      const offsetY = relativeIndex * effectiveRowHeight + rowOffset;
+
+      // 기존 컨테이너 재사용: 내용만 업데이트
+      this.multiRowRenderer.updateDataRow(
+        container,
+        virtualRow.data,
+        virtualRow.dataIndex,
+        offsetY
+      );
     }
   }
 

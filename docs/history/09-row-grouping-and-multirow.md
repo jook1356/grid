@@ -52,9 +52,9 @@ const groupManager = bodyRenderer.getGroupManager();
 groupManager.setAggregate('salary', 'avg');
 ```
 
-### 2. Multi-Row 레이아웃 (기본 구조) 🔄
+### 2. Multi-Row 레이아웃 ✅
 
-하나의 데이터 행을 여러 줄(visual rows)로 표시하는 기능의 기본 구조를 구현했습니다.
+하나의 데이터 행을 여러 줄(visual rows)로 표시하는 기능을 구현했습니다.
 
 #### 핵심 개념
 
@@ -75,31 +75,37 @@ src/
 │       └── index.ts
 ```
 
-#### API 사용법 (예정)
+#### API 사용법
 
 ```typescript
-const sheet = new PureSheet(container, {
-  columns: [...],
-  rowTemplate: {
-    rowCount: 2,
-    layout: [
-      // 첫 번째 줄
-      [
-        { key: 'id', rowSpan: 2 },
-        { key: 'name' },
-        { key: 'email', colSpan: 2 },
-        { key: 'salary', rowSpan: 2 },
+const renderer = new GridRenderer(container, {
+  gridCore,
+  options: {
+    columns: [...],
+    rowTemplate: {
+      rowCount: 2,
+      layout: [
+        // 첫 번째 줄
+        [
+          { key: 'id', rowSpan: 2 },
+          { key: 'name' },
+          { key: 'email', colSpan: 2 },
+          { key: 'salary', rowSpan: 2 },
+        ],
+        // 두 번째 줄
+        [
+          { key: 'dept' },
+          { key: 'status' },
+          { key: 'joinDate' },
+        ],
       ],
-      // 두 번째 줄
-      [
-        { key: 'dept' },
-        { key: 'phone' },
-        { key: 'title' },
-      ],
-    ],
+    },
   },
-  data,
 });
+
+// 런타임에 레이아웃 변경
+bodyRenderer.setRowTemplate(newTemplate);
+bodyRenderer.setRowTemplate(null); // 일반 모드로 복귀
 ```
 
 ### 3. 관련 UI 개선
@@ -133,9 +139,10 @@ const sheet = new PureSheet(container, {
 | `src/ui/types.ts` | PureSheetOptions에 groupingConfig, rowTemplate 추가 |
 | `src/ui/index.ts` | GroupManager, MultiRowRenderer export 추가 |
 | `src/ui/style/default.css` | 그룹 헤더, Multi-Row 스타일 추가, 가로 스크롤 수정 |
-| `src/ui/body/BodyRenderer.ts` | GroupManager 통합, VirtualRow 렌더링 |
-| `src/ui/GridRenderer.ts` | groupingConfig, onGroupToggle, getBodyRenderer() 추가 |
-| `demo/examples/grouping.html` | 실제 Row Grouping 연결, badge 업데이트 |
+| `src/ui/body/BodyRenderer.ts` | GroupManager/MultiRowRenderer 통합, VirtualRow 렌더링 |
+| `src/ui/GridRenderer.ts` | groupingConfig, rowTemplate, Multi-Row 헤더 렌더링 |
+| `demo/examples/grouping.html` | 실제 Row Grouping 연결 |
+| `demo/examples/multi-row.html` | 실제 Multi-Row 연결 |
 | `demo/examples/column-pinning.html` | setColumnPinned 실제 호출 |
 
 ---
@@ -187,7 +194,19 @@ type VirtualRow = GroupHeaderRow | DataRow;
 3. **접기 처리**: 접힌 그룹의 하위 항목은 결과에서 제외
 4. **집계 계산**: 각 그룹의 집계 값 계산
 
-### Multi-Row 개념
+### Multi-Row 렌더링 흐름
+
+```
+rowTemplate 설정
+    ↓
+MultiRowRenderer 초기화
+    ↓
+헤더: renderMultiRowHeader() - 각 visual row별 헤더 셀 렌더링
+    ↓
+바디: renderMultiRowMode() - 각 데이터 행을 N개 visual row로 렌더링
+```
+
+### Multi-Row 레이아웃 예시
 
 ```
 ┌────┬─────────┬────────────────────────┬──────────┐
@@ -206,20 +225,31 @@ type VirtualRow = GroupHeaderRow | DataRow;
 
 ---
 
+## 구현 상태 요약
+
+| 기능 | 상태 | 설명 |
+|------|------|------|
+| Row Grouping | ✅ 완료 | 다중 레벨, 접기/펼치기, 집계 |
+| Multi-Row 헤더 | ✅ 완료 | rowSpan, colSpan 지원 |
+| Multi-Row 바디 | ✅ 완료 | 가상화 통합 |
+| 데모 페이지 | ✅ 완료 | 실제 API 연결 |
+
+---
+
 ## 다음 회차 예고
 
-1. **Multi-Row 완성**
-   - GridRenderer/BodyRenderer에 rowTemplate 통합
-   - Multi-Row 데모 페이지 실제 연결
-
-2. **셀 병합**
+1. **셀 병합**
    - MergeManager 구현
    - 데이터 레벨 병합 (same-value)
    - API 레벨 병합 (mergeCells)
 
-3. **성능 최적화**
+2. **성능 최적화**
    - 대용량 데이터 그룹화 최적화
    - 캐싱 전략 개선
+
+3. **프레임워크 래퍼**
+   - React 래퍼
+   - Vue 래퍼
 
 ---
 
@@ -237,3 +267,12 @@ pnpm dev
 2. 그룹 헤더 클릭으로 접기/펼치기
 3. "모두 펼치기" / "모두 접기" 버튼 테스트
 4. "집계" 드롭다운으로 집계 함수 변경
+
+### Multi-Row 테스트
+
+브라우저에서 http://localhost:5173/demo/examples/multi-row.html 접속
+
+1. "레이아웃 1 (2줄)" 버튼으로 2줄 레이아웃 확인
+2. "레이아웃 2 (3줄)" 버튼으로 3줄 레이아웃 확인
+3. "단일 행 (기본)" 버튼으로 일반 그리드 확인
+4. 스크롤하여 가상화 동작 확인
