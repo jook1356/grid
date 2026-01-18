@@ -1,12 +1,18 @@
 /**
- * VirtualScroller - Proxy Scrollbar 방식 가상 스크롤러
+ * VirtualScroller - 인덱스 기반 Proxy Scrollbar 가상 스크롤러
  *
  * 100만 행과 가변 행 높이를 효율적으로 지원합니다.
  *
  * 핵심 아이디어:
  * 1. 네이티브 스크롤바를 별도 DOM(Proxy)에서 생성
- * 2. 스크롤 비율 → 행 인덱스 O(1) 계산
- * 3. 평균 행 높이 기반으로 가변 높이 지원
+ * 2. 스크롤 비율 → 행 인덱스 O(1) 계산 (인덱스 기반)
+ * 3. Spacer 높이는 항상 고정 (totalRows × 36px)
+ * 4. 렌더링은 실제 행 높이 사용 (Multi-Row 등)
+ *
+ * 장점:
+ * - 스크롤 비율 = row 인덱스 비율 (직관적)
+ * - row 높이가 달라도 스크롤 로직 변경 불필요
+ * - 맨 위/맨 아래 끝점이 항상 정확
  */
 
 import { EventEmitter } from '../core/EventEmitter';
@@ -23,22 +29,30 @@ interface VirtualScrollerEvents {
 }
 
 /**
- * Proxy Scrollbar 방식 가상 스크롤러
+ * Proxy 스크롤바용 고정 행 높이 (인덱스 기반 스크롤용)
+ * 이 값은 스크롤바 범위 계산에만 사용되며, 실제 렌더링과는 무관합니다.
+ */
+const SPACER_ROW_HEIGHT = 36;
+
+/**
+ * 인덱스 기반 Proxy Scrollbar 가상 스크롤러
  */
 export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
   // 설정
   private readonly overscan: number;
-  private readonly sampleSize: number;
 
   // 상태
   private totalRows = 0;
-  private estimatedRowHeight: number;
   private currentStartIndex = 0;
   private viewportHeight = 0;
 
-  // 샘플링 (평균 행 높이 계산용)
-  private heightSamples: number[] = [];
-  private isHeightLocked = false;
+  /**
+   * 렌더링용 행 높이
+   * - 단일 row: 36px
+   * - Multi-Row: rowCount × 36px
+   * - 가변 높이: 평균 또는 최대 높이
+   */
+  private renderRowHeight: number;
 
   // DOM 요소
   private scrollProxy: HTMLElement | null = null;
@@ -55,8 +69,7 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
   constructor(options: VirtualScrollerOptions = {}) {
     super();
 
-    this.estimatedRowHeight = options.estimatedRowHeight ?? 40;
-    this.sampleSize = options.sampleSize ?? 50;
+    this.renderRowHeight = options.estimatedRowHeight ?? SPACER_ROW_HEIGHT;
     this.overscan = options.overscan ?? 5;
 
     // 이벤트 핸들러 바인딩
@@ -96,8 +109,7 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
       this.resizeObserver.observe(viewport);
     }
 
-    // 초기 Viewport 높이 측정 (ResizeObserver 콜백 전에도 값이 필요할 수 있음)
-    // requestAnimationFrame으로 레이아웃 완료 후 측정
+    // 초기 Viewport 높이 측정
     requestAnimationFrame(() => {
       if (this.viewport) {
         const height = this.viewport.clientHeight;
@@ -139,7 +151,6 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
   destroy(): void {
     this.detach();
     this.removeAllListeners();
-    this.heightSamples = [];
   }
 
   // ===========================================================================
@@ -156,15 +167,25 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
   }
 
   /**
-   * 행 높이 설정 (Multi-Row 등에서 사용)
+   * 렌더링용 행 높이 설정
    *
    * Multi-Row의 경우 각 데이터 행이 여러 visual row를 차지하므로
-   * 실제 행 높이 = rowCount * baseRowHeight
+   * 실제 행 높이 = rowCount × baseRowHeight
+   *
+   * 참고: 이 값은 렌더링과 visibleRowCount 계산에만 사용됩니다.
+   * Spacer 높이(스크롤바 범위)는 항상 고정 높이(36px) 기준입니다.
+   */
+  setRenderRowHeight(height: number): void {
+    this.renderRowHeight = height;
+    // Spacer 높이는 변경하지 않음 (인덱스 기반 스크롤)
+    this.emitRangeChanged();
+  }
+
+  /**
+   * @deprecated setRenderRowHeight 사용
    */
   setRowHeight(height: number): void {
-    this.estimatedRowHeight = height;
-    this.updateSpacerHeight();
-    this.emitRangeChanged();
+    this.setRenderRowHeight(height);
   }
 
   /**
@@ -178,38 +199,28 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
   }
 
   /**
-   * 행 높이 측정 (초기 샘플링)
-   *
-   * 렌더링된 행의 실제 높이를 측정하여 평균을 계산합니다.
-   * 샘플 수만큼 수집되면 평균값을 고정합니다.
-   */
-  measureRow(_index: number, height: number): void {
-    if (this.isHeightLocked) return;
-
-    this.heightSamples.push(height);
-
-    // 샘플 수 도달 시 평균 고정
-    if (this.heightSamples.length >= this.sampleSize) {
-      const sum = this.heightSamples.reduce((a, b) => a + b, 0);
-      this.estimatedRowHeight = sum / this.heightSamples.length;
-      this.isHeightLocked = true;
-      this.updateSpacerHeight();
-    }
-  }
-
-  /**
    * 특정 행으로 스크롤
    */
   scrollToRow(rowIndex: number): void {
     if (!this.scrollProxy) return;
 
     const clampedIndex = Math.max(0, Math.min(rowIndex, this.totalRows - 1));
-    const maxVisibleStart = Math.max(0, this.totalRows - this.getVisibleRowCount());
-    const targetRatio = maxVisibleStart > 0 ? clampedIndex / maxVisibleStart : 0;
+    const visibleCount = this.getVisibleRowCount();
+    const maxStartIndex = Math.max(0, this.totalRows - visibleCount);
+    const targetRatio = maxStartIndex > 0 ? clampedIndex / maxStartIndex : 0;
 
     const { scrollHeight, clientHeight } = this.scrollProxy;
     const maxScroll = scrollHeight - clientHeight;
     this.scrollProxy.scrollTop = targetRatio * maxScroll;
+  }
+
+  /**
+   * 스크롤을 맨 위로 이동
+   */
+  scrollToTop(): void {
+    if (this.scrollProxy) {
+      this.scrollProxy.scrollTop = 0;
+    }
   }
 
   // ===========================================================================
@@ -221,7 +232,6 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
    */
   getState(): VirtualScrollState {
     const visibleCount = this.getVisibleRowCount();
-    // overscan 포함하여 일관성 유지
     const startIndex = Math.max(0, this.currentStartIndex - this.overscan);
     const endIndex = Math.min(
       this.currentStartIndex + visibleCount + this.overscan,
@@ -232,35 +242,36 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
       startIndex,
       endIndex,
       scrollTop: this.scrollProxy?.scrollTop ?? 0,
-      totalHeight: this.totalRows * this.estimatedRowHeight,
+      totalHeight: this.totalRows * this.renderRowHeight,
     };
   }
 
   /**
-   * Viewport에 보이는 행 수
+   * Viewport에 보이는 행 수 (렌더링용 높이 기준)
    */
   getVisibleRowCount(): number {
-    // viewportHeight가 아직 측정되지 않은 경우 (attach 직후)
-    // ResizeObserver 또는 requestAnimationFrame 콜백에서 측정될 예정
-    // 그 전까지는 최소 1행을 반환하여 초기 렌더링 보장
     if (this.viewportHeight <= 0) {
       return Math.max(1, this.overscan * 2);
     }
-    return Math.ceil(this.viewportHeight / this.estimatedRowHeight);
+    return Math.ceil(this.viewportHeight / this.renderRowHeight);
   }
 
   /**
-   * 현재 예상 행 높이
+   * 렌더링용 행 높이
+   */
+  getRenderRowHeight(): number {
+    return this.renderRowHeight;
+  }
+
+  /**
+   * @deprecated getRenderRowHeight 사용
    */
   getEstimatedRowHeight(): number {
-    return this.estimatedRowHeight;
+    return this.renderRowHeight;
   }
 
   /**
    * 화면에 보이는 첫 번째 행 인덱스 (overscan 미포함)
-   *
-   * renderRow에서 Y 위치 계산 시 이 값을 기준으로 해야 합니다.
-   * getState().startIndex는 overscan을 포함하므로 렌더링 범위용입니다.
    */
   getVisibleStartIndex(): number {
     return this.currentStartIndex;
@@ -268,11 +279,6 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
 
   /**
    * 행 위치 보정 오프셋 (맨 아래 스크롤 시 마지막 행이 잘리지 않도록)
-   *
-   * 문제: ceil()로 계산된 visibleCount * rowHeight > viewportHeight 일 수 있음
-   * 예: viewport=500px, rowHeight=36px → visibleCount=14, 14*36=504px → 4px 잘림
-   *
-   * 해결: 맨 아래 스크롤 시 음수 오프셋을 적용하여 마지막 행이 viewport 하단에 맞춰지도록 함
    */
   getRowOffset(): number {
     const visibleCount = this.getVisibleRowCount();
@@ -286,10 +292,8 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
 
     // 맨 아래 스크롤인지 확인
     if (this.currentStartIndex >= maxStartIndex && this.totalRows > 0) {
-      const contentHeight = visibleCount * this.estimatedRowHeight;
-      // 음수 오프셋: 콘텐츠가 viewport보다 크면 위로 이동
+      const contentHeight = visibleCount * this.renderRowHeight;
       const offset = this.viewportHeight - contentHeight;
-      // 양수 offset은 무시 (row가 적어서 콘텐츠가 viewport보다 작을 때)
       return Math.min(0, offset);
     }
 
@@ -301,7 +305,12 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
   // ===========================================================================
 
   /**
-   * Proxy 스크롤 → 행 인덱스 계산
+   * Proxy 스크롤 → 행 인덱스 계산 (비율 기반)
+   *
+   * 핵심: 스크롤 비율 = row 인덱스 비율
+   * - 스크롤 0% → row 0
+   * - 스크롤 50% → row 50%
+   * - 스크롤 100% → 마지막 row
    */
   private onProxyScroll(): void {
     if (!this.scrollProxy) return;
@@ -340,12 +349,16 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
   // ===========================================================================
 
   /**
-   * Spacer 높이 업데이트 (스크롤바 크기 결정)
+   * Spacer 높이 업데이트 (스크롤바 범위 결정)
+   *
+   * 인덱스 기반 스크롤: 항상 고정 높이(36px) 기준
+   * 이렇게 하면 row 높이가 달라도 스크롤바 동작이 일관됩니다.
    */
   private updateSpacerHeight(): void {
     if (!this.spacer) return;
 
-    const totalHeight = this.totalRows * this.estimatedRowHeight;
+    // 항상 고정 높이 기준 (인덱스 기반)
+    const totalHeight = this.totalRows * SPACER_ROW_HEIGHT;
     this.spacer.style.height = `${totalHeight}px`;
   }
 

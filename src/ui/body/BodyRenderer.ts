@@ -129,8 +129,8 @@ export class BodyRenderer {
       );
       // RowPool에도 템플릿 설정 (Multi-Row 컨테이너 구조 사용)
       this.rowPool.setMultiRowTemplate(options.rowTemplate);
-      // VirtualScroller에 Multi-Row 높이 설정 (spacer 높이 계산용)
-      this.virtualScroller.setRowHeight(this.multiRowRenderer.getTotalRowHeight());
+      // VirtualScroller에 렌더링용 높이 설정 (visibleRowCount 계산용)
+      this.virtualScroller.setRenderRowHeight(this.multiRowRenderer.getTotalRowHeight());
     }
 
     // VirtualScroller 연결
@@ -225,12 +225,12 @@ export class BodyRenderer {
         this.columnDefs,
         this.rowHeight
       );
-      // VirtualScroller에 Multi-Row 높이 설정
-      this.virtualScroller.setRowHeight(this.multiRowRenderer.getTotalRowHeight());
+      // VirtualScroller에 렌더링용 높이 설정
+      this.virtualScroller.setRenderRowHeight(this.multiRowRenderer.getTotalRowHeight());
     } else {
       this.multiRowRenderer = null;
       // 단일 행 높이로 복원
-      this.virtualScroller.setRowHeight(this.rowHeight);
+      this.virtualScroller.setRenderRowHeight(this.rowHeight);
     }
 
     // 활성 행 초기화 후 다시 렌더링
@@ -250,6 +250,18 @@ export class BodyRenderer {
    */
   isMultiRowMode(): boolean {
     return this.multiRowRenderer !== null;
+  }
+
+  /**
+   * 렌더링용 행 높이 설정
+   *
+   * 가변 높이 row를 지원할 때 사용합니다.
+   * VirtualScroller의 visibleRowCount 계산에 사용됩니다.
+   *
+   * 참고: 인덱스 기반 스크롤을 사용하므로 spacer 높이는 변경되지 않습니다.
+   */
+  setRenderRowHeight(height: number): void {
+    this.virtualScroller.setRenderRowHeight(height);
   }
 
   /**

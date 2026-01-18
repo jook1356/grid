@@ -275,6 +275,19 @@ export class GridRenderer {
   }
 
   /**
+   * 렌더링용 행 높이 설정 (가변 높이 row 지원)
+   *
+   * 가변 높이 row를 지원할 때 사용합니다.
+   *
+   * @example
+   * // 평균 또는 최대 행 높이 설정
+   * renderer.setRenderRowHeight(50);
+   */
+  setRenderRowHeight(height: number): void {
+    this.bodyRenderer?.setRenderRowHeight(height);
+  }
+
+  /**
    * 헤더와 바디의 가로 스크롤 동기화
    */
   private setupHorizontalScrollSync(): void {
