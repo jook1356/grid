@@ -156,6 +156,18 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
   }
 
   /**
+   * 행 높이 설정 (Multi-Row 등에서 사용)
+   *
+   * Multi-Row의 경우 각 데이터 행이 여러 visual row를 차지하므로
+   * 실제 행 높이 = rowCount * baseRowHeight
+   */
+  setRowHeight(height: number): void {
+    this.estimatedRowHeight = height;
+    this.updateSpacerHeight();
+    this.emitRangeChanged();
+  }
+
+  /**
    * Viewport 크기 변경 시 호출
    */
   updateViewportSize(): void {
@@ -264,6 +276,12 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
    */
   getRowOffset(): number {
     const visibleCount = this.getVisibleRowCount();
+
+    // row 수가 viewport를 채우지 못하면 offset 불필요
+    if (this.totalRows <= visibleCount) {
+      return 0;
+    }
+
     const maxStartIndex = Math.max(0, this.totalRows - visibleCount);
 
     // 맨 아래 스크롤인지 확인
@@ -271,7 +289,8 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
       const contentHeight = visibleCount * this.estimatedRowHeight;
       // 음수 오프셋: 콘텐츠가 viewport보다 크면 위로 이동
       const offset = this.viewportHeight - contentHeight;
-      return offset; // 보통 음수 (예: 500 - 504 = -4)
+      // 양수 offset은 무시 (row가 적어서 콘텐츠가 viewport보다 작을 때)
+      return Math.min(0, offset);
     }
 
     return 0;

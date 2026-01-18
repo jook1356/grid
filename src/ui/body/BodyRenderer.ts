@@ -129,6 +129,8 @@ export class BodyRenderer {
       );
       // RowPool에도 템플릿 설정 (Multi-Row 컨테이너 구조 사용)
       this.rowPool.setMultiRowTemplate(options.rowTemplate);
+      // VirtualScroller에 Multi-Row 높이 설정 (spacer 높이 계산용)
+      this.virtualScroller.setRowHeight(this.multiRowRenderer.getTotalRowHeight());
     }
 
     // VirtualScroller 연결
@@ -223,8 +225,12 @@ export class BodyRenderer {
         this.columnDefs,
         this.rowHeight
       );
+      // VirtualScroller에 Multi-Row 높이 설정
+      this.virtualScroller.setRowHeight(this.multiRowRenderer.getTotalRowHeight());
     } else {
       this.multiRowRenderer = null;
+      // 단일 행 높이로 복원
+      this.virtualScroller.setRowHeight(this.rowHeight);
     }
 
     // 활성 행 초기화 후 다시 렌더링
