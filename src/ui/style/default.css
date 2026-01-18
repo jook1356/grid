@@ -250,7 +250,10 @@
   left: 0;
   display: flex;
   height: var(--ps-row-height);
-  min-width: max-content;
+  /* 배경색이 그리드 끝까지 채워지도록 min-width: 100% 사용 */
+  /* 컨텐츠가 더 넓으면 max-content로 확장 */
+  min-width: 100%;
+  width: max-content;
   background: var(--ps-bg-color);
   border-bottom: var(--ps-border-width) solid var(--ps-border-color);
   will-change: transform;
@@ -501,6 +504,8 @@
 /* Multi-Row 데이터 컨테이너 (CSS Grid) */
 .ps-multirow-container {
   display: grid;
+  /* .ps-row의 height 덮어쓰기 - Grid의 gridTemplateRows에 의해 결정 */
+  height: auto;
   border-bottom: 2px solid var(--ps-border-color);
   background: var(--ps-bg-color);
 }
@@ -556,6 +561,11 @@
 .ps-multi-row-cell.ps-rowspan.ps-first-column {
   border-left: none;
   margin-left: 0;
+}
+
+/* 마지막 컬럼인 rowSpan 셀은 오른쪽 border 없음 (일관성) */
+.ps-multi-row-cell.ps-rowspan.ps-last-column {
+  border-right: none;
 }
 
 /* 헤더의 rowSpan 셀 */
