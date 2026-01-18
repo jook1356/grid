@@ -547,6 +547,13 @@ export class BodyRenderer {
     rowData: Row,
     rowIndex: number
   ): void {
+    // 그룹 헤더에서 데이터 행으로 전환된 경우, 기존 요소가 ps-cell이 아닐 수 있음
+    // 첫 번째 자식이 ps-cell이 아니면 컨테이너 초기화
+    const firstChild = container.firstChild as HTMLElement | null;
+    if (firstChild && !firstChild.classList?.contains('ps-cell')) {
+      container.innerHTML = '';
+    }
+
     // 필요한 셀 수 맞추기
     while (container.children.length > columns.length) {
       container.lastChild?.remove();
