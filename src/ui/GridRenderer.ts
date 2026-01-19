@@ -415,6 +415,9 @@ export class GridRenderer {
     for (const col of this.columnStates) {
       this.gridContainer.style.setProperty(`--col-${col.key}-width`, `${col.width}px`);
     }
+
+    // 총 컬럼 너비 계산하여 CSS 변수로 저장 (그룹 헤더 너비 동기화용)
+    this.updateTotalColumnWidthCSS();
   }
 
   /**
@@ -423,5 +426,24 @@ export class GridRenderer {
   private updateColumnWidthCSS(columnKey: string, width: number): void {
     if (!this.gridContainer) return;
     this.gridContainer.style.setProperty(`--col-${columnKey}-width`, `${width}px`);
+
+    // 총 컬럼 너비도 업데이트
+    this.updateTotalColumnWidthCSS();
+  }
+
+  /**
+   * 총 컬럼 너비 CSS 변수 업데이트
+   *
+   * 보이는 컬럼들의 너비 합계를 --ps-row-width에 저장합니다.
+   * 그룹 헤더 행은 이 값을 참조하여 데이터 행과 너비를 동기화합니다.
+   */
+  private updateTotalColumnWidthCSS(): void {
+    if (!this.gridContainer) return;
+
+    const totalWidth = this.columnStates
+      .filter((col) => col.visible)
+      .reduce((sum, col) => sum + col.width, 0);
+
+    this.gridContainer.style.setProperty('--ps-row-width', `${totalWidth}px`);
   }
 }

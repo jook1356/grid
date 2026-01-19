@@ -456,6 +456,8 @@
   border-bottom: 1px solid var(--ps-border-color);
   cursor: pointer;
   user-select: none;
+  /* 100%와 (컬럼 총 너비 + 그룹 indent) 중 큰 값 사용 */
+  min-width: max(100%, calc(var(--ps-row-width, 0px) + var(--ps-group-indent, 0px)));
 }
 
 .ps-row.ps-group-header:hover {
