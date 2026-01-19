@@ -72,22 +72,22 @@
   <!-- 코드 예제 -->
   <div class="code-example">
     <h3>API 사용법</h3>
-    <pre><span class="comment">// 그룹화 설정</span>
-bodyRenderer.<span class="function">setGroupingConfig</span>({
+    <pre><span class="comment">// GridRenderer를 통한 그룹화 설정 (헤더 indent 자동 동기화)</span>
+renderer.<span class="function">setGroupingConfig</span>({
   columns: [<span class="string">'department'</span>],
   aggregates: {
     salary: <span class="string">'sum'</span>,  <span class="comment">// 'sum' | 'avg' | 'count' | 'min' | 'max'</span>
   },
 });
 
-<span class="comment">// 그룹 접기/펼치기</span>
+<span class="comment">// 그룹화 해제</span>
+renderer.<span class="function">setGroupingConfig</span>(<span class="keyword">null</span>);
+
+<span class="comment">// 그룹 접기/펼치기 (BodyRenderer 사용)</span>
+<span class="keyword">const</span> bodyRenderer = renderer.<span class="function">getBodyRenderer</span>();
 bodyRenderer.<span class="function">toggleGroup</span>(<span class="string">'department:Engineering'</span>);
 bodyRenderer.<span class="function">expandAllGroups</span>();
-bodyRenderer.<span class="function">collapseAllGroups</span>();
-
-<span class="comment">// GroupManager 직접 사용</span>
-<span class="keyword">const</span> groupManager = bodyRenderer.<span class="function">getGroupManager</span>();
-groupManager.<span class="function">setAggregate</span>(<span class="string">'salary'</span>, <span class="string">'avg'</span>);</pre>
+bodyRenderer.<span class="function">collapseAllGroups</span>();</pre>
   </div>
   
   <!-- 그룹 상태 -->
@@ -136,22 +136,21 @@ groupManager.<span class="function">setAggregate</span>(<span class="string">'sa
       document.getElementById('groupState').textContent = JSON.stringify(state, null, 2);
     }
     
-    // 그룹화 적용
+    // 그룹화 적용 (GridRenderer.setGroupingConfig 사용)
     window.applyGrouping = function() {
       const groupBy = document.getElementById('groupBySelect').value;
       const aggregate = document.getElementById('aggregateSelect').value;
-      
+
       if (!renderer) return;
-      
-      const bodyRenderer = renderer.getBodyRenderer();
-      if (!bodyRenderer) return;
-      
+
       if (groupBy === 'none') {
-        bodyRenderer.setGroupingConfig(null);
+        // 그룹화 해제
+        renderer.setGroupingConfig(null);
         updateStatus('그룹 해제됨');
       } else {
+        // 그룹화 설정 (헤더 indent 자동 동기화)
         const columns = groupBy.split(',');
-        bodyRenderer.setGroupingConfig({
+        renderer.setGroupingConfig({
           columns,
           aggregates: {
             salary: aggregate,
@@ -159,7 +158,7 @@ groupManager.<span class="function">setAggregate</span>(<span class="string">'sa
         });
         updateStatus(`${columns.join(' → ')} 기준 그룹화됨 - 헤더 클릭으로 접기/펼치기`);
       }
-      
+
       updateGroupStateDisplay();
     };
     
