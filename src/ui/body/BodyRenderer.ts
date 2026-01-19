@@ -168,6 +168,8 @@ export class BodyRenderer {
 
   /**
    * 그룹화 설정
+   *
+   * 그룹화 depth에 따라 헤더 indent CSS 변수도 자동으로 업데이트됩니다.
    */
   setGroupingConfig(config: GroupingConfig | null): void {
     if (config) {
@@ -175,7 +177,24 @@ export class BodyRenderer {
     } else {
       this.groupManager.setGroupColumns([]);
     }
+
+    // 헤더 indent CSS 변수 자동 업데이트
+    this.updateGroupIndentCSS(config?.columns?.length ?? 0);
+
     this.refresh();
+  }
+
+  /**
+   * 그룹 indent CSS 변수 업데이트
+   *
+   * 상위 .ps-grid-container에 --ps-group-indent 변수를 설정합니다.
+   */
+  private updateGroupIndentCSS(depth: number): void {
+    const gridContainer = this.container.closest('.ps-grid-container') as HTMLElement | null;
+    if (gridContainer) {
+      const indentPx = depth * 20; // 20px per level
+      gridContainer.style.setProperty('--ps-group-indent', `${indentPx}px`);
+    }
   }
 
   /**

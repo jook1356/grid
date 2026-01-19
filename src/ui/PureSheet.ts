@@ -7,6 +7,7 @@
 
 import { GridCore } from '../core/GridCore';
 import type { ColumnDef, Row, SortState, FilterState } from '../types';
+import type { GroupingConfig } from '../types/grouping.types';
 import type { PureSheetOptions, CellPosition, ColumnState, SelectionState } from './types';
 import { GridRenderer } from './GridRenderer';
 import { SelectionManager } from './interaction/SelectionManager';
@@ -204,6 +205,66 @@ export class PureSheet {
    */
   refresh(): void {
     this.gridRenderer.refresh();
+  }
+
+  // ===========================================================================
+  // 그룹화 API
+  // ===========================================================================
+
+  /**
+   * 그룹화 설정
+   *
+   * 헤더와 바디의 들여쓰기가 자동으로 동기화됩니다.
+   *
+   * @param config - 그룹화 설정 (null이면 그룹화 해제)
+   */
+  setGrouping(config: GroupingConfig | null): void {
+    // GridRenderer를 통해 그룹화 설정 및 헤더 indent 동기화
+    this.gridRenderer.setGroupingConfig(config);
+  }
+
+  /**
+   * 그룹화 컬럼 설정 (간단한 API)
+   *
+   * @param columns - 그룹화할 컬럼 키 배열
+   */
+  groupBy(columns: string[]): void {
+    if (columns.length === 0) {
+      this.setGrouping(null);
+    } else {
+      this.setGrouping({ columns });
+    }
+  }
+
+  /**
+   * 그룹화 해제
+   */
+  clearGrouping(): void {
+    this.setGrouping(null);
+  }
+
+  /**
+   * 그룹 접기/펼치기 토글
+   */
+  toggleGroup(groupId: string): void {
+    const bodyRenderer = this.gridRenderer.getBodyRenderer();
+    bodyRenderer?.toggleGroup(groupId);
+  }
+
+  /**
+   * 모든 그룹 펼치기
+   */
+  expandAllGroups(): void {
+    const bodyRenderer = this.gridRenderer.getBodyRenderer();
+    bodyRenderer?.expandAllGroups();
+  }
+
+  /**
+   * 모든 그룹 접기
+   */
+  collapseAllGroups(): void {
+    const bodyRenderer = this.gridRenderer.getBodyRenderer();
+    bodyRenderer?.collapseAllGroups();
   }
 
   // ===========================================================================

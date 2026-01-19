@@ -221,6 +221,18 @@ export class GridRenderer {
   }
 
   /**
+   * 그룹화 설정
+   *
+   * BodyRenderer에 위임하며, CSS 변수도 자동으로 업데이트됩니다.
+   *
+   * @param config - 그룹화 설정 (null이면 그룹화 해제)
+   */
+  setGroupingConfig(config: import('../types/grouping.types').GroupingConfig | null): void {
+    // BodyRenderer에 위임 (CSS 변수 설정도 BodyRenderer가 처리)
+    this.bodyRenderer?.setGroupingConfig(config);
+  }
+
+  /**
    * 리소스 해제
    */
   destroy(): void {
@@ -277,6 +289,12 @@ export class GridRenderer {
 
     // CSS 변수로 컬럼 너비 설정
     this.initializeColumnWidthCSS();
+
+    // 그룹화 설정이 있으면 초기 indent CSS 변수 설정
+    if (this.options.groupingConfig?.columns?.length) {
+      const indentPx = this.options.groupingConfig.columns.length * 20;
+      this.gridContainer.style.setProperty('--ps-group-indent', `${indentPx}px`);
+    }
 
     // 헤더 영역
     this.headerElement = document.createElement('div');
