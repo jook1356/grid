@@ -262,6 +262,14 @@ export class PureSheet {
       }))
     );
 
+    // 피봇 헤더 모드 활성화 (다중 레벨 헤더 렌더링)
+    this.gridRenderer.enablePivotMode({
+      pivotColumnMeta: result.pivotColumnMeta,
+      rowFields: result.rowFields,
+      columnFields: result.columnFields,
+      hasMultipleValueFields: result.hasMultipleValueFields,
+    });
+
     // 피봇된 데이터로 그리드 새로고침
     await this.gridCore.loadData(result.rows, result.columns);
     this.gridRenderer.refresh();
@@ -277,6 +285,8 @@ export class PureSheet {
    */
   clearPivot(): void {
     this.gridCore.clearPivot();
+    // 피봇 헤더 모드 비활성화 (일반 헤더로 복귀)
+    this.gridRenderer.disablePivotMode();
     this.gridRenderer.refresh();
   }
 
