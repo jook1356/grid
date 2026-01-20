@@ -52,7 +52,8 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
 
   // 드래그 세션 상태
   private dragAddToExisting = false;  // Ctrl 누른 상태로 드래그 시작했는지
-  private preDragSelection: Set<string> = new Set();  // 드래그 시작 전 선택 상태
+  private preDragSelection: Set<string> = new Set();  // 드래그 시작 전 셀 선택 상태
+  private preDragRowSelection: Set<string | number> = new Set();  // 드래그 시작 전 행 선택 상태
 
   constructor(options: SelectionManagerOptions) {
     super();
@@ -130,6 +131,13 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
    */
   isDragging(): boolean {
     return this.state.isDragging;
+  }
+
+  /**
+   * 셀 선택이 가능한 모드인지 확인 (range, all)
+   */
+  private isCellSelectionMode(): boolean {
+    return this.state.selectionMode === 'range' || this.state.selectionMode === 'all';
   }
 
   /**
@@ -246,7 +254,7 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   selectAll(): void {
     if (!this.multiSelect) return;
 
-    if (this.state.selectionMode === 'range' || this.state.selectionMode === 'all') {
+    if (this.isCellSelectionMode()) {
       // 셀 모드: 모든 셀 선택 (all 모드에서는 행도 자동 동기화됨)
       this.selectAllCells();
     } else if (this.state.selectionMode === 'row') {
@@ -319,10 +327,8 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
    * - Ctrl+Shift+클릭: 기존 선택 유지 + 범위 추가
    */
   handleCellClick(position: CellPosition, event: MouseEvent): void {
-    // 'range' 또는 'all' 모드에서만 셀 선택 가능
-    if (this.state.selectionMode !== 'range' && this.state.selectionMode !== 'all') {
-      return;
-    }
+    // 셀 선택 모드에서만 처리
+    if (!this.isCellSelectionMode()) return;
 
     const isCtrlOrCmd = event.ctrlKey || event.metaKey;
     const isShift = event.shiftKey;
@@ -389,9 +395,6 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   // ===========================================================================
   // 드래그 선택
   // ===========================================================================
-
-  // 드래그 시작 전 행 선택 상태 (row 모드용)
-  private preDragRowSelection: Set<string | number> = new Set();
 
   /**
    * 드래그 선택 시작
@@ -600,9 +603,7 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
       columnKey: newColumn.key,
     };
 
-    const isCellMode = this.state.selectionMode === 'range' || this.state.selectionMode === 'all';
-    
-    if (extendSelection && isCellMode) {
+    if (extendSelection && this.isCellSelectionMode()) {
       // Shift + 화살표: 선택 확장 (anchorCell 유지)
       const anchor = this.state.anchorCell;
       this.selectCellRange(anchor, newPosition);
