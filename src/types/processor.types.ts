@@ -217,6 +217,7 @@ export type WorkerRequestType =
   | 'FILTER'
   | 'QUERY'
   | 'AGGREGATE'
+  | 'PIVOT'
   | 'DESTROY';
 
 /**

@@ -24,6 +24,7 @@ import type { Table } from 'arquero';
 import type { CellValue } from '../types';
 import type {
   Row,
+  ColumnDef,
   SortState,
   FilterState,
   IDataProcessor,
@@ -32,6 +33,36 @@ import type {
   AggregateQueryOptions,
   AggregateResult,
 } from '../types';
+
+/**
+ * 피봇 설정 옵션
+ */
+export interface PivotOptions {
+  /** 행으로 유지될 필드 */
+  rowFields: string[];
+  /** 열로 펼쳐질 필드 */
+  columnFields: string[];
+  /** 값/집계 필드 */
+  valueFields: {
+    field: string;
+    aggregate: 'sum' | 'avg' | 'min' | 'max' | 'count' | 'first' | 'last';
+    label?: string;
+  }[];
+  /** 필터 (선택) */
+  filters?: FilterState[];
+}
+
+/**
+ * 피봇 결과
+ */
+export interface PivotResult {
+  /** 피봇된 행 데이터 */
+  rows: Row[];
+  /** 생성된 컬럼 정의 */
+  columns: ColumnDef[];
+  /** 동적 생성된 값 컬럼 키 목록 */
+  generatedValueColumnKeys: string[];
+}
 
 /**
  * Arquero 기반 데이터 처리기
@@ -379,6 +410,217 @@ export class ArqueroProcessor implements IDataProcessor {
       default:
         return aq.op.count();
     }
+  }
+
+  // ==========================================================================
+  // 피봇
+  // ==========================================================================
+
+  /**
+   * 피봇 수행
+   *
+   * 데이터를 피봇하여 행↔열 변환을 수행합니다.
+   * Arquero의 groupby + rollup을 활용한 피봇 구현.
+   *
+   * @param options - 피봇 옵션
+   * @returns 피봇 결과 (새로운 Row[] + ColumnDef[])
+   *
+   * @example
+   * const result = await processor.pivot({
+   *   rowFields: ['department'],
+   *   columnFields: ['year', 'quarter'],
+   *   valueFields: [{ field: 'sales', aggregate: 'sum' }]
+   * });
+   */
+  async pivot(options: PivotOptions): Promise<PivotResult> {
+    let table = this.ensureInitialized();
+
+    // 필터 먼저 적용
+    if (options.filters && options.filters.length > 0) {
+      for (const filter of options.filters) {
+        table = this.applyFilter(table, filter);
+      }
+    }
+
+    const { rowFields, columnFields, valueFields } = options;
+
+    // 동적 컬럼 값 수집
+    const columnValues = this.collectColumnValues(table, columnFields);
+
+    // 피봇된 컬럼 키 생성
+    const generatedValueColumnKeys = this.generatePivotColumnKeys(
+      columnValues,
+      valueFields
+    );
+
+    // 그룹화 + 집계 스펙 생성
+    const rollupSpec: Record<string, unknown> = {};
+
+    // 각 동적 컬럼에 대해 조건부 집계 생성
+    for (const colCombo of this.cartesianProduct(columnValues)) {
+      const colKey = colCombo.join('_');
+
+      for (const vf of valueFields) {
+        const resultKey = `${colKey}_${vf.field}`;
+
+        // 조건부 집계: 해당 컬럼 값 조합에만 집계 적용
+        rollupSpec[resultKey] = this.createConditionalAggregate(
+          columnFields,
+          colCombo,
+          vf.field,
+          vf.aggregate
+        );
+      }
+    }
+
+    // 그룹화 + 집계 실행
+    const pivoted = table.groupby(...rowFields).rollup(rollupSpec);
+
+    // 결과를 Row[]로 변환
+    const rows = pivoted.objects() as Row[];
+
+    // 컬럼 정의 생성
+    const columns = this.generatePivotColumnDefs(
+      rowFields,
+      generatedValueColumnKeys,
+      valueFields
+    );
+
+    return {
+      rows,
+      columns,
+      generatedValueColumnKeys,
+    };
+  }
+
+  /**
+   * 컬럼 필드의 고유 값 수집
+   */
+  private collectColumnValues(table: Table, columnFields: string[]): string[][] {
+    return columnFields.map((field) => {
+      const values = table.array(field) as unknown[];
+      const uniqueValues = [...new Set(values)]
+        .filter((v) => v !== null && v !== undefined)
+        .map((v) => String(v))
+        .sort();
+      return uniqueValues;
+    });
+  }
+
+  /**
+   * 피봇 컬럼 키 생성
+   */
+  private generatePivotColumnKeys(
+    columnValues: string[][],
+    valueFields: { field: string }[]
+  ): string[] {
+    const keys: string[] = [];
+    const combinations = this.cartesianProduct(columnValues);
+
+    for (const combo of combinations) {
+      const colPrefix = combo.join('_');
+      for (const vf of valueFields) {
+        keys.push(`${colPrefix}_${vf.field}`);
+      }
+    }
+
+    return keys;
+  }
+
+  /**
+   * 카테시안 곱 (조합 생성)
+   */
+  private cartesianProduct(arrays: string[][]): string[][] {
+    if (arrays.length === 0) return [[]];
+    if (arrays.length === 1) return arrays[0]!.map((v) => [v]);
+
+    const [first, ...rest] = arrays;
+    const restProduct = this.cartesianProduct(rest);
+
+    return first!.flatMap((v) => restProduct.map((r) => [v, ...r]));
+  }
+
+  /**
+   * 조건부 집계 표현식 생성
+   *
+   * Arquero의 escape를 사용하여 특정 컬럼 값 조합에만 집계를 적용합니다.
+   */
+  private createConditionalAggregate(
+    columnFields: string[],
+    columnValues: string[],
+    valueField: string,
+    aggregateFunc: string
+  ): unknown {
+    // 조건에 맞는 값만 집계하는 표현식
+    // sum(value * (col1 === 'A' && col2 === '2023' ? 1 : 0))
+    switch (aggregateFunc) {
+      case 'sum':
+        return aq.escape(
+          (d: Row) => {
+            const matches = columnFields.every(
+              (field, i) => String(d[field]) === columnValues[i]
+            );
+            return matches ? (d[valueField] as number) ?? 0 : 0;
+          }
+        );
+      case 'count':
+        return aq.escape(
+          (d: Row) => {
+            const matches = columnFields.every(
+              (field, i) => String(d[field]) === columnValues[i]
+            );
+            return matches ? 1 : 0;
+          }
+        );
+      default:
+        // 기본은 sum
+        return aq.escape(
+          (d: Row) => {
+            const matches = columnFields.every(
+              (field, i) => String(d[field]) === columnValues[i]
+            );
+            return matches ? (d[valueField] as number) ?? 0 : 0;
+          }
+        );
+    }
+  }
+
+  /**
+   * 피봇 컬럼 정의 생성
+   */
+  private generatePivotColumnDefs(
+    rowFields: string[],
+    generatedKeys: string[],
+    _valueFields: { field: string; label?: string }[]
+  ): ColumnDef[] {
+    // 행 필드 컬럼
+    const rowColumnDefs: ColumnDef[] = rowFields.map((field) => ({
+      key: field,
+      label: field,
+      type: 'string' as const,
+      width: 120,
+    }));
+
+    // 동적 생성된 값 컬럼
+    const valueColumnDefs: ColumnDef[] = generatedKeys.map((key) => ({
+      key,
+      label: this.formatPivotColumnLabel(key),
+      type: 'number' as const,
+      width: 100,
+    }));
+
+    return [...rowColumnDefs, ...valueColumnDefs];
+  }
+
+  /**
+   * 피봇 컬럼 레이블 포맷팅
+   */
+  private formatPivotColumnLabel(key: string): string {
+    // 예: "2023_Q1_sales" → "2023 Q1 Sales"
+    return key
+      .split('_')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
   }
 
   // ==========================================================================
