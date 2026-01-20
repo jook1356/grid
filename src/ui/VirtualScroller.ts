@@ -33,11 +33,20 @@ interface VirtualScrollerEvents {
 const SPACER_ROW_HEIGHT = 36;
 
 /**
- * 브라우저 최대 요소 높이 제한 (안전 마진 포함)
- * Chrome: ~33M, Firefox: ~17M, Safari: 비슷
- * 안전하게 10M으로 설정
+ * 브라우저 최대 요소 높이 제한
+ * 
+ * 주의: 값이 너무 크면 GPU transform 정밀도 손실로 인해
+ * row 사이에 subpixel gap이 발생하여 클릭/호버가 불안정해짐.
+ * 1M px 이하로 유지하면 정밀도 문제 최소화.
  */
-const MAX_CHUNK_HEIGHT = 10_000_000;
+const MAX_CHUNK_HEIGHT = 1_000_000;
+
+/**
+ * 브라우저 최대 scrollHeight 제한
+ * 테스트 결과: Chrome ~16,777,214px (2^24)
+ * 안전 마진을 두고 15M으로 설정
+ */
+const MAX_SCROLL_HEIGHT = 15_000_000;
 
 /**
  * 청크 전환 버퍼 (행 수)
@@ -71,6 +80,12 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
    * 프록시 스크롤바 동기화 중 플래그
    */
   private isSyncingProxy = false;
+
+  /**
+   * 마지막으로 설정한 scrollTop 값 (루프 방지용)
+   */
+  private lastSetProxyScrollTop = -1;
+  private lastSetViewportScrollTop = -1;
 
   // DOM 요소
   private scrollProxy: HTMLElement | null = null;
@@ -420,6 +435,12 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
     if (!this.scrollProxy) return;
 
     const { scrollTop, scrollHeight, clientHeight } = this.scrollProxy;
+
+    // 프로그래밍적으로 설정한 값과 동일하면 무시 (무한 루프 방지)
+    if (Math.abs(scrollTop - this.lastSetProxyScrollTop) < 2) {
+      return;
+    }
+
     const maxScroll = scrollHeight - clientHeight;
     const scrollRatio = maxScroll > 0 ? scrollTop / maxScroll : 0;
 
@@ -451,6 +472,12 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
     if (this.isSyncingProxy || this.isTransitioning) return;
 
     const scrollTop = this.viewport.scrollTop;
+
+    // 프로그래밍적으로 설정한 값과 동일하면 무시 (무한 루프 방지)
+    if (Math.abs(scrollTop - this.lastSetViewportScrollTop) < 2) {
+      return;
+    }
+
     const chunkStartIndex = this.getChunkStartIndex(this.currentChunk);
     const chunkRowCount = this.getChunkRowCount(this.currentChunk);
 
@@ -545,8 +572,10 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
 
     const { scrollHeight, clientHeight } = this.scrollProxy;
     const maxScroll = scrollHeight - clientHeight;
-    const targetScrollTop = currentRatio * maxScroll;
+    const targetScrollTop = Math.round(currentRatio * maxScroll);
 
+    // 프로그래밍적 설정값 기록 (scroll 이벤트에서 무시하기 위해)
+    this.lastSetProxyScrollTop = targetScrollTop;
     this.isSyncingProxy = true;
     this.scrollProxy.scrollTop = targetScrollTop;
 
@@ -575,6 +604,8 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
       targetScrollTop = Math.max(0, maxScroll);
     }
 
+    // 프로그래밍적 설정값 기록 (scroll 이벤트에서 무시하기 위해)
+    this.lastSetViewportScrollTop = Math.round(targetScrollTop);
     this.isSyncingProxy = true;
     this.viewport.scrollTop = targetScrollTop;
 
@@ -589,12 +620,16 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
 
   /**
    * Spacer 높이 업데이트 (프록시 스크롤바 범위)
+   * 브라우저 최대 scrollHeight 제한을 고려하여 안전한 높이로 설정
    */
   private updateSpacerHeight(): void {
     if (!this.spacer) return;
 
-    const totalHeight = this.totalRows * SPACER_ROW_HEIGHT;
-    this.spacer.style.height = `${totalHeight}px`;
+    const idealHeight = this.totalRows * SPACER_ROW_HEIGHT;
+    // 브라우저 한계를 초과하면 최대값으로 제한
+    // 비율 기반 스크롤 계산이 이를 보정함
+    const safeHeight = Math.min(idealHeight, MAX_SCROLL_HEIGHT);
+    this.spacer.style.height = `${safeHeight}px`;
   }
 
   /**
