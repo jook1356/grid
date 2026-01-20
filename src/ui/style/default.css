@@ -21,6 +21,8 @@
   --ps-row-alt-bg: #fafafa;
   --ps-focus-color: #1976d2;
   --ps-shadow-color: rgba(0, 0, 0, 0.1);
+  --ps-cell-selected-bg: rgba(25, 118, 210, 0.15);
+  --ps-cell-selected-hover-bg: rgba(25, 118, 210, 0.25);
 
   /* 크기 */
   --ps-header-height: 40px;
@@ -50,6 +52,8 @@
   --ps-row-alt-bg: #252526;
   --ps-focus-color: #0e639c;
   --ps-shadow-color: rgba(0, 0, 0, 0.3);
+  --ps-cell-selected-bg: rgba(14, 99, 156, 0.3);
+  --ps-cell-selected-hover-bg: rgba(14, 99, 156, 0.4);
 }
 
 /* =============================================================================
@@ -659,15 +663,4 @@
 .ps-body.ps-dragging * {
   cursor: crosshair !important;
   user-select: none;
-}
-
-/* CSS 변수 추가 (테마 커스터마이징용) */
-.ps-grid-container {
-  --ps-cell-selected-bg: rgba(25, 118, 210, 0.15);
-  --ps-cell-selected-hover-bg: rgba(25, 118, 210, 0.25);
-}
-
-.ps-grid-container.ps-theme-dark {
-  --ps-cell-selected-bg: rgba(14, 99, 156, 0.3);
-  --ps-cell-selected-hover-bg: rgba(14, 99, 156, 0.4);
 }
