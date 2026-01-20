@@ -1,18 +1,18 @@
 /**
- * VirtualScroller - 인덱스 기반 Proxy Scrollbar 가상 스크롤러
+ * VirtualScroller - 청크 기반 네이티브 스크롤 + Proxy Scrollbar 가상 스크롤러
  *
- * 100만 행과 가변 행 높이를 효율적으로 지원합니다.
+ * 100만 행 이상의 대용량 데이터를 효율적으로 지원합니다.
  *
  * 핵심 아이디어:
- * 1. 네이티브 스크롤바를 별도 DOM(Proxy)에서 생성
- * 2. 스크롤 비율 → 행 인덱스 O(1) 계산 (인덱스 기반)
- * 3. Spacer 높이는 항상 고정 (totalRows × 36px)
- * 4. 렌더링은 실제 행 높이 사용 (Multi-Row 등)
+ * 1. 브라우저 높이 제한(~16M px)을 우회하기 위해 데이터를 청크로 분할
+ * 2. 각 청크 내에서 네이티브 HTML 스크롤 사용 (휠/터치)
+ * 3. 청크 경계에서 부드럽게 전환
+ * 4. 프록시 스크롤바는 전체 데이터 범위를 표시
  *
  * 장점:
- * - 스크롤 비율 = row 인덱스 비율 (직관적)
- * - row 높이가 달라도 스크롤 로직 변경 불필요
- * - 맨 위/맨 아래 끝점이 항상 정확
+ * - 휠/터치 시 네이티브 스크롤링으로 자연스러운 UX
+ * - 수백만 행에서도 브라우저 제한 없이 스크롤 가능
+ * - 스크롤바 드래그로 빠른 위치 이동 가능
  */
 
 import { EventEmitter } from '../core/EventEmitter';
@@ -35,7 +35,20 @@ interface VirtualScrollerEvents {
 const SPACER_ROW_HEIGHT = 36;
 
 /**
- * 인덱스 기반 Proxy Scrollbar 가상 스크롤러
+ * 브라우저 최대 요소 높이 제한 (안전 마진 포함)
+ * Chrome: ~33M, Firefox: ~17M, Safari: 비슷
+ * 안전하게 10M으로 설정
+ */
+const MAX_CHUNK_HEIGHT = 10_000_000;
+
+/**
+ * 청크 전환 버퍼 (행 수)
+ * 청크 경계에 도달하기 전에 미리 전환 준비
+ */
+const CHUNK_TRANSITION_BUFFER = 50;
+
+/**
+ * 청크 기반 Proxy Scrollbar 가상 스크롤러
  */
 export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
   // 설정
@@ -48,20 +61,28 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
 
   /**
    * 렌더링용 행 높이
-   * - 단일 row: 36px
-   * - Multi-Row: rowCount × 36px
-   * - 가변 높이: 평균 또는 최대 높이
    */
   private renderRowHeight: number;
+
+  // 청크 관련 상태
+  private currentChunk = 0;
+  private chunkSize = 0; // 청크당 행 수
+  private isTransitioning = false;
+
+  /**
+   * 프록시 스크롤바 동기화 중 플래그
+   */
+  private isSyncingProxy = false;
 
   // DOM 요소
   private scrollProxy: HTMLElement | null = null;
   private viewport: HTMLElement | null = null;
   private spacer: HTMLElement | null = null;
+  private rowContainer: HTMLElement | null = null;
 
   // 이벤트 바인딩
   private boundOnProxyScroll: () => void;
-  private boundOnViewportWheel: (e: WheelEvent) => void;
+  private boundOnViewportScroll: () => void;
 
   // ResizeObserver (viewport 크기 자동 감지)
   private resizeObserver: ResizeObserver | null = null;
@@ -72,9 +93,12 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
     this.renderRowHeight = options.estimatedRowHeight ?? SPACER_ROW_HEIGHT;
     this.overscan = options.overscan ?? 5;
 
+    // 청크 크기 계산
+    this.chunkSize = Math.floor(MAX_CHUNK_HEIGHT / this.renderRowHeight);
+
     // 이벤트 핸들러 바인딩
     this.boundOnProxyScroll = this.onProxyScroll.bind(this);
-    this.boundOnViewportWheel = this.onViewportWheel.bind(this);
+    this.boundOnViewportScroll = this.onViewportScroll.bind(this);
   }
 
   // ===========================================================================
@@ -84,14 +108,15 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
   /**
    * DOM 요소에 스크롤러 연결
    */
-  attach(scrollProxy: HTMLElement, viewport: HTMLElement, spacer: HTMLElement): void {
+  attach(scrollProxy: HTMLElement, viewport: HTMLElement, spacer: HTMLElement, rowContainer?: HTMLElement): void {
     this.scrollProxy = scrollProxy;
     this.viewport = viewport;
     this.spacer = spacer;
+    this.rowContainer = rowContainer ?? null;
 
     // 이벤트 리스너 등록
     scrollProxy.addEventListener('scroll', this.boundOnProxyScroll, { passive: true });
-    viewport.addEventListener('wheel', this.boundOnViewportWheel, { passive: false });
+    viewport.addEventListener('scroll', this.boundOnViewportScroll, { passive: true });
 
     // ResizeObserver로 viewport 크기 자동 감지
     if (typeof ResizeObserver !== 'undefined') {
@@ -101,6 +126,7 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
             const newHeight = entry.contentRect.height;
             if (newHeight !== this.viewportHeight && newHeight > 0) {
               this.viewportHeight = newHeight;
+              this.updateRowContainerHeight();
               this.emitRangeChanged();
             }
           }
@@ -116,13 +142,15 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
         if (height > 0 && height !== this.viewportHeight) {
           this.viewportHeight = height;
           this.updateSpacerHeight();
+          this.updateRowContainerHeight();
           this.emitRangeChanged();
         }
       }
     });
 
-    // 초기 Spacer 높이 설정
+    // 초기 높이 설정
     this.updateSpacerHeight();
+    this.updateRowContainerHeight();
   }
 
   /**
@@ -133,7 +161,7 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
       this.scrollProxy.removeEventListener('scroll', this.boundOnProxyScroll);
     }
     if (this.viewport) {
-      this.viewport.removeEventListener('wheel', this.boundOnViewportWheel);
+      this.viewport.removeEventListener('scroll', this.boundOnViewportScroll);
     }
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
@@ -143,6 +171,7 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
     this.scrollProxy = null;
     this.viewport = null;
     this.spacer = null;
+    this.rowContainer = null;
   }
 
   /**
@@ -162,22 +191,26 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
    */
   setTotalRows(count: number): void {
     this.totalRows = count;
+
+    // currentStartIndex를 범위 내로 조정
+    if (this.currentStartIndex >= count) {
+      this.currentStartIndex = Math.max(0, count - 1);
+      this.currentChunk = this.getChunkForIndex(this.currentStartIndex);
+    }
+
     this.updateSpacerHeight();
+    this.updateRowContainerHeight();
     this.emitRangeChanged();
   }
 
   /**
    * 렌더링용 행 높이 설정
-   *
-   * Multi-Row의 경우 각 데이터 행이 여러 visual row를 차지하므로
-   * 실제 행 높이 = rowCount × baseRowHeight
-   *
-   * 참고: 이 값은 렌더링과 visibleRowCount 계산에만 사용됩니다.
-   * Spacer 높이(스크롤바 범위)는 항상 고정 높이(36px) 기준입니다.
    */
   setRenderRowHeight(height: number): void {
     this.renderRowHeight = height;
-    // Spacer 높이는 변경하지 않음 (인덱스 기반 스크롤)
+    // 청크 크기 재계산
+    this.chunkSize = Math.floor(MAX_CHUNK_HEIGHT / this.renderRowHeight);
+    this.updateRowContainerHeight();
     this.emitRangeChanged();
   }
 
@@ -194,6 +227,7 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
   updateViewportSize(): void {
     if (this.viewport) {
       this.viewportHeight = this.viewport.clientHeight;
+      this.updateRowContainerHeight();
       this.emitRangeChanged();
     }
   }
@@ -202,25 +236,36 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
    * 특정 행으로 스크롤
    */
   scrollToRow(rowIndex: number): void {
-    if (!this.scrollProxy) return;
-
     const clampedIndex = Math.max(0, Math.min(rowIndex, this.totalRows - 1));
-    const visibleCount = this.getVisibleRowCount();
-    const maxStartIndex = Math.max(0, this.totalRows - visibleCount);
-    const targetRatio = maxStartIndex > 0 ? clampedIndex / maxStartIndex : 0;
+    const targetChunk = this.getChunkForIndex(clampedIndex);
 
-    const { scrollHeight, clientHeight } = this.scrollProxy;
-    const maxScroll = scrollHeight - clientHeight;
-    this.scrollProxy.scrollTop = targetRatio * maxScroll;
+    // 청크 전환 필요시
+    if (targetChunk !== this.currentChunk) {
+      this.transitionToChunk(targetChunk);
+    }
+
+    this.currentStartIndex = clampedIndex;
+
+    // Viewport 스크롤 위치 설정 (청크 내 상대 위치)
+    if (this.viewport) {
+      const indexInChunk = clampedIndex - this.getChunkStartIndex(this.currentChunk);
+      this.isSyncingProxy = true;
+      this.viewport.scrollTop = indexInChunk * this.renderRowHeight;
+      requestAnimationFrame(() => {
+        this.isSyncingProxy = false;
+      });
+    }
+
+    // 프록시 스크롤바 동기화
+    this.syncProxyScrollbar();
+    this.emitRangeChanged();
   }
 
   /**
    * 스크롤을 맨 위로 이동
    */
   scrollToTop(): void {
-    if (this.scrollProxy) {
-      this.scrollProxy.scrollTop = 0;
-    }
+    this.scrollToRow(0);
   }
 
   // ===========================================================================
@@ -247,7 +292,7 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
   }
 
   /**
-   * Viewport에 보이는 행 수 (렌더링용 높이 기준)
+   * Viewport에 보이는 행 수
    */
   getVisibleRowCount(): number {
     if (this.viewportHeight <= 0) {
@@ -278,19 +323,41 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
   }
 
   /**
-   * 행 위치 보정 오프셋 (맨 아래 스크롤 시 마지막 행이 잘리지 않도록)
+   * 현재 청크 번호
+   */
+  getCurrentChunk(): number {
+    return this.currentChunk;
+  }
+
+  /**
+   * 현재 청크의 시작 인덱스
+   */
+  getCurrentChunkStartIndex(): number {
+    return this.getChunkStartIndex(this.currentChunk);
+  }
+
+  /**
+   * 행의 청크 내 상대 위치 (픽셀)
+   * BodyRenderer에서 row 배치에 사용
+   */
+  getRowOffsetInChunk(rowIndex: number): number {
+    const chunkStartIndex = this.getChunkStartIndex(this.currentChunk);
+    const indexInChunk = rowIndex - chunkStartIndex;
+    return indexInChunk * this.renderRowHeight;
+  }
+
+  /**
+   * 행 위치 보정 오프셋 (맨 아래 스크롤 시)
    */
   getRowOffset(): number {
     const visibleCount = this.getVisibleRowCount();
 
-    // row 수가 viewport를 채우지 못하면 offset 불필요
     if (this.totalRows <= visibleCount) {
       return 0;
     }
 
     const maxStartIndex = Math.max(0, this.totalRows - visibleCount);
 
-    // 맨 아래 스크롤인지 확인
     if (this.currentStartIndex >= maxStartIndex && this.totalRows > 0) {
       const contentHeight = visibleCount * this.renderRowHeight;
       const offset = this.viewportHeight - contentHeight;
@@ -301,47 +368,289 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
   }
 
   // ===========================================================================
+  // 청크 관리 (Private)
+  // ===========================================================================
+
+  /**
+   * 인덱스가 속한 청크 번호
+   */
+  private getChunkForIndex(index: number): number {
+    return Math.floor(index / this.chunkSize);
+  }
+
+  /**
+   * 청크의 시작 인덱스
+   */
+  private getChunkStartIndex(chunk: number): number {
+    return chunk * this.chunkSize;
+  }
+
+  /**
+   * 청크의 행 수
+   *
+   * 마지막 청크인 경우 남은 모든 행을 포함합니다 (작은 청크 병합 효과).
+   */
+  private getChunkRowCount(chunk: number): number {
+    const startIndex = this.getChunkStartIndex(chunk);
+    if (startIndex >= this.totalRows) return 0;
+
+    const totalChunks = this.getTotalChunks();
+
+    // 마지막 청크인 경우 남은 모든 행 포함
+    if (chunk === totalChunks - 1) {
+      return this.totalRows - startIndex;
+    }
+
+    return this.chunkSize;
+  }
+
+  /**
+   * 총 청크 수
+   *
+   * 마지막 청크가 너무 작으면 이전 청크에 병합하여 청크 수를 줄입니다.
+   * 이렇게 하면 마지막 청크에서의 스크롤 공간이 확보됩니다.
+   */
+  private getTotalChunks(): number {
+    if (this.totalRows === 0) return 0;
+
+    const rawChunks = Math.ceil(this.totalRows / this.chunkSize);
+
+    // 마지막 청크가 너무 작으면 이전 청크에 병합
+    if (rawChunks > 1) {
+      const lastChunkStart = (rawChunks - 1) * this.chunkSize;
+      const lastChunkRows = this.totalRows - lastChunkStart;
+      // CHUNK_TRANSITION_BUFFER * 2 미만이면 병합
+      if (lastChunkRows < CHUNK_TRANSITION_BUFFER * 2) {
+        return rawChunks - 1;
+      }
+    }
+
+    return rawChunks;
+  }
+
+  /**
+   * 청크 전환
+   */
+  private transitionToChunk(newChunk: number): void {
+    if (this.isTransitioning) return;
+    if (newChunk < 0 || newChunk >= this.getTotalChunks()) return;
+
+    this.isTransitioning = true;
+    this.currentChunk = newChunk;
+    this.updateRowContainerHeight();
+
+    // 다음 프레임에서 전환 완료
+    requestAnimationFrame(() => {
+      this.isTransitioning = false;
+    });
+  }
+
+  // ===========================================================================
   // 이벤트 핸들러 (Private)
   // ===========================================================================
 
   /**
-   * Proxy 스크롤 → 행 인덱스 계산 (비율 기반)
-   *
-   * 핵심: 스크롤 비율 = row 인덱스 비율
-   * - 스크롤 0% → row 0
-   * - 스크롤 50% → row 50%
-   * - 스크롤 100% → 마지막 row
+   * Proxy 스크롤바 직접 조작 시 (드래그)
    */
   private onProxyScroll(): void {
+    if (this.isSyncingProxy) return;
     if (!this.scrollProxy) return;
 
     const { scrollTop, scrollHeight, clientHeight } = this.scrollProxy;
     const maxScroll = scrollHeight - clientHeight;
     const scrollRatio = maxScroll > 0 ? scrollTop / maxScroll : 0;
 
-    // 비율 → 행 인덱스 (O(1) 계산)
+    // 비율 → 전역 행 인덱스
     const visibleCount = this.getVisibleRowCount();
     const maxStartIndex = Math.max(0, this.totalRows - visibleCount);
     const targetStartIndex = Math.round(scrollRatio * maxStartIndex);
 
-    // 시작 인덱스가 변경되었을 때만 이벤트 발생
+    // 청크 전환 필요시
+    const targetChunk = this.getChunkForIndex(targetStartIndex);
+    if (targetChunk !== this.currentChunk) {
+      this.transitionToChunk(targetChunk);
+    }
+
     if (targetStartIndex !== this.currentStartIndex) {
       this.currentStartIndex = targetStartIndex;
+
+      // Viewport 스크롤 위치 동기화 (청크 내 상대 위치)
+      this.syncViewportScroll();
       this.emitRangeChanged();
     }
 
-    // 스크롤 이벤트는 항상 발생
     this.emit('scroll', { scrollTop, scrollRatio });
   }
 
   /**
-   * Viewport 휠 → Proxy로 전달
+   * Viewport 네이티브 스크롤 이벤트 핸들러
    */
-  private onViewportWheel(e: WheelEvent): void {
+  private onViewportScroll(): void {
+    if (!this.viewport || !this.scrollProxy) return;
+    if (this.isSyncingProxy || this.isTransitioning) return;
+
+    const scrollTop = this.viewport.scrollTop;
+    const chunkStartIndex = this.getChunkStartIndex(this.currentChunk);
+    const chunkRowCount = this.getChunkRowCount(this.currentChunk);
+
+    // 청크 내 인덱스 계산
+    const indexInChunk = Math.floor(scrollTop / this.renderRowHeight);
+    const targetStartIndex = chunkStartIndex + indexInChunk;
+
+    // 청크 경계 감지 및 전환
+    if (indexInChunk >= chunkRowCount - CHUNK_TRANSITION_BUFFER &&
+        this.currentChunk < this.getTotalChunks() - 1) {
+      // 다음 청크로 전환
+      this.transitionToNextChunk();
+      return;
+    } else if (indexInChunk < CHUNK_TRANSITION_BUFFER && this.currentChunk > 0) {
+      // 이전 청크로 전환하기 전에 검사:
+      // 현재 보고 있는 행이 이전 청크의 유효 범위 내에 있어야만 전환
+      const prevChunk = this.currentChunk - 1;
+      const prevChunkStartIndex = this.getChunkStartIndex(prevChunk);
+      const prevChunkRowCount = this.getChunkRowCount(prevChunk);
+      const prevChunkEndIndex = prevChunkStartIndex + prevChunkRowCount - 1;
+
+      // targetStartIndex가 이전 청크 범위를 벗어나면 전환하지 않음
+      // (마지막 청크의 시작 부분에 있어서 이전 청크로 갈 수 없는 경우)
+      if (targetStartIndex <= prevChunkEndIndex) {
+        this.transitionToPrevChunk();
+        return;
+      }
+    }
+
+    // 시작 인덱스 업데이트
+    if (targetStartIndex !== this.currentStartIndex) {
+      this.currentStartIndex = Math.min(targetStartIndex, this.totalRows - 1);
+      this.emitRangeChanged();
+    }
+
+    // 프록시 스크롤바 동기화
+    this.syncProxyScrollbar();
+  }
+
+  /**
+   * 다음 청크로 전환
+   */
+  private transitionToNextChunk(): void {
+    if (this.isTransitioning) return;
+
+    const nextChunk = this.currentChunk + 1;
+    if (nextChunk >= this.getTotalChunks()) return;
+
+    this.isTransitioning = true;
+
+    // 현재 보이는 전역 인덱스 기억
+    const currentGlobalIndex = this.currentStartIndex;
+
+    // 청크 전환
+    this.currentChunk = nextChunk;
+    this.updateRowContainerHeight();
+
+    // 새 청크에서의 스크롤 위치 계산
+    const newChunkStartIndex = this.getChunkStartIndex(nextChunk);
+    const indexInNewChunk = currentGlobalIndex - newChunkStartIndex;
+    const newScrollTop = Math.max(0, indexInNewChunk * this.renderRowHeight);
+
+    // Viewport 스크롤 위치 설정
+    if (this.viewport) {
+      this.isSyncingProxy = true;
+      this.viewport.scrollTop = newScrollTop;
+    }
+
+    this.emitRangeChanged();
+
+    requestAnimationFrame(() => {
+      this.isTransitioning = false;
+      this.isSyncingProxy = false;
+    });
+  }
+
+  /**
+   * 이전 청크로 전환
+   */
+  private transitionToPrevChunk(): void {
+    if (this.isTransitioning) return;
+
+    const prevChunk = this.currentChunk - 1;
+    if (prevChunk < 0) return;
+
+    this.isTransitioning = true;
+
+    // 현재 보이는 전역 인덱스 기억
+    const currentGlobalIndex = this.currentStartIndex;
+
+    // 청크 전환
+    this.currentChunk = prevChunk;
+    this.updateRowContainerHeight();
+
+    // 새 청크에서의 스크롤 위치 계산
+    const newChunkStartIndex = this.getChunkStartIndex(prevChunk);
+    const indexInNewChunk = currentGlobalIndex - newChunkStartIndex;
+    const newScrollTop = indexInNewChunk * this.renderRowHeight;
+
+    // Viewport 스크롤 위치 설정
+    if (this.viewport) {
+      this.isSyncingProxy = true;
+      this.viewport.scrollTop = newScrollTop;
+    }
+
+    this.emitRangeChanged();
+
+    requestAnimationFrame(() => {
+      this.isTransitioning = false;
+      this.isSyncingProxy = false;
+    });
+  }
+
+  /**
+   * 프록시 스크롤바 위치 동기화
+   */
+  private syncProxyScrollbar(): void {
     if (!this.scrollProxy) return;
 
-    this.scrollProxy.scrollTop += e.deltaY;
-    e.preventDefault();
+    const visibleCount = this.getVisibleRowCount();
+    const maxStartIndex = Math.max(0, this.totalRows - visibleCount);
+    const currentRatio = maxStartIndex > 0 ? this.currentStartIndex / maxStartIndex : 0;
+
+    const { scrollHeight, clientHeight } = this.scrollProxy;
+    const maxScroll = scrollHeight - clientHeight;
+    const targetScrollTop = currentRatio * maxScroll;
+
+    this.isSyncingProxy = true;
+    this.scrollProxy.scrollTop = targetScrollTop;
+
+    requestAnimationFrame(() => {
+      this.isSyncingProxy = false;
+    });
+  }
+
+  /**
+   * Viewport 스크롤 위치 동기화
+   */
+  private syncViewportScroll(): void {
+    if (!this.viewport) return;
+
+    const chunkStartIndex = this.getChunkStartIndex(this.currentChunk);
+    const chunkRowCount = this.getChunkRowCount(this.currentChunk);
+    const indexInChunk = this.currentStartIndex - chunkStartIndex;
+
+    let targetScrollTop = Math.max(0, indexInChunk * this.renderRowHeight);
+
+    // 맨 아래 행을 보고 있을 때: viewport를 최대 스크롤 위치로
+    const visibleCount = this.getVisibleRowCount();
+    const maxStartIndex = Math.max(0, this.totalRows - visibleCount);
+    if (this.currentStartIndex >= maxStartIndex) {
+      const maxScroll = (chunkRowCount * this.renderRowHeight) - this.viewportHeight;
+      targetScrollTop = Math.max(0, maxScroll);
+    }
+
+    this.isSyncingProxy = true;
+    this.viewport.scrollTop = targetScrollTop;
+
+    requestAnimationFrame(() => {
+      this.isSyncingProxy = false;
+    });
   }
 
   // ===========================================================================
@@ -349,17 +658,24 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
   // ===========================================================================
 
   /**
-   * Spacer 높이 업데이트 (스크롤바 범위 결정)
-   *
-   * 인덱스 기반 스크롤: 항상 고정 높이(36px) 기준
-   * 이렇게 하면 row 높이가 달라도 스크롤바 동작이 일관됩니다.
+   * Spacer 높이 업데이트 (프록시 스크롤바 범위)
    */
   private updateSpacerHeight(): void {
     if (!this.spacer) return;
 
-    // 항상 고정 높이 기준 (인덱스 기반)
     const totalHeight = this.totalRows * SPACER_ROW_HEIGHT;
     this.spacer.style.height = `${totalHeight}px`;
+  }
+
+  /**
+   * rowContainer 높이 업데이트 (현재 청크 크기)
+   */
+  private updateRowContainerHeight(): void {
+    if (!this.rowContainer) return;
+
+    const chunkRowCount = this.getChunkRowCount(this.currentChunk);
+    const chunkHeight = chunkRowCount * this.renderRowHeight;
+    this.rowContainer.style.height = `${chunkHeight}px`;
   }
 
   /**

@@ -208,7 +208,15 @@
   right: var(--ps-scrollbar-width);
   bottom: 0;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: auto;
+}
+
+/* 세로 스크롤바 숨김 (프록시 스크롤바 사용)
+   Chrome/Safari/Edge에서 세로 스크롤바만 숨김
+   Firefox는 가로/세로 구분이 불가하여 기본 스크롤바 표시됨 */
+.ps-viewport::-webkit-scrollbar:vertical {
+  width: 0;
+  display: none;
 }
 
 /* 가로 스크롤바 스타일 */
@@ -229,14 +237,23 @@
   background: #a8a8a8;
 }
 
-/* 모바일: 스크롤바 오버레이 */
+/* 터치 기기: viewport가 터치 이벤트 받음, 프록시 스크롤바는 시각적 표시만 */
 @media (pointer: coarse) {
   .ps-viewport {
+    /* viewport가 전체 영역 차지 */
     right: 0;
   }
 
   .ps-scroll-proxy {
-    width: 100%;
+    /* 프록시 스크롤바는 오른쪽에 오버레이로 표시 */
+    width: var(--ps-scrollbar-width);
+    /* 터치 이벤트 통과 - viewport가 스크롤 처리 */
+    pointer-events: none;
+    background: transparent;
+  }
+
+  /* 터치 기기에서 스크롤바 썸만 터치 가능하게 */
+  .ps-scroll-proxy::-webkit-scrollbar-thumb {
     pointer-events: auto;
   }
 }

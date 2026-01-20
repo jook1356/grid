@@ -133,8 +133,8 @@ export class BodyRenderer {
       this.virtualScroller.setRenderRowHeight(this.multiRowRenderer.getTotalRowHeight());
     }
 
-    // VirtualScroller 연결
-    this.virtualScroller.attach(this.scrollProxy, this.viewport, this.spacer);
+    // VirtualScroller 연결 (rowContainer도 전달하여 네이티브 스크롤 지원)
+    this.virtualScroller.attach(this.scrollProxy, this.viewport, this.spacer, this.rowContainer);
 
     // 이벤트 바인딩
     this.virtualScroller.on('rangeChanged', this.onRangeChanged.bind(this));
@@ -356,18 +356,12 @@ export class BodyRenderer {
   private renderVisibleRows(): void {
     const state = this.virtualScroller.getState();
 
-    // 화면에 보이는 첫 번째 행 인덱스 (overscan 미포함)
-    const visibleStartIndex = this.virtualScroller.getVisibleStartIndex();
-
-    // 맨 아래 스크롤 시 마지막 행이 잘리지 않도록 하는 오프셋
-    const rowOffset = this.virtualScroller.getRowOffset();
-
     const columnGroups = this.getColumnGroups();
     const totalRowCount = this.virtualRows.length;
 
     // Multi-Row 모드
     if (this.multiRowRenderer) {
-      this.renderMultiRowMode(state, visibleStartIndex, rowOffset, totalRowCount);
+      this.renderMultiRowMode(state, totalRowCount);
       return;
     }
 
@@ -385,9 +379,9 @@ export class BodyRenderer {
 
       // VirtualRow 타입에 따라 렌더링
       if (virtualRow.type === 'group-header') {
-        this.renderGroupHeader(rowElement, rowIndex, virtualRow, visibleStartIndex, rowOffset);
+        this.renderGroupHeader(rowElement, rowIndex, virtualRow);
       } else {
-        this.renderDataRow(rowElement, rowIndex, virtualRow, columnGroups, visibleStartIndex, rowOffset);
+        this.renderDataRow(rowElement, rowIndex, virtualRow, columnGroups);
       }
     }
   }
@@ -400,8 +394,6 @@ export class BodyRenderer {
    */
   private renderMultiRowMode(
     state: { startIndex: number; endIndex: number },
-    visibleStartIndex: number,
-    rowOffset: number,
     totalRowCount: number
   ): void {
     if (!this.multiRowRenderer) return;
@@ -420,8 +412,8 @@ export class BodyRenderer {
       const virtualRow = this.virtualRows[rowIndex];
       if (!virtualRow || virtualRow.type !== 'data') continue;
 
-      const relativeIndex = rowIndex - visibleStartIndex;
-      const offsetY = relativeIndex * effectiveRowHeight + rowOffset;
+      // 청크 내 상대 위치 (청크 기반 네이티브 스크롤용)
+      const offsetY = this.virtualScroller.getRowOffsetInChunk(rowIndex);
 
       // 기존 컨테이너 재사용: 내용만 업데이트
       this.multiRowRenderer.updateDataRow(
@@ -439,13 +431,10 @@ export class BodyRenderer {
   private renderGroupHeader(
     rowElement: HTMLElement,
     rowIndex: number,
-    groupRow: GroupHeaderRow,
-    visibleStartIndex: number,
-    rowOffset: number = 0
+    groupRow: GroupHeaderRow
   ): void {
-    // Y 위치 설정
-    const relativeIndex = rowIndex - visibleStartIndex;
-    const offsetY = relativeIndex * this.rowHeight + rowOffset;
+    // 청크 내 상대 위치 설정 (청크 기반 네이티브 스크롤용)
+    const offsetY = this.virtualScroller.getRowOffsetInChunk(rowIndex);
     rowElement.style.transform = `translateY(${offsetY}px)`;
 
     // 그룹 헤더 스타일
@@ -514,15 +503,12 @@ export class BodyRenderer {
     rowElement: HTMLElement,
     rowIndex: number,
     dataRow: DataRow,
-    columnGroups: ColumnGroups,
-    visibleStartIndex: number,
-    rowOffset: number = 0
+    columnGroups: ColumnGroups
   ): void {
     const rowData = dataRow.data;
 
-    // Y 위치 설정 (viewport 기준 상대 위치)
-    const relativeIndex = rowIndex - visibleStartIndex;
-    const offsetY = relativeIndex * this.rowHeight + rowOffset;
+    // 청크 내 상대 위치 설정 (청크 기반 네이티브 스크롤용)
+    const offsetY = this.virtualScroller.getRowOffsetInChunk(rowIndex);
     rowElement.style.transform = `translateY(${offsetY}px)`;
 
     // 그룹 헤더 스타일 제거
