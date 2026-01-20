@@ -583,11 +583,14 @@ export class PureSheet {
   }
 
   /**
-   * 선택 UI 업데이트 (행 선택)
+   * 선택 UI 업데이트
    */
   private updateSelectionUI(): void {
-    this.gridRenderer.updateSelection(this.selectionManager.getSelectedRowIds());
-    // 셀 선택도 함께 업데이트
+    // row 모드에서만 명시적 행 선택 업데이트
+    if (this.options.selectionMode === 'row') {
+      this.gridRenderer.updateSelection(this.selectionManager.getSelectedRowIds());
+    }
+    // 셀 선택 업데이트 (행 하이라이트도 여기서 처리)
     this.updateCellSelectionUI();
   }
 

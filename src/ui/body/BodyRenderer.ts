@@ -5,7 +5,7 @@
  * RowPool을 사용하여 DOM 요소를 재사용합니다.
  * GroupManager를 통해 그룹화된 데이터를 렌더링합니다.
  * MultiRowRenderer를 통해 Multi-Row 레이아웃을 지원합니다.
- * 드래그 선택(Marquee Selection)을 지원합니다.
+ * 드래그 선택을 지원합니다.
  */
 
 import type { GridCore } from '../../core/GridCore';

@@ -5,7 +5,7 @@
  * - 단일/다중 선택
  * - Shift 범위 선택
  * - Ctrl/Cmd 토글 선택
- * - 드래그 범위 선택 (Marquee)
+ * - 드래그 범위 선택
  * - 키보드 네비게이션
  *
  * 선택된 셀은 Set<string>에 "rowIndex:columnKey" 형태로 저장됩니다.
@@ -49,6 +49,10 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
 
   // 컬럼 순서 캐시 (컬럼 인덱스 조회용)
   private columnIndexMap: Map<string, number> = new Map();
+
+  // 드래그 세션 상태
+  private dragAddToExisting = false;  // Ctrl 누른 상태로 드래그 시작했는지
+  private preDragSelection: Set<string> = new Set();  // 드래그 시작 전 선택 상태
 
   constructor(options: SelectionManagerOptions) {
     super();
@@ -366,50 +370,24 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   }
 
   /**
-   * 셀 범위 선택 (Shift + 클릭 또는 드래그)
+   * 셀 범위 선택 (Shift + 클릭)
    *
    * @param start - 시작 셀 (앵커)
    * @param end - 끝 셀
    * @param addToExisting - 기존 선택에 추가할지 여부 (Ctrl+Shift)
    */
   selectCellRange(start: CellPosition, end: CellPosition, addToExisting = false): void {
-    const columns = this.gridCore.getColumns();
-
-    // 컬럼 인덱스 찾기
-    const startColIndex = this.getColumnIndex(start.columnKey);
-    const endColIndex = this.getColumnIndex(end.columnKey);
-
-    // 범위 정규화 (min/max)
-    const minRow = Math.min(start.rowIndex, end.rowIndex);
-    const maxRow = Math.max(start.rowIndex, end.rowIndex);
-    const minCol = Math.min(startColIndex, endColIndex);
-    const maxCol = Math.max(startColIndex, endColIndex);
-
-    // 기존 선택 유지 여부
     if (!addToExisting) {
       this.state.selectedCells.clear();
     }
 
-    // 범위 내 모든 셀 선택
-    for (let row = minRow; row <= maxRow; row++) {
-      for (let col = minCol; col <= maxCol; col++) {
-        const columnKey = columns[col]?.key;
-        if (columnKey) {
-          this.state.selectedCells.add(`${row}:${columnKey}`);
-        }
-      }
-    }
-
+    this.addCellsInRange(start, end);
     this.emitSelectionChanged();
   }
 
   // ===========================================================================
   // 드래그 선택
   // ===========================================================================
-
-  // 드래그 세션 상태
-  private dragAddToExisting = false;  // Ctrl 누른 상태로 드래그 시작했는지
-  private preDragSelection: Set<string> = new Set();  // 드래그 시작 전 선택 상태
 
   /**
    * 드래그 선택 시작
@@ -452,24 +430,8 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
       this.state.selectedCells.clear();
     }
 
-    // 앵커에서 현재 위치까지 범위 선택 (항상 추가 모드)
-    const columns = this.gridCore.getColumns();
-    const startColIndex = this.getColumnIndex(this.state.anchorCell.columnKey);
-    const endColIndex = this.getColumnIndex(position.columnKey);
-    const minRow = Math.min(this.state.anchorCell.rowIndex, position.rowIndex);
-    const maxRow = Math.max(this.state.anchorCell.rowIndex, position.rowIndex);
-    const minCol = Math.min(startColIndex, endColIndex);
-    const maxCol = Math.max(startColIndex, endColIndex);
-
-    for (let row = minRow; row <= maxRow; row++) {
-      for (let col = minCol; col <= maxCol; col++) {
-        const columnKey = columns[col]?.key;
-        if (columnKey) {
-          this.state.selectedCells.add(`${row}:${columnKey}`);
-        }
-      }
-    }
-
+    // 앵커에서 현재 위치까지 범위 추가
+    this.addCellsInRange(this.state.anchorCell, position);
     this.emitSelectionChanged();
   }
 
@@ -686,6 +648,29 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
    */
   private getColumnIndex(columnKey: string): number {
     return this.columnIndexMap.get(columnKey) ?? 0;
+  }
+
+  /**
+   * 범위 내 모든 셀을 selectedCells에 추가
+   */
+  private addCellsInRange(start: CellPosition, end: CellPosition): void {
+    const columns = this.gridCore.getColumns();
+    const startColIndex = this.getColumnIndex(start.columnKey);
+    const endColIndex = this.getColumnIndex(end.columnKey);
+
+    const minRow = Math.min(start.rowIndex, end.rowIndex);
+    const maxRow = Math.max(start.rowIndex, end.rowIndex);
+    const minCol = Math.min(startColIndex, endColIndex);
+    const maxCol = Math.max(startColIndex, endColIndex);
+
+    for (let row = minRow; row <= maxRow; row++) {
+      for (let col = minCol; col <= maxCol; col++) {
+        const columnKey = columns[col]?.key;
+        if (columnKey) {
+          this.state.selectedCells.add(`${row}:${columnKey}`);
+        }
+      }
+    }
   }
 
   /**
