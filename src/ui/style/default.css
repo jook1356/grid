@@ -17,7 +17,7 @@
   --ps-header-text: #333333;
   --ps-cell-text: #333333;
   --ps-row-hover-bg: #f0f7ff;
-  --ps-row-selected-bg: #e3f2fd;
+  --ps-row-selected-bg: rgb(226, 242, 253, 0.6);
   --ps-row-alt-bg: #fafafa;
   --ps-focus-color: #1976d2;
   --ps-shadow-color: rgba(0, 0, 0, 0.1);

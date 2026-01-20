@@ -321,11 +321,13 @@ export class BodyRenderer {
   }
 
   /**
-   * 선택 상태 업데이트 (행 선택)
+   * 선택 상태 업데이트 (명시적 행 선택 - ID 기준)
+   * 주의: 이 메서드 단독으로는 UI를 업데이트하지 않습니다.
+   * updateCellSelection과 함께 호출되어야 합니다.
    */
   updateSelection(selectedRows: Set<string | number>): void {
     this.selectedRows = selectedRows;
-    this.updateRowSelectionStyles();
+    // 행 스타일은 updateCellSelection에서 통합 처리
   }
 
   /**
@@ -345,7 +347,7 @@ export class BodyRenderer {
     }
     
     this.updateCellSelectionStyles();
-    this.updateCombinedRowSelectionStyles();
+    this.updateCombinedRowSelectionStyles();  // 행 선택도 여기서 통합 처리
   }
 
   /**
@@ -818,13 +820,6 @@ export class BodyRenderer {
     right.sort(sortByOrder);
 
     return { left, center, right };
-  }
-
-  /**
-   * 선택 상태 스타일 업데이트 (행 ID 기준 - 명시적 행 선택)
-   */
-  private updateRowSelectionStyles(): void {
-    this.updateCombinedRowSelectionStyles();
   }
 
   /**

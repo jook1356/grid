@@ -520,9 +520,13 @@ export class PureSheet {
    * 행 클릭 핸들러
    */
   private handleRowClick(rowIndex: number, row: Row, event: MouseEvent): void {
-    const rowId = row['id'] as string | number | undefined;
-    if (rowId !== undefined) {
-      this.selectionManager.handleRowClick(rowIndex, rowId, event);
+    // row 선택 모드에서만 행 선택 처리
+    // range/cell 모드에서는 handleCellClick에서 처리
+    if (this.options.selectionMode === 'row') {
+      const rowId = row['id'] as string | number | undefined;
+      if (rowId !== undefined) {
+        this.selectionManager.handleRowClick(rowIndex, rowId, event);
+      }
     }
     this.emitEvent('row:click', { row, rowIndex, event });
   }
