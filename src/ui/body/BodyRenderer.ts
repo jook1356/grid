@@ -91,8 +91,11 @@ export class BodyRenderer {
 
   // 드래그 선택 상태
   private isDragging = false;
+  private isActualDrag = false;  // 실제로 드래그했는지 (셀이 바뀌었는지)
+  private justFinishedDrag = false;  // 방금 드래그 완료 (클릭 무시용)
   private dragStartPosition: CellPosition | null = null;
   private lastDragColumnKey: string | null = null;  // 드래그 중 마지막 컬럼 키
+  private dragStartEvent: MouseEvent | null = null;  // 드래그 시작 이벤트 저장
 
   // 선택된 셀 Set (O(1) 조회용)
   private selectedCells: Set<string> = new Set();
@@ -690,6 +693,12 @@ export class BodyRenderer {
    * 클릭 이벤트 처리
    */
   private handleClick(event: MouseEvent): void {
+    // 드래그 직후 클릭은 무시 (드래그에서 이미 처리됨)
+    if (this.justFinishedDrag) {
+      this.justFinishedDrag = false;
+      return;
+    }
+
     const target = event.target as HTMLElement;
     const row = target.closest('.ps-row') as HTMLElement | null;
 
@@ -825,7 +834,7 @@ export class BodyRenderer {
   // ===========================================================================
 
   /**
-   * 마우스 다운 이벤트 처리 (드래그 시작)
+   * 마우스 다운 이벤트 처리 (드래그 준비)
    */
   private handleMouseDown(event: MouseEvent): void {
     // 왼쪽 버튼만 처리
@@ -840,15 +849,12 @@ export class BodyRenderer {
     const row = target.closest('.ps-row') as HTMLElement | null;
     if (row?.dataset['rowType'] === 'group-header') return;
 
-    // 드래그 시작
+    // 드래그 준비 (아직 실제 드래그 시작 아님)
     this.isDragging = true;
+    this.isActualDrag = false;  // 셀이 바뀌기 전까지는 클릭으로 간주
     this.dragStartPosition = cellPosition;
-    this.lastDragColumnKey = cellPosition.columnKey;  // 초기 컬럼 키 설정
-
-    // 콜백 호출
-    if (this.onDragSelectionStart) {
-      this.onDragSelectionStart(cellPosition, event);
-    }
+    this.lastDragColumnKey = cellPosition.columnKey;
+    this.dragStartEvent = event;  // 이벤트 저장 (나중에 드래그 시작 시 사용)
 
     // 전역 이벤트 리스너 등록 (viewport 밖에서도 드래그 추적)
     document.addEventListener('mousemove', this.boundHandleMouseMove);
@@ -862,22 +868,39 @@ export class BodyRenderer {
    * 마우스 이동 이벤트 처리 (드래그 중)
    */
   private handleMouseMove(event: MouseEvent): void {
-    if (!this.isDragging) return;
+    if (!this.isDragging || !this.dragStartPosition) return;
 
     // 현재 마우스 위치에서 셀 위치 계산
     const cellPosition = this.getCellPositionFromMousePosition(event);
     if (!cellPosition) return;
 
-    // 마지막 컬럼 키 저장 (자동 스크롤 시 사용)
-    this.lastDragColumnKey = cellPosition.columnKey;
+    // 셀이 바뀌었는지 확인 (실제 드래그 시작)
+    const cellChanged = cellPosition.rowIndex !== this.dragStartPosition.rowIndex ||
+                        cellPosition.columnKey !== this.dragStartPosition.columnKey;
 
-    // 콜백 호출
-    if (this.onDragSelectionUpdate) {
-      this.onDragSelectionUpdate(cellPosition);
+    if (!this.isActualDrag && cellChanged) {
+      // 처음으로 다른 셀로 이동 → 실제 드래그 시작
+      this.isActualDrag = true;
+      
+      // 드래그 시작 콜백 호출 (저장해둔 이벤트로)
+      if (this.onDragSelectionStart && this.dragStartEvent) {
+        this.onDragSelectionStart(this.dragStartPosition, this.dragStartEvent);
+      }
     }
 
-    // 자동 스크롤 체크
-    this.checkAutoScroll(event);
+    // 실제 드래그 중일 때만 업데이트
+    if (this.isActualDrag) {
+      // 마지막 컬럼 키 저장 (자동 스크롤 시 사용)
+      this.lastDragColumnKey = cellPosition.columnKey;
+
+      // 콜백 호출
+      if (this.onDragSelectionUpdate) {
+        this.onDragSelectionUpdate(cellPosition);
+      }
+
+      // 자동 스크롤 체크
+      this.checkAutoScroll(event);
+    }
   }
 
   /**
@@ -886,16 +909,24 @@ export class BodyRenderer {
   private handleMouseUp(_event: MouseEvent): void {
     if (!this.isDragging) return;
 
+    const wasDragging = this.isActualDrag;
+
     this.isDragging = false;
+    this.isActualDrag = false;
     this.dragStartPosition = null;
     this.lastDragColumnKey = null;
+    this.dragStartEvent = null;
 
     // 자동 스크롤 중지
     this.stopAutoScroll();
 
-    // 콜백 호출
-    if (this.onDragSelectionEnd) {
-      this.onDragSelectionEnd();
+    // 실제 드래그했을 때만 드래그 종료 콜백 호출
+    // (클릭만 한 경우는 click 이벤트에서 처리)
+    if (wasDragging) {
+      this.justFinishedDrag = true;  // 클릭 이벤트 무시용 플래그
+      if (this.onDragSelectionEnd) {
+        this.onDragSelectionEnd();
+      }
     }
 
     // 전역 이벤트 리스너 제거

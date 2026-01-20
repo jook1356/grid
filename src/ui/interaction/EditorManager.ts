@@ -97,7 +97,7 @@ export class EditorManager extends EventEmitter<EditorManagerEvents> {
     }
 
     // 현재 값 가져오기
-    const row = this.gridCore.getRowByViewIndex(position.rowIndex);
+    const row = this.gridCore.getRowByVisibleIndex(position.rowIndex);
     if (!row) return false;
 
     this.editingCell = position;

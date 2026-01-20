@@ -184,7 +184,7 @@ export class PureSheet {
     const result: Row[] = [];
     const count = this.gridCore.getVisibleRowCount();
     for (let i = 0; i < count; i++) {
-      const row = this.gridCore.getRowByViewIndex(i);
+      const row = this.gridCore.getRowByVisibleIndex(i);
       if (row) result.push(row);
     }
     return result;
@@ -533,7 +533,7 @@ export class PureSheet {
   private handleCellClick(position: CellPosition, value: unknown, event: MouseEvent): void {
     this.selectionManager.handleCellClick(position, event);
 
-    const row = this.gridCore.getRowByViewIndex(position.rowIndex);
+    const row = this.gridCore.getRowByVisibleIndex(position.rowIndex);
     this.emitEvent('cell:click', {
       row,
       columnKey: position.columnKey,
@@ -546,7 +546,7 @@ export class PureSheet {
    * 셀 더블클릭 핸들러
    */
   private handleCellDblClick(position: CellPosition, value: unknown, event: MouseEvent): void {
-    const row = this.gridCore.getRowByViewIndex(position.rowIndex);
+    const row = this.gridCore.getRowByVisibleIndex(position.rowIndex);
     this.emitEvent('cell:dblclick', {
       row,
       columnKey: position.columnKey,
