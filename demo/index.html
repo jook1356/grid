@@ -117,17 +117,15 @@
         selectedCells: state.selectedCells?.length || 0,
       };
       
-      // 행 선택 시 행 정보 표시
-      if (state.selectedRows?.length > 0 && sheet) {
-        const rows = sheet.getSelectedRows();
-        const display = rows.slice(0, 5).map(r => ({ id: r.id, name: r.name }));
-        if (rows.length > 5) {
-          display.push({ '...': `외 ${rows.length - 5}개 행` });
+      // 행 선택 정보 (셀 선택 시 해당 행도 자동 포함됨)
+      if (state.selectedRows?.length > 0) {
+        info.rowIds = state.selectedRows.slice(0, 5);
+        if (state.selectedRows.length > 5) {
+          info.rowIds.push(`... 외 ${state.selectedRows.length - 5}개`);
         }
-        info.rows = display;
       }
       
-      // 셀 선택 시 셀 정보 표시
+      // 셀 선택 정보
       if (state.selectedCells?.length > 0) {
         info.cells = state.selectedCells.slice(0, 10);
         if (state.selectedCells.length > 10) {
@@ -202,7 +200,7 @@
         columns,
         rowHeight: 36,
         headerHeight: 40,
-        selectionMode: 'range',    // 범위 선택 모드 활성화 (Marquee Selection)
+        selectionMode: 'all',       // 셀+행 모두 선택 (셀 선택 시 행도 자동 동기화)
         multiSelect: true,          // 다중 선택 허용
         resizableColumns: true,
         reorderableColumns: true,
@@ -211,6 +209,7 @@
       
       // 선택 변경 이벤트
       sheet.on('selection:changed', (state) => {
+        console.log('selection:changed', state);  // 디버그용
         updateSelectionInfo(state);
       });
       

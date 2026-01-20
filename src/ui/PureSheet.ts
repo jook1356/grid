@@ -488,7 +488,12 @@ export class PureSheet {
    */
   private setupEventListeners(): void {
     // SelectionManager 이벤트
-    this.selectionManager.on('selectionChanged', (state: SelectionState) => {
+    this.selectionManager.on('selectionChanged', (event) => {
+      const state = event.payload;  // event = { type, payload, timestamp }
+      console.log('[PureSheet] Received selectionChanged', {
+        selectedCells: state.selectedCells ? [...state.selectedCells] : [],
+        selectedRows: state.selectedRows ? [...state.selectedRows] : [],
+      });
       this.updateSelectionUI();
       this.emitEvent('selection:changed', {
         selectedRows: Array.from(state.selectedRows ?? []),
@@ -612,8 +617,9 @@ export class PureSheet {
    * 드래그 선택 시작 핸들러
    */
   private handleDragSelectionStart(position: CellPosition, event: MouseEvent): void {
-    // range 모드에서만 드래그 선택 활성화
-    if (this.options.selectionMode !== 'range') return;
+    // 'range' 또는 'all' 모드에서만 드래그 선택 활성화
+    const mode = this.options.selectionMode;
+    if (mode !== 'range' && mode !== 'all') return;
 
     this.selectionManager.startDragSelection(position, event);
   }

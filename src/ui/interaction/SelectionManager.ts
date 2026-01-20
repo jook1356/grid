@@ -246,10 +246,10 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   selectAll(): void {
     if (!this.multiSelect) return;
 
-    if (this.state.selectionMode === 'range') {
-      // 범위 모드: 모든 셀 선택
+    if (this.state.selectionMode === 'range' || this.state.selectionMode === 'all') {
+      // 셀 모드: 모든 셀 선택 (all 모드에서는 행도 자동 동기화됨)
       this.selectAllCells();
-    } else {
+    } else if (this.state.selectionMode === 'row') {
       // 행 모드: 모든 행 선택
       this.state.selectedRows.clear();
       const totalRows = this.gridCore.getVisibleRowCount();
@@ -319,7 +319,13 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
    * - Ctrl+Shift+클릭: 기존 선택 유지 + 범위 추가
    */
   handleCellClick(position: CellPosition, event: MouseEvent): void {
-    if (this.state.selectionMode === 'none' || this.state.selectionMode === 'row') {
+    console.log('[SelectionManager] handleCellClick', {
+      position,
+      selectionMode: this.state.selectionMode,
+    });
+    // 'range' 또는 'all' 모드에서만 셀 선택 가능
+    if (this.state.selectionMode !== 'range' && this.state.selectionMode !== 'all') {
+      console.log('[SelectionManager] Skipped - mode is', this.state.selectionMode);
       return;
     }
 
@@ -343,10 +349,12 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
    * 단일 셀 선택
    */
   selectSingleCell(position: CellPosition): void {
+    console.log('[SelectionManager] selectSingleCell', position);
     this.state.selectedCells.clear();
     const key = this.getCellKey(position);
     this.state.selectedCells.add(key);
     this.state.anchorCell = position;  // Shift+클릭 기준점
+    console.log('[SelectionManager] selectedCells after add:', [...this.state.selectedCells]);
 
     this.emitSelectionChanged();
   }
@@ -393,7 +401,8 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
    * 드래그 선택 시작
    */
   startDragSelection(position: CellPosition, event: MouseEvent): void {
-    if (this.state.selectionMode !== 'range') return;
+    // 'range' 또는 'all' 모드에서만 드래그 선택 가능
+    if (this.state.selectionMode !== 'range' && this.state.selectionMode !== 'all') return;
 
     const isCtrlOrCmd = event.ctrlKey || event.metaKey;
     
@@ -561,7 +570,9 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
       columnKey: newColumn.key,
     };
 
-    if (extendSelection && this.state.selectionMode === 'range') {
+    const isCellMode = this.state.selectionMode === 'range' || this.state.selectionMode === 'all';
+    
+    if (extendSelection && isCellMode) {
       // Shift + 화살표: 선택 확장 (anchorCell 유지)
       const anchor = this.state.anchorCell;
       this.selectCellRange(anchor, newPosition);
@@ -571,7 +582,7 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
       this.selectSingleCell(newPosition);
     }
 
-    // 행 모드에서는 행도 선택
+    // 행 모드에서는 행도 선택 (all 모드는 emitSelectionChanged에서 자동 동기화)
     if (this.state.selectionMode === 'row') {
       const row = this.gridCore.getRowByVisibleIndex(newRowIndex);
       if (row && row['id'] !== undefined) {
@@ -689,10 +700,36 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   }
 
   /**
+   * 셀 선택에서 행 선택 동기화 (all 모드 전용)
+   * 선택된 셀이 있는 모든 행을 selectedRows에 추가
+   */
+  private syncRowsFromCells(): void {
+    this.state.selectedRows.clear();
+    
+    for (const cellKey of this.state.selectedCells) {
+      const rowIndex = parseInt(cellKey.split(':')[0], 10);
+      const row = this.gridCore.getRowByVisibleIndex(rowIndex);
+      if (row && row['id'] !== undefined) {
+        this.state.selectedRows.add(row['id'] as string | number);
+      }
+    }
+  }
+
+  /**
    * 선택 변경 이벤트 발생
    */
   private emitSelectionChanged(): void {
-    this.emit('selectionChanged', this.getState());
+    // 'all' 모드에서만 셀→행 자동 동기화
+    if (this.state.selectionMode === 'all') {
+      this.syncRowsFromCells();
+    }
+    
+    const state = this.getState();
+    console.log('[SelectionManager] emitSelectionChanged', {
+      selectedCells: [...state.selectedCells],
+      selectedRows: [...state.selectedRows],
+    });
+    this.emit('selectionChanged', state);
   }
 
   /**

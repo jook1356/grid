@@ -69,8 +69,12 @@ export interface SortState {
 
 /**
  * 선택 모드
+ * - 'none': 선택 불가
+ * - 'row': 행 선택만
+ * - 'range': 셀 선택만 (selectedRows는 비어있음)
+ * - 'all': 셀 + 행 모두 (셀 선택 시 해당 행도 자동으로 selectedRows에 추가)
  */
-export type SelectionMode = 'row' | 'cell' | 'range' | 'none';
+export type SelectionMode = 'none' | 'row' | 'range' | 'all';
 
 /**
  * 셀 범위 (사각형 영역)

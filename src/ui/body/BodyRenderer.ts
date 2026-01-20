@@ -748,6 +748,7 @@ export class BodyRenderer {
       const columnKey = cell.dataset['columnKey'];
       if (columnKey) {
         const value = rowData[columnKey];
+        console.log('[BodyRenderer] Cell click detected:', { rowIndex, columnKey });
         this.onCellClick({ rowIndex, columnKey }, value, event);
       }
     }
