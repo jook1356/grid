@@ -348,6 +348,7 @@
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  height: 100%;  /* 행 높이 꽉 채우기 */
   padding: var(--ps-cell-padding);
   overflow: hidden;
   text-overflow: ellipsis;
