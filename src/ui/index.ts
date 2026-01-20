@@ -30,3 +30,15 @@ export { GroupManager } from './grouping';
 
 // Multi-Row 모듈
 export { MultiRowRenderer } from './multirow';
+
+// Row 모듈
+export { Row } from './row';
+export type {
+  RowVariant,
+  RowConfig,
+  GroupInfo,
+  AggregateConfig,
+  AggregateFunc,
+  RowRenderContext,
+  VirtualRowInfo,
+} from './row';

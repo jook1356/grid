@@ -19,6 +19,7 @@ flowchart TB
         VR[VirtualScroller]
         HR[HeaderRenderer]
         BR[BodyRenderer]
+        ROW[Row]
         CR[CellRenderer]
         ER[EditorManager]
         SM[SelectionManager]
@@ -38,6 +39,7 @@ flowchart TB
     GR --> VR
     GR --> HR
     GR --> BR
+    BR --> ROW
     BR --> CR
     BR --> ER
     GR --> SM
@@ -55,6 +57,8 @@ flowchart TB
 | **가상화** | 100만 행도 60fps 유지 (보이는 행만 렌더링) |
 | **모듈 분리** | 각 기능(선택, 편집, 컬럼)이 독립적인 모듈 |
 | **이벤트 기반** | GridCore의 EventEmitter와 연동하여 반응형 업데이트 |
+| **통합 Row 모델** | 단일 Row 클래스로 Body, 고정 영역 모두 처리 |
+| **행/컬럼 고정 대칭** | 컬럼 고정(left/right)과 행 고정(top/bottom) 동일 패턴 |
 
 ---
 
@@ -75,8 +79,13 @@ src/
 │   │
 │   ├── body/
 │   │   ├── BodyRenderer.ts       # 바디 영역 렌더링
-│   │   ├── RowRenderer.ts        # 행 렌더링
+│   │   ├── RowPool.ts            # 행 DOM 요소 풀링
 │   │   └── CellRenderer.ts       # 셀 렌더링 + DOM 풀링
+│   │
+│   ├── row/                      # Row 클래스 (신규)
+│   │   ├── Row.ts                # 통합 Row 클래스
+│   │   ├── RowRenderer.ts        # Row 렌더링 로직
+│   │   └── types.ts              # Row 관련 타입
 │   │
 │   ├── interaction/
 │   │   ├── SelectionManager.ts   # 행/셀 선택
@@ -464,7 +473,132 @@ flowchart LR
 .ps-cells-right { right: 0; }
 ```
 
-### 3.3 컬럼 리사이즈
+### 3.4 Row 클래스 및 행 고정
+
+> 상세 결정 과정: [Row 클래스 아키텍처](../decisions/007-row-class-architecture.md)
+
+#### 핵심 개념: Structural vs Non-structural
+
+모든 행은 `structural` 속성으로 이진 분류됩니다:
+
+| 분류 | Structural (구조적) | Non-structural (비구조적) |
+|------|---------------------|--------------------------|
+| **Selection** | ❌ 선택 안됨 | ✅ 선택 가능 |
+| **dataIndex** | ❌ 없음 | ✅ 있음 |
+| **예시** | 그룹 헤더, 소계, 합계 | 데이터 행 |
+| **용도** | UI 전용 (집계, 구분) | 실제 데이터 표시 |
+
+#### 행 고정 (Row Pinning)
+
+컬럼 고정 패턴을 행에도 적용합니다:
+
+```typescript
+// 컬럼 고정 (기존)
+column.pinned = 'left' | 'right' | null;
+
+// 행 고정 (신규)
+row.pinned = 'top' | 'bottom' | null;
+```
+
+#### 그리드 영역 구조
+
+```
+┌─────────────────────────────────────────────────┐
+│  HeaderRenderer                                 │  ← 컬럼 헤더 (기존)
+├─────────────────────────────────────────────────┤
+│  Pinned Top Rows                                │  ← Row[] + pinned: 'top'
+│  (필터 행, 부가 라벨, 선택 요약 등)               │
+├─────────────────────────────────────────────────┤
+│  Body (VirtualScroller)                         │  ← Row[] (가상화)
+│  - 데이터 행 (non-structural)                    │
+│  - 그룹 헤더, 소계 (structural)                  │
+├─────────────────────────────────────────────────┤
+│  Pinned Bottom Rows = "Footer"                  │  ← Row[] + pinned: 'bottom'
+│  (합계, 페이지 정보, 커스텀 등)                   │
+└─────────────────────────────────────────────────┘
+```
+
+#### DOM 구조
+
+```html
+<div class="ps-body">
+  <!-- 고정 상단 영역 -->
+  <div class="ps-pinned-top">
+    <div class="ps-row">...</div>
+  </div>
+  
+  <!-- 가상 스크롤 영역 -->
+  <div class="ps-scroll-proxy">
+    <div class="ps-scroll-spacer"></div>
+  </div>
+  <div class="ps-viewport">
+    <div class="ps-row-container">
+      <!-- 가상화된 행들 -->
+    </div>
+  </div>
+  
+  <!-- 고정 하단 영역 (Footer) -->
+  <div class="ps-pinned-bottom">
+    <div class="ps-row">...</div>
+  </div>
+</div>
+```
+
+#### Row 인터페이스
+
+```typescript
+interface RowConfig {
+  /** 구조적 행 여부 (선택/인덱스 제외) */
+  structural?: boolean;
+  
+  /** 행 변형 (렌더링 힌트) */
+  variant?: 'data' | 'group-header' | 'subtotal' | 'grandtotal' | 'custom';
+  
+  /** 고정 위치 */
+  pinned?: 'top' | 'bottom' | null;
+  
+  /** 행 데이터 */
+  data?: Record<string, any>;
+  
+  /** 집계 설정 */
+  aggregates?: AggregateConfig[];
+  
+  /** 커스텀 렌더러 */
+  render?: (container: HTMLElement, context: RowRenderContext) => void;
+}
+
+class Row {
+  readonly structural: boolean;
+  readonly variant: string;
+  readonly pinned: 'top' | 'bottom' | null;
+  
+  render(container: HTMLElement, context: RowRenderContext): void;
+  update(container: HTMLElement, context: RowRenderContext): void;
+  getHeight(defaultHeight: number): number;
+}
+```
+
+#### Footer는 Pinned Bottom Rows
+
+별도의 `FooterRenderer` 없이, Row + 고정으로 Footer를 구현합니다:
+
+```typescript
+// Footer = pinned: 'bottom'인 Row들
+const grid = new PureSheet(container, {
+  pinnedRows: {
+    bottom: [
+      new Row({
+        structural: true,
+        variant: 'grandtotal',
+        pinned: 'bottom',
+        aggregates: [{ columnKey: 'amount', func: 'sum' }],
+      }),
+    ],
+  },
+});
+```
+
+### 3.5 컬럼 리사이즈
 
 ```typescript
 class ColumnResizer {
@@ -496,7 +630,7 @@ class ColumnResizer {
 }
 ```
 
-### 3.4 컬럼 재정렬 (Drag & Drop)
+### 3.6 컬럼 재정렬 (Drag & Drop)
 
 ```typescript
 class ColumnReorder {
@@ -541,7 +675,7 @@ class ColumnReorder {
 }
 ```
 
-### 3.5 SelectionManager
+### 3.7 SelectionManager
 
 ```typescript
 interface SelectionState {
@@ -597,7 +731,7 @@ class SelectionManager {
 }
 ```
 
-### 3.6 EditorManager
+### 3.8 EditorManager
 
 ```typescript
 interface EditorConfig {
@@ -696,11 +830,17 @@ interface PureSheetOptions {
   columns: ColumnDef[];
   
   // 초기 데이터
-  data?: Row[];
+  data?: Record<string, any>[];
   
   // 행 설정
   rowHeight?: number;          // 기본: 32
   headerHeight?: number;       // 기본: 40
+  
+  // 고정 행 설정 (신규)
+  pinnedRows?: {
+    top?: Row[];               // 헤더 아래 고정 행
+    bottom?: Row[];            // 하단 고정 행 (Footer)
+  };
   
   // 선택 설정
   selectionMode?: 'row' | 'cell' | 'range' | 'none';
@@ -800,6 +940,54 @@ class PureSheet {
   
   clearSelection(): void {
     this.selectionManager.clearSelection();
+  }
+  
+  // ===========================================================================
+  // 고정 행 API (신규)
+  // ===========================================================================
+  
+  /**
+   * 고정 행 추가
+   */
+  addPinnedRow(row: Row, position: 'top' | 'bottom'): void {
+    this.gridRenderer.addPinnedRow(row, position);
+  }
+  
+  /**
+   * 고정 행 제거
+   */
+  removePinnedRow(row: Row): void;
+  removePinnedRow(rowId: string): void;
+  removePinnedRow(rowOrId: Row | string): void {
+    this.gridRenderer.removePinnedRow(rowOrId);
+  }
+  
+  /**
+   * 고정 행 조회
+   */
+  getPinnedRows(position: 'top' | 'bottom'): Row[] {
+    return this.gridRenderer.getPinnedRows(position);
+  }
+  
+  /**
+   * 고정 행 새로고침
+   */
+  refreshPinnedRows(position?: 'top' | 'bottom'): void {
+    this.gridRenderer.refreshPinnedRows(position);
+  }
+  
+  /**
+   * 총합계 행 추가 (편의 메서드)
+   */
+  addGrandTotalRow(aggregates: AggregateConfig[]): Row {
+    const row = new Row({
+      structural: true,
+      variant: 'grandtotal',
+      pinned: 'bottom',
+      aggregates,
+    });
+    this.addPinnedRow(row, 'bottom');
+    return row;
   }
   
   // ===========================================================================
@@ -995,6 +1183,8 @@ export function usePureSheet(options: PureSheetOptions) {
 | `column:resize` | `{ columnKey, width }` | 컬럼 너비 변경 |
 | `column:reorder` | `{ order }` | 컬럼 순서 변경 |
 | `column:pin` | `{ columnKey, position }` | 컬럼 고정 |
+| `row:pinned` | `{ row, position }` | 행 고정 추가 |
+| `row:unpinned` | `{ row }` | 행 고정 해제 |
 | `sort:changed` | `{ sorts }` | 정렬 변경 |
 | `filter:changed` | `{ filters }` | 필터 변경 |
 | `scroll` | `{ scrollTop, scrollLeft }` | 스크롤 |
@@ -1021,10 +1211,43 @@ export function usePureSheet(options: PureSheetOptions) {
 
 | 순서 | 기능 | 설명 | 상세 문서 |
 |------|------|------|----------|
-| 1 | **셀 병합** | 가로+세로 병합, 데이터/API 정의 | [004](../decisions/004-cell-merge-and-row-grouping.md) |
-| 2 | **행 그룹화** | 다중 레벨 그룹, 접기/펼치기, 집계 | [004](../decisions/004-cell-merge-and-row-grouping.md) |
-| 3 | **Multi-Row** | 1 데이터 행을 N줄로 표시 | [005](../decisions/005-multi-row-layout.md) |
-| 4 | 프레임워크 래퍼 | React, Vue 래퍼 | - |
+| 1 | **Row 클래스** | 통합 Row 추상화, 행 고정 | [007](../decisions/007-row-class-architecture.md) |
+| 2 | **셀 병합** | 가로+세로 병합, 데이터/API 정의 | [004](../decisions/004-cell-merge-and-row-grouping.md) |
+| 3 | **행 그룹화** | 다중 레벨 그룹, 접기/펼치기, 집계 | [004](../decisions/004-cell-merge-and-row-grouping.md) |
+| 4 | **Multi-Row** | 1 데이터 행을 N줄로 표시 | [005](../decisions/005-multi-row-layout.md) |
+| 5 | 프레임워크 래퍼 | React, Vue 래퍼 | - |
+
+#### Row 클래스 및 행 고정 API (2차)
+
+```typescript
+// Row 생성 및 고정
+const summaryRow = new Row({
+  structural: true,
+  variant: 'grandtotal',
+  pinned: 'bottom',
+  aggregates: [
+    { columnKey: 'amount', func: 'sum', formatter: (v) => `₩${v.toLocaleString()}` },
+  ],
+});
+
+grid.addPinnedRow(summaryRow, 'bottom');
+
+// 커스텀 렌더러 사용
+const filterRow = new Row({
+  structural: true,
+  variant: 'custom',
+  pinned: 'top',
+  render: (container, ctx) => {
+    // 필터 입력 UI 렌더링
+  },
+});
+
+grid.addPinnedRow(filterRow, 'top');
+
+// 동적 업데이트
+summaryRow.setData({ amount: newTotal });
+grid.refreshPinnedRows('bottom');
+```
 
 #### 셀 병합 API (2차)
 
@@ -1107,3 +1330,4 @@ const sheet = new PureSheet(container, {
 - [셀 병합 및 행 그룹화 전략](../decisions/004-cell-merge-and-row-grouping.md)
 - [Multi-Row 레이아웃 전략](../decisions/005-multi-row-layout.md)
 - [셀 렌더링 전략](../decisions/006-cell-rendering-strategy.md)
+- [Row 클래스 아키텍처](../decisions/007-row-class-architecture.md)

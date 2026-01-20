@@ -5,17 +5,20 @@
  * RowPool을 사용하여 DOM 요소를 재사용합니다.
  * GroupManager를 통해 그룹화된 데이터를 렌더링합니다.
  * MultiRowRenderer를 통해 Multi-Row 레이아웃을 지원합니다.
+ * Row 클래스를 사용하여 행을 렌더링합니다.
  * 드래그 선택을 지원합니다.
  */
 
 import type { GridCore } from '../../core/GridCore';
-import type { Row, ColumnDef, CellValue } from '../../types';
+import type { Row as RowData, ColumnDef } from '../../types';
 import type { VirtualRow, GroupHeaderRow, DataRow, GroupingConfig, RowTemplate } from '../../types/grouping.types';
 import type { ColumnState, ColumnGroups, CellPosition } from '../types';
+import type { RowRenderContext } from '../row/types';
 import { VirtualScroller } from '../VirtualScroller';
 import { RowPool } from './RowPool';
 import { GroupManager } from '../grouping/GroupManager';
 import { MultiRowRenderer } from '../multirow/MultiRowRenderer';
+import { Row } from '../row/Row';
 
 /**
  * BodyRenderer 설정
@@ -34,7 +37,7 @@ export interface BodyRendererOptions {
   /** Multi-Row 템플릿 (선택) */
   rowTemplate?: RowTemplate;
   /** 행 클릭 콜백 */
-  onRowClick?: (rowIndex: number, row: Row, event: MouseEvent) => void;
+  onRowClick?: (rowIndex: number, row: RowData, event: MouseEvent) => void;
   /** 셀 클릭 콜백 */
   onCellClick?: (position: CellPosition, value: unknown, event: MouseEvent) => void;
   /** 셀 더블클릭 콜백 */
@@ -455,6 +458,15 @@ export class BodyRenderer {
       return;
     }
 
+    // 렌더링 컨텍스트 생성
+    const baseContext: Omit<RowRenderContext, 'rowIndex' | 'dataIndex'> = {
+      columns: this.columns,
+      columnGroups,
+      columnDefs: this.columnDefs,
+      rowHeight: this.rowHeight,
+      gridCore: this.gridCore,
+    };
+
     // 일반 모드
     const activeRows = this.rowPool.updateVisibleRange(state.startIndex, state.endIndex);
 
@@ -467,11 +479,11 @@ export class BodyRenderer {
       const virtualRow = this.virtualRows[rowIndex];
       if (!virtualRow) continue;
 
-      // VirtualRow 타입에 따라 렌더링
+      // VirtualRow 타입에 따라 Row 인스턴스 생성 및 렌더링
       if (virtualRow.type === 'group-header') {
-        this.renderGroupHeader(rowElement, rowIndex, virtualRow);
+        this.renderGroupHeaderRow(rowElement, rowIndex, virtualRow, baseContext);
       } else {
-        this.renderDataRow(rowElement, rowIndex, virtualRow, columnGroups);
+        this.renderDataRowWithRowClass(rowElement, rowIndex, virtualRow, baseContext);
       }
     }
   }
@@ -516,84 +528,59 @@ export class BodyRenderer {
   }
 
   /**
-   * 그룹 헤더 행 렌더링
+   * 그룹 헤더 행 렌더링 (Row 클래스 사용)
    */
-  private renderGroupHeader(
+  private renderGroupHeaderRow(
     rowElement: HTMLElement,
     rowIndex: number,
-    groupRow: GroupHeaderRow
+    groupRow: GroupHeaderRow,
+    baseContext: Omit<RowRenderContext, 'rowIndex' | 'dataIndex'>
   ): void {
     // 청크 내 상대 위치 설정 (청크 기반 네이티브 스크롤용)
     const offsetY = this.virtualScroller.getRowOffsetInChunk(rowIndex);
     rowElement.style.transform = `translateY(${offsetY}px)`;
 
-    // 그룹 헤더 스타일
-    rowElement.classList.add('ps-group-header');
-    rowElement.classList.remove('ps-selected');
+    // 데이터 속성 설정 (BodyRenderer 책임)
     rowElement.dataset['rowIndex'] = String(rowIndex);
     rowElement.dataset['groupId'] = groupRow.groupId;
     rowElement.dataset['rowType'] = 'group-header';
+    rowElement.classList.remove('ps-selected');
 
-    // 셀 컨테이너 비우고 그룹 헤더 콘텐츠로 교체
-    const leftContainer = rowElement.querySelector('.ps-cells-left') as HTMLElement;
-    const centerContainer = rowElement.querySelector('.ps-cells-center') as HTMLElement;
-    const rightContainer = rowElement.querySelector('.ps-cells-right') as HTMLElement;
+    // Row 인스턴스 생성
+    const row = new Row({
+      structural: true,
+      variant: 'group-header',
+      group: {
+        id: groupRow.groupId,
+        level: groupRow.level,
+        path: groupRow.path.map(p => String(p.value)),
+        value: groupRow.value,
+        column: groupRow.column,
+        collapsed: groupRow.collapsed,
+        itemCount: groupRow.itemCount,
+        aggregates: groupRow.aggregates,
+      },
+    });
 
-    // 왼쪽과 오른쪽 컨테이너 비우기
-    leftContainer.innerHTML = '';
-    rightContainer.innerHTML = '';
+    // 렌더링 컨텍스트 완성
+    const context: RowRenderContext = {
+      ...baseContext,
+      rowIndex,
+    };
 
-    // 중앙에 그룹 헤더 콘텐츠 표시
-    centerContainer.innerHTML = '';
-    centerContainer.style.paddingLeft = `${groupRow.level * 20 + 8}px`;
-
-    // 토글 아이콘
-    const toggleIcon = this.createElement('span', 'ps-group-toggle');
-    toggleIcon.textContent = groupRow.collapsed ? '▶' : '▼';
-    toggleIcon.style.cursor = 'pointer';
-    toggleIcon.style.marginRight = '8px';
-    centerContainer.appendChild(toggleIcon);
-
-    // 그룹 라벨
-    const label = this.createElement('span', 'ps-group-label');
-    label.innerHTML = `<strong>${groupRow.value}</strong> (${groupRow.itemCount} items)`;
-    centerContainer.appendChild(label);
-
-    // 집계 값 표시
-    const aggregates = Object.entries(groupRow.aggregates);
-    if (aggregates.length > 0) {
-      const aggContainer = this.createElement('span', 'ps-group-aggregates');
-      aggContainer.style.marginLeft = '16px';
-      aggContainer.style.color = '#666';
-      for (const [key, value] of aggregates) {
-        const aggSpan = this.createElement('span', 'ps-group-aggregate');
-        aggSpan.style.marginRight = '12px';
-        aggSpan.textContent = `${key}: ${this.formatAggregateValue(value)}`;
-        aggContainer.appendChild(aggSpan);
-      }
-      centerContainer.appendChild(aggContainer);
-    }
+    // Row 클래스로 렌더링 위임
+    row.render(rowElement, context);
   }
 
-  /**
-   * 집계 값 포맷팅
-   */
-  private formatAggregateValue(value: CellValue): string {
-    if (value === null || value === undefined) return '-';
-    if (typeof value === 'number') {
-      return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
-    }
-    return String(value);
-  }
 
   /**
-   * 데이터 행 렌더링
+   * 데이터 행 렌더링 (Row 클래스 사용)
    */
-  private renderDataRow(
+  private renderDataRowWithRowClass(
     rowElement: HTMLElement,
     rowIndex: number,
     dataRow: DataRow,
-    columnGroups: ColumnGroups
+    baseContext: Omit<RowRenderContext, 'rowIndex' | 'dataIndex'>
   ): void {
     const rowData = dataRow.data;
 
@@ -601,111 +588,60 @@ export class BodyRenderer {
     const offsetY = this.virtualScroller.getRowOffsetInChunk(rowIndex);
     rowElement.style.transform = `translateY(${offsetY}px)`;
 
-    // 그룹 헤더 스타일 제거
-    rowElement.classList.remove('ps-group-header');
-    rowElement.dataset['rowType'] = 'data';
-
-    // 데이터 속성
+    // 데이터 속성 (BodyRenderer 책임)
     rowElement.dataset['rowIndex'] = String(rowIndex);
     rowElement.dataset['dataIndex'] = String(dataRow.dataIndex);
+    rowElement.dataset['rowType'] = 'data';
     const rowId = rowData['id'];
     if (rowId !== undefined) {
       rowElement.dataset['rowId'] = String(rowId);
     }
     delete rowElement.dataset['groupId'];
 
-    // 선택 상태 (셀 선택에서 파생된 행 인덱스 또는 명시적 행 선택)
+    // 선택 상태 (BodyRenderer 책임)
     const isSelectedByCell = this.selectedRowIndices.has(rowIndex);
     const isSelectedByRow = rowId !== undefined && this.selectedRows.has(rowId);
     rowElement.classList.toggle('ps-selected', isSelectedByCell || isSelectedByRow);
 
-    // 셀 컨테이너 가져오기
-    const leftContainer = rowElement.querySelector('.ps-cells-left') as HTMLElement;
-    const centerContainer = rowElement.querySelector('.ps-cells-center') as HTMLElement;
-    const rightContainer = rowElement.querySelector('.ps-cells-right') as HTMLElement;
-
-    // 그룹 레벨에 따른 들여쓰기
+    // 그룹 레벨에 따른 들여쓰기 (CSS 변수로 설정)
     const indentLevel = dataRow.groupPath.length;
-    centerContainer.style.paddingLeft = indentLevel > 0 ? `${indentLevel * 20}px` : '';
+    rowElement.style.setProperty('--ps-group-indent', `${indentLevel * 20}px`);
 
-    // 셀 렌더링
-    this.renderCells(leftContainer, columnGroups.left, rowData, rowIndex);
-    this.renderCells(centerContainer, columnGroups.center, rowData, rowIndex);
-    this.renderCells(rightContainer, columnGroups.right, rowData, rowIndex);
+    // Row 인스턴스 생성
+    const row = new Row({
+      structural: false,
+      variant: 'data',
+      data: rowData as Record<string, unknown>,
+    });
+
+    // 렌더링 컨텍스트 완성
+    const context: RowRenderContext = {
+      ...baseContext,
+      rowIndex,
+      dataIndex: dataRow.dataIndex,
+    };
+
+    // Row 클래스로 렌더링 위임
+    row.render(rowElement, context);
+
+    // 셀 선택 상태 적용 (Row 렌더링 후)
+    this.applyCellSelectionToRow(rowElement, rowIndex);
   }
 
   /**
-   * 셀 컨테이너 렌더링
+   * 셀 선택 상태 적용 (Row 렌더링 후 호출)
    */
-  private renderCells(
-    container: HTMLElement,
-    columns: ColumnState[],
-    rowData: Row,
-    rowIndex: number
-  ): void {
-    // 그룹 헤더에서 데이터 행으로 전환된 경우, 기존 요소가 ps-cell이 아닐 수 있음
-    // 첫 번째 자식이 ps-cell이 아니면 컨테이너 초기화
-    const firstChild = container.firstChild as HTMLElement | null;
-    if (firstChild && !firstChild.classList?.contains('ps-cell')) {
-      container.innerHTML = '';
-    }
-
-    // 필요한 셀 수 맞추기
-    while (container.children.length > columns.length) {
-      container.lastChild?.remove();
-    }
-    while (container.children.length < columns.length) {
-      const cell = this.createElement('div', 'ps-cell');
-      container.appendChild(cell);
-    }
-
-    // 셀 내용 업데이트
-    const cells = container.children;
-    for (let i = 0; i < columns.length; i++) {
-      const column = columns[i];
-      if (!column) continue;
-
-      const cell = cells[i] as HTMLElement;
-      const value = rowData[column.key];
-      const colDef = this.columnDefs.get(column.key);
-
-      // 너비 설정 (CSS 변수 사용)
-      cell.style.width = `var(--col-${column.key}-width, ${column.width}px)`;
-
-      // 데이터 속성
-      cell.dataset['columnKey'] = column.key;
-
-      // 셀 선택 상태 (O(1) 조회)
-      const cellKey = `${rowIndex}:${column.key}`;
-      const isSelected = this.selectedCells.has(cellKey);
-      cell.classList.toggle('ps-cell-selected', isSelected);
-
-      // 값 렌더링
-      const displayValue = this.formatCellValue(value, colDef);
-      cell.textContent = displayValue;
-      cell.title = displayValue; // 툴팁
-    }
-  }
-
-  /**
-   * 셀 값 포맷팅
-   */
-  private formatCellValue(value: unknown, colDef?: ColumnDef): string {
-    if (value === null || value === undefined) {
-      return '';
-    }
-
-    // 컬럼 정의에 formatter가 있으면 사용
-    if (colDef?.formatter) {
-      return colDef.formatter(value);
-    }
-
-    // 기본 문자열 변환
-    if (typeof value === 'object') {
-      return JSON.stringify(value);
-    }
-
-    return String(value);
+  private applyCellSelectionToRow(rowElement: HTMLElement, rowIndex: number): void {
+    const cells = rowElement.querySelectorAll('.ps-cell');
+    cells.forEach((cell) => {
+      const el = cell as HTMLElement;
+      const columnKey = el.dataset['columnKey'];
+      if (columnKey) {
+        const cellKey = `${rowIndex}:${columnKey}`;
+        const isSelected = this.selectedCells.has(cellKey);
+        el.classList.toggle('ps-cell-selected', isSelected);
+      }
+    });
   }
 
   // ===========================================================================

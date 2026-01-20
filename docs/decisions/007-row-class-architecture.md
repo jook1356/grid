@@ -138,6 +138,9 @@ interface RowConfig {
   /** 행 데이터 */
   data?: Record<string, any>;
   
+  /** 그룹 정보 (variant: 'group-header' | 'subtotal') */
+  group?: GroupInfo;
+  
   /** 집계 설정 (variant: 'subtotal' | 'grandtotal') */
   aggregates?: AggregateConfig[];
   
@@ -146,6 +149,29 @@ interface RowConfig {
   
   /** CSS 클래스 */
   className?: string;
+}
+
+/**
+ * 그룹 정보 (그룹 헤더, 소계 행용)
+ */
+interface GroupInfo {
+  /** 그룹 식별자 (토글용) */
+  id: string;
+  
+  /** 계층 깊이 (0부터 시작) */
+  level: number;
+  
+  /** 그룹 경로 (예: ['지역A', '제품X']) */
+  path: string[];
+  
+  /** 그룹 값 (표시용) */
+  value: any;
+  
+  /** 접힘 상태 */
+  collapsed: boolean;
+  
+  /** 그룹 내 항목 수 */
+  itemCount: number;
 }
 
 /**
@@ -197,6 +223,7 @@ class Row {
   readonly className: string | null;
   
   private data: Record<string, any>;
+  private group: GroupInfo | null;
   private aggregates: AggregateConfig[] | null;
   private customRender: ((container: HTMLElement, context: RowRenderContext) => void) | null;
   
@@ -208,6 +235,7 @@ class Row {
     this.height = config.height ?? null;
     this.className = config.className ?? null;
     this.data = config.data ?? {};
+    this.group = config.group ?? null;
     this.aggregates = config.aggregates ?? null;
     this.customRender = config.render ?? null;
   }
@@ -266,19 +294,56 @@ class Row {
     this.data = data;
   }
   
+  /**
+   * 그룹 정보 반환
+   */
+  getGroup(): GroupInfo | null {
+    return this.group;
+  }
+  
+  /**
+   * 그룹 접힘 상태 토글
+   */
+  toggleCollapsed(): boolean {
+    if (this.group) {
+      this.group.collapsed = !this.group.collapsed;
+      return this.group.collapsed;
+    }
+    return false;
+  }
+  
   // === Private 렌더링 메서드 ===
   
   private renderData(container: HTMLElement, context: RowRenderContext): void {
     // 기존 BodyRenderer.renderDataRow() 로직 이동
+    // - 컬럼별 셀 생성
+    // - 셀 값 포맷팅
+    // - 선택 상태 스타일
   }
   
   private renderGroupHeader(container: HTMLElement, context: RowRenderContext): void {
     // 기존 BodyRenderer.renderGroupHeader() 로직 이동
+    // - 접기/펼치기 아이콘 (▶/▼)
+    // - 그룹 라벨 (value + itemCount)
+    // - 레벨에 따른 들여쓰기
+    // - 집계 값 표시 (있는 경우)
+    
+    const group = this.group!;
+    const indent = group.level * 20;
+    
+    container.style.paddingLeft = `${indent + 8}px`;
+    container.innerHTML = `
+      <span class="ps-group-toggle">${group.collapsed ? '▶' : '▼'}</span>
+      <span class="ps-group-label">
+        <strong>${group.value}</strong> (${group.itemCount} items)
+      </span>
+    `;
   }
   
   private renderAggregate(container: HTMLElement, context: RowRenderContext): void {
     // 집계 행 렌더링
-    // this.aggregates를 사용하여 각 컬럼의 집계값 계산 및 표시
+    // - this.aggregates를 사용하여 각 컬럼의 집계값 계산 및 표시
+    // - 그룹 소계 또는 전체 합계
   }
 }
 ```
@@ -304,6 +369,158 @@ interface VirtualRow {
   
   /** 그룹 레벨 */
   level?: number;
+}
+```
+
+### 3.4 Multi-Row와 Row의 관계
+
+Row 클래스는 **데이터만 보유**하고, Multi-Row 레이아웃은 **MultiRowRenderer가 담당**합니다.
+
+#### 역할 분리
+
+```
+┌─────────────────────────────────────────┐
+│  Row 클래스                              │
+│  ─────────────────────────────────────  │
+│  • 데이터만 보유 (data, structural 등)   │
+│  • Multi-Row 레이아웃 로직 없음           │
+│  • "무엇을 보여줄지" 담당                 │
+└─────────────────────────────────────────┘
+                    ↓ Row.getData()
+┌─────────────────────────────────────────┐
+│  MultiRowRenderer                        │
+│  ─────────────────────────────────────  │
+│  • Row에서 데이터를 가져옴                │
+│  • CSS Grid 레이아웃 적용                 │
+│  • rowSpan, colSpan 처리                 │
+│  • "어떻게 보여줄지" 담당                 │
+└─────────────────────────────────────────┘
+```
+
+#### 설계 원칙
+
+| 구분 | Row | MultiRowRenderer |
+|------|-----|------------------|
+| **역할** | 데이터 컨테이너 | 스타일링 엔진 |
+| **알아야 할 것** | structural, variant, data | RowTemplate, CSS Grid |
+| **Multi-Row 로직** | ❌ 없음 | ✅ 전담 |
+| **재사용성** | 어떤 레이아웃에도 사용 가능 | 다양한 Row에 적용 가능 |
+
+#### 렌더링 흐름
+
+```typescript
+// BodyRenderer에서의 분기
+if (this.rowTemplate) {
+  // Multi-Row 모드: Row 데이터를 MultiRowRenderer가 스타일링
+  for (const virtualRow of visibleRows) {
+    const row = virtualRow.row;
+    this.multiRowRenderer.render(row, container);
+  }
+} else {
+  // 일반 모드: Row가 직접 렌더링
+  for (const virtualRow of visibleRows) {
+    virtualRow.row.render(container, context);
+  }
+}
+```
+
+#### MultiRowRenderer 구현 예시
+
+```typescript
+class MultiRowRenderer {
+  constructor(
+    private template: RowTemplate,
+    private columnDefs: Map<string, ColumnDef>,
+    private baseRowHeight: number
+  ) {}
+  
+  /**
+   * Row 인스턴스를 Multi-Row 레이아웃으로 렌더링
+   */
+  render(row: Row, container: HTMLElement): void {
+    const data = row.getData();  // Row에서 데이터만 가져옴
+    
+    // CSS Grid 스타일링 (MultiRowRenderer 책임)
+    container.style.display = 'grid';
+    container.style.gridTemplateRows = `repeat(${this.template.rowCount}, ${this.baseRowHeight}px)`;
+    container.style.gridTemplateColumns = this.buildGridTemplateColumns();
+    
+    // 템플릿에 따라 셀 배치
+    for (const placement of this.cellPlacements) {
+      const cell = this.createCell(placement, data);
+      container.appendChild(cell);
+    }
+  }
+  
+  /**
+   * Row의 총 높이 (Multi-Row 기준)
+   */
+  getRowHeight(): number {
+    return this.baseRowHeight * this.template.rowCount;
+  }
+}
+```
+
+#### 장점
+
+1. **관심사 분리**: Row = 데이터, MultiRowRenderer = 표현
+2. **Row 클래스 단순화**: Multi-Row 로직이 없어 가벼움
+3. **유연성**: 같은 Row를 다른 템플릿으로 렌더링 가능
+4. **Grid 전역 설정**: Multi-Row는 보통 모든 행에 동일 적용
+
+### 3.5 GroupManager와 Row 통합
+
+GroupManager는 데이터를 그룹화하고 Row 인스턴스를 생성합니다.
+
+```typescript
+class GroupManager {
+  /**
+   * 데이터를 그룹화하여 Row[] 반환
+   * - 그룹 헤더는 structural: true인 Row
+   * - 데이터 행은 structural: false인 Row
+   */
+  flattenWithRows(data: any[]): Row[] {
+    const result: Row[] = [];
+    
+    for (const group of this.groups) {
+      // 그룹 헤더 Row 생성
+      result.push(new Row({
+        structural: true,
+        variant: 'group-header',
+        group: {
+          id: group.id,
+          level: group.level,
+          path: group.path,
+          value: group.value,
+          collapsed: group.collapsed,
+          itemCount: group.items.length,
+        },
+      }));
+      
+      // 접히지 않은 경우 데이터 행 추가
+      if (!group.collapsed) {
+        for (const item of group.items) {
+          result.push(new Row({
+            structural: false,
+            variant: 'data',
+            data: item,
+          }));
+        }
+        
+        // 소계 행 (설정된 경우)
+        if (this.config.showSubtotals) {
+          result.push(new Row({
+            structural: true,
+            variant: 'subtotal',
+            group: { ...group, collapsed: false },
+            aggregates: this.config.aggregates,
+          }));
+        }
+      }
+    }
+    
+    return result;
+  }
 }
 ```
 
@@ -438,11 +655,29 @@ grid.addGrandTotalRow([
 ### 5.1 Phase 1: Row 클래스 기반 구축
 
 1. `Row` 클래스 구현
-2. `RowConfig`, `RowRenderContext` 타입 정의
-3. 기존 `renderDataRow()`, `renderGroupHeader()` 로직을 `Row` 클래스로 이동
-4. `BodyRenderer`에서 `Row.render()` 호출하도록 리팩토링
+   - `RowConfig`, `GroupInfo`, `RowRenderContext` 타입 정의
+   - 기본 렌더링 메서드 (`renderData`, `renderGroupHeader`, `renderAggregate`)
+2. 기존 `renderDataRow()`, `renderGroupHeader()` 로직을 `Row` 클래스로 이동
+3. `BodyRenderer`에서 `Row.render()` 호출하도록 리팩토링
 
-### 5.2 Phase 2: 행 고정 기능
+### 5.2 Phase 2: Multi-Row 통합
+
+1. `MultiRowRenderer`가 `Row` 인스턴스를 사용하도록 수정
+   - `Row.getData()`로 데이터 접근
+   - Row는 데이터만 보유, MultiRowRenderer가 스타일링 담당
+2. `BodyRenderer`에서 분기 처리
+   - `rowTemplate` 있으면 → `MultiRowRenderer.render(row, container)`
+   - 없으면 → `row.render(container, context)`
+
+### 5.3 Phase 3: GroupManager 통합
+
+1. `GroupManager.flattenWithRows()` 구현
+   - 그룹 헤더를 `Row` 인스턴스로 생성 (structural: true)
+   - 데이터 행을 `Row` 인스턴스로 생성 (structural: false)
+   - 소계 행 지원 (variant: 'subtotal')
+2. 그룹 토글 시 `Row.toggleCollapsed()` 호출
+
+### 5.4 Phase 4: 행 고정 기능
 
 1. `BodyRenderer`에 `pinnedTopContainer`, `pinnedBottomContainer` 추가
 2. DOM 구조 변경:
@@ -457,15 +692,15 @@ grid.addGrandTotalRow([
 3. 가로 스크롤 동기화 (고정 영역도 함께 스크롤)
 4. `PureSheet` API 추가
 
-### 5.3 Phase 3: 집계 기능
+### 5.5 Phase 5: 집계 기능
 
 1. `AggregateConfig` 처리 로직 구현
 2. `variant: 'subtotal' | 'grandtotal'` 렌더링
 3. 데이터 변경 시 자동 재계산
 
-### 5.4 Phase 4: 피봇 대비
+### 5.6 Phase 6: 피봇 대비
 
-1. `GroupManager` 확장 - 소계 행 생성 지원
+1. `GroupManager` 확장 - 다중 레벨 소계 행 생성 지원
 2. `structural: true` 행의 정렬/필터 동작 구현
 
 ---
@@ -526,6 +761,26 @@ Pinned Bot ← 가로 스크롤 동기화
 2. **Row 고정** (`pinned: 'top' | 'bottom'`)으로 컬럼 고정 패턴 확장
 3. **Footer = Pinned Bottom Rows** - 별도 구현 불필요
 4. **통합 Row 클래스** - Body, 고정 영역 모두 동일한 추상화
+5. **역할 분리** - Row = 데이터 컨테이너, MultiRowRenderer = 스타일링 엔진
+
+### Row와 다른 컴포넌트의 관계
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         Row 클래스                          │
+│  • 데이터 보유 (data, group, aggregates)                    │
+│  • structural/variant로 행 타입 정의                        │
+│  • Multi-Row 레이아웃 로직 없음 (관심사 분리)                │
+└─────────────────────────────────────────────────────────────┘
+         ↑                    ↑                    ↑
+         │                    │                    │
+┌────────┴────────┐  ┌───────┴────────┐  ┌───────┴────────┐
+│  GroupManager   │  │ MultiRowRenderer│  │  BodyRenderer  │
+│  • Row[] 생성   │  │ • Row 스타일링  │  │ • Row 렌더링   │
+│  • 그룹 헤더    │  │ • CSS Grid     │  │ • 가상 스크롤  │
+│  • 소계 행      │  │ • rowSpan 처리 │  │ • 고정 영역    │
+└─────────────────┘  └────────────────┘  └────────────────┘
+```
 
 ### 장점
 
@@ -536,4 +791,5 @@ Pinned Bot ← 가로 스크롤 동기화
 | 유연성 | 위/아래 원하는 만큼, 원하는 타입의 행 고정 |
 | 확장성 | 피봇 그리드의 소계 행도 동일한 모델로 처리 |
 | 효율성 | FooterRenderer 별도 구현 불필요 |
+| 관심사 분리 | Row = 데이터, MultiRowRenderer = 표현 |
 
