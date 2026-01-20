@@ -342,6 +342,7 @@ export class BodyRenderer {
     this.columns = columns;
     this.rowPool.updateColumnCount(columns.length);
     this.renderVisibleRows();
+    this.renderPinnedRows(); // 고정 행도 다시 렌더링
   }
 
   /**
