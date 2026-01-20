@@ -420,7 +420,7 @@ export class ArqueroProcessor implements IDataProcessor {
    * 피봇 수행
    *
    * 데이터를 피봇하여 행↔열 변환을 수행합니다.
-   * Arquero의 groupby + rollup을 활용한 피봇 구현.
+   * fold + groupby + 수동 집계 방식으로 구현 (Arquero pivot() 대신).
    *
    * @param options - 피봇 옵션
    * @returns 피봇 결과 (새로운 Row[] + ColumnDef[])
@@ -444,40 +444,130 @@ export class ArqueroProcessor implements IDataProcessor {
 
     const { rowFields, columnFields, valueFields } = options;
 
-    // 동적 컬럼 값 수집
-    const columnValues = this.collectColumnValues(table, columnFields);
+    // 원본 데이터를 객체 배열로 변환
+    const data = table.objects() as Row[];
 
-    // 피봇된 컬럼 키 생성
-    const generatedValueColumnKeys = this.generatePivotColumnKeys(
-      columnValues,
-      valueFields
-    );
+    // 피봇 키 생성 함수 (여러 컬럼 필드를 하나의 키로 합침)
+    const getPivotKey = (row: Row): string => {
+      return columnFields.map((f) => String(row[f] ?? '')).join('_');
+    };
 
-    // 그룹화 + 집계 스펙 생성
-    const rollupSpec: Record<string, unknown> = {};
+    // 행 키 생성 함수
+    const getRowKey = (row: Row): string => {
+      return rowFields.map((f) => String(row[f] ?? '')).join('\0');
+    };
 
-    // 각 동적 컬럼에 대해 조건부 집계 생성
-    for (const colCombo of this.cartesianProduct(columnValues)) {
-      const colKey = colCombo.join('_');
+    // 고유한 피봇 키 값 수집 (컬럼이 될 값들)
+    const uniquePivotKeys = new Set<string>();
+    for (const row of data) {
+      uniquePivotKeys.add(getPivotKey(row));
+    }
+    const sortedPivotKeys = Array.from(uniquePivotKeys).sort();
 
+    // 동적 생성될 컬럼 키 목록
+    const generatedValueColumnKeys: string[] = [];
+    for (const pivotKey of sortedPivotKeys) {
       for (const vf of valueFields) {
-        const resultKey = `${colKey}_${vf.field}`;
-
-        // 조건부 집계: 해당 컬럼 값 조합에만 집계 적용
-        rollupSpec[resultKey] = this.createConditionalAggregate(
-          columnFields,
-          colCombo,
-          vf.field,
-          vf.aggregate
-        );
+        generatedValueColumnKeys.push(`${pivotKey}_${vf.field}`);
       }
     }
 
-    // 그룹화 + 집계 실행
-    const pivoted = table.groupby(...rowFields).rollup(rollupSpec);
+    // 그룹별 데이터 수집
+    const groupMap = new Map<string, {
+      rowData: Record<string, unknown>;
+      values: Map<string, { sum: number; count: number; min: number; max: number; first: unknown; last: unknown }>;
+    }>();
 
-    // 결과를 Row[]로 변환
-    const rows = pivoted.objects() as Row[];
+    for (const row of data) {
+      const rowKey = getRowKey(row);
+      const pivotKey = getPivotKey(row);
+
+      // 그룹 초기화
+      if (!groupMap.has(rowKey)) {
+        const rowData: Record<string, unknown> = {};
+        for (const field of rowFields) {
+          rowData[field] = row[field];
+        }
+        groupMap.set(rowKey, { rowData, values: new Map() });
+      }
+
+      const group = groupMap.get(rowKey)!;
+
+      // 각 값 필드에 대해 집계 데이터 수집
+      for (const vf of valueFields) {
+        const fullKey = `${pivotKey}_${vf.field}`;
+        const value = row[vf.field];
+
+        if (!group.values.has(fullKey)) {
+          group.values.set(fullKey, {
+            sum: 0,
+            count: 0,
+            min: Infinity,
+            max: -Infinity,
+            first: undefined,
+            last: undefined,
+          });
+        }
+
+        const agg = group.values.get(fullKey)!;
+        const numValue = typeof value === 'number' ? value : 0;
+
+        agg.sum += numValue;
+        agg.count += 1;
+        agg.min = Math.min(agg.min, numValue);
+        agg.max = Math.max(agg.max, numValue);
+        if (agg.first === undefined) agg.first = value;
+        agg.last = value;
+      }
+    }
+
+    // 피봇된 행 생성
+    const rows: Row[] = [];
+    for (const [, group] of groupMap) {
+      const pivotedRow = { ...group.rowData } as Row;
+
+      // 모든 동적 컬럼에 대해 값 설정
+      for (const colKey of generatedValueColumnKeys) {
+        const agg = group.values.get(colKey);
+
+        if (agg && agg.count > 0) {
+          // 컬럼 키에서 값 필드 추출
+          const parts = colKey.split('_');
+          const fieldName = parts[parts.length - 1];
+          const vf = valueFields.find((v) => v.field === fieldName);
+
+          switch (vf?.aggregate) {
+            case 'sum':
+              pivotedRow[colKey] = agg.sum;
+              break;
+            case 'avg':
+              pivotedRow[colKey] = agg.sum / agg.count;
+              break;
+            case 'min':
+              pivotedRow[colKey] = agg.min === Infinity ? null : agg.min;
+              break;
+            case 'max':
+              pivotedRow[colKey] = agg.max === -Infinity ? null : agg.max;
+              break;
+            case 'count':
+              pivotedRow[colKey] = agg.count;
+              break;
+            case 'first':
+              pivotedRow[colKey] = agg.first as CellValue;
+              break;
+            case 'last':
+              pivotedRow[colKey] = agg.last as CellValue;
+              break;
+            default:
+              pivotedRow[colKey] = agg.sum;
+          }
+        } else {
+          pivotedRow[colKey] = null;
+        }
+      }
+
+      rows.push(pivotedRow);
+    }
 
     // 컬럼 정의 생성
     const columns = this.generatePivotColumnDefs(
@@ -491,98 +581,6 @@ export class ArqueroProcessor implements IDataProcessor {
       columns,
       generatedValueColumnKeys,
     };
-  }
-
-  /**
-   * 컬럼 필드의 고유 값 수집
-   */
-  private collectColumnValues(table: Table, columnFields: string[]): string[][] {
-    return columnFields.map((field) => {
-      const values = table.array(field) as unknown[];
-      const uniqueValues = [...new Set(values)]
-        .filter((v) => v !== null && v !== undefined)
-        .map((v) => String(v))
-        .sort();
-      return uniqueValues;
-    });
-  }
-
-  /**
-   * 피봇 컬럼 키 생성
-   */
-  private generatePivotColumnKeys(
-    columnValues: string[][],
-    valueFields: { field: string }[]
-  ): string[] {
-    const keys: string[] = [];
-    const combinations = this.cartesianProduct(columnValues);
-
-    for (const combo of combinations) {
-      const colPrefix = combo.join('_');
-      for (const vf of valueFields) {
-        keys.push(`${colPrefix}_${vf.field}`);
-      }
-    }
-
-    return keys;
-  }
-
-  /**
-   * 카테시안 곱 (조합 생성)
-   */
-  private cartesianProduct(arrays: string[][]): string[][] {
-    if (arrays.length === 0) return [[]];
-    if (arrays.length === 1) return arrays[0]!.map((v) => [v]);
-
-    const [first, ...rest] = arrays;
-    const restProduct = this.cartesianProduct(rest);
-
-    return first!.flatMap((v) => restProduct.map((r) => [v, ...r]));
-  }
-
-  /**
-   * 조건부 집계 표현식 생성
-   *
-   * Arquero의 escape를 사용하여 특정 컬럼 값 조합에만 집계를 적용합니다.
-   */
-  private createConditionalAggregate(
-    columnFields: string[],
-    columnValues: string[],
-    valueField: string,
-    aggregateFunc: string
-  ): unknown {
-    // 조건에 맞는 값만 집계하는 표현식
-    // sum(value * (col1 === 'A' && col2 === '2023' ? 1 : 0))
-    switch (aggregateFunc) {
-      case 'sum':
-        return aq.escape(
-          (d: Row) => {
-            const matches = columnFields.every(
-              (field, i) => String(d[field]) === columnValues[i]
-            );
-            return matches ? (d[valueField] as number) ?? 0 : 0;
-          }
-        );
-      case 'count':
-        return aq.escape(
-          (d: Row) => {
-            const matches = columnFields.every(
-              (field, i) => String(d[field]) === columnValues[i]
-            );
-            return matches ? 1 : 0;
-          }
-        );
-      default:
-        // 기본은 sum
-        return aq.escape(
-          (d: Row) => {
-            const matches = columnFields.every(
-              (field, i) => String(d[field]) === columnValues[i]
-            );
-            return matches ? (d[valueField] as number) ?? 0 : 0;
-          }
-        );
-    }
   }
 
   /**
