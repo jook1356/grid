@@ -49,6 +49,8 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
 
   // 컬럼 순서 캐시 (컬럼 인덱스 조회용)
   private columnIndexMap: Map<string, number> = new Map();
+  // 인덱스 → 컬럼 키 역방향 맵 (범위 선택용)
+  private columnKeysByIndex: string[] = [];
 
   // 드래그 세션 상태
   private dragAddToExisting = false;  // Ctrl 누른 상태로 드래그 시작했는지
@@ -150,13 +152,26 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
 
   /**
    * 컬럼 인덱스 맵 업데이트 (컬럼 순서 변경 시 호출)
+   * @param columnKeys - 현재 UI에 표시된 컬럼 순서 (생략 시 gridCore에서 가져옴)
    */
-  updateColumnIndexMap(): void {
+  updateColumnIndexMap(columnKeys?: string[]): void {
     this.columnIndexMap.clear();
-    const columns = this.gridCore.getColumns();
-    columns.forEach((col, index) => {
-      this.columnIndexMap.set(col.key, index);
-    });
+    this.columnKeysByIndex = [];
+    
+    if (columnKeys) {
+      // UI에서 전달된 순서 사용
+      this.columnKeysByIndex = [...columnKeys];
+      columnKeys.forEach((key, index) => {
+        this.columnIndexMap.set(key, index);
+      });
+    } else {
+      // 초기화 시 gridCore에서 가져옴
+      const columns = this.gridCore.getColumns();
+      columns.forEach((col, index) => {
+        this.columnIndexMap.set(col.key, index);
+        this.columnKeysByIndex.push(col.key);
+      });
+    }
   }
 
   // ===========================================================================
@@ -570,18 +585,16 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
    * 셀 이동 (화살표 키)
    */
   private moveFocus(rowDelta: number, colDelta: number, extendSelection: boolean): void {
-    const columns = this.gridCore.getColumns();
-
     if (!this.state.anchorCell) {
-      // 첫 셀 선택
-      const firstCol = columns[0];
-      if (firstCol) {
-        this.selectSingleCell({ rowIndex: 0, columnKey: firstCol.key });
+      // 첫 셀 선택 (현재 UI 순서 기준)
+      const firstColKey = this.columnKeysByIndex[0];
+      if (firstColKey) {
+        this.selectSingleCell({ rowIndex: 0, columnKey: firstColKey });
       }
       return;
     }
 
-    // 새 위치 계산
+    // 새 위치 계산 (현재 UI 순서 기준)
     const currentColIndex = this.getColumnIndex(this.state.anchorCell.columnKey);
     const newRowIndex = Math.max(
       0,
@@ -592,15 +605,15 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
     );
     const newColIndex = Math.max(
       0,
-      Math.min(currentColIndex + colDelta, columns.length - 1)
+      Math.min(currentColIndex + colDelta, this.columnKeysByIndex.length - 1)
     );
 
-    const newColumn = columns[newColIndex];
-    if (!newColumn) return;
+    const newColumnKey = this.columnKeysByIndex[newColIndex];
+    if (!newColumnKey) return;
 
     const newPosition: CellPosition = {
       rowIndex: newRowIndex,
-      columnKey: newColumn.key,
+      columnKey: newColumnKey,
     };
 
     if (extendSelection && this.isCellSelectionMode()) {
@@ -647,29 +660,27 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   }
 
   /**
-   * 첫 번째 열로 이동
+   * 첫 번째 열로 이동 (현재 UI 순서 기준)
    */
   private focusFirstCell(): void {
-    const columns = this.gridCore.getColumns();
-    const firstColumn = columns[0];
-    if (firstColumn) {
+    const firstColumnKey = this.columnKeysByIndex[0];
+    if (firstColumnKey) {
       this.selectSingleCell({
         rowIndex: this.state.anchorCell?.rowIndex ?? 0,
-        columnKey: firstColumn.key,
+        columnKey: firstColumnKey,
       });
     }
   }
 
   /**
-   * 마지막 열로 이동
+   * 마지막 열로 이동 (현재 UI 순서 기준)
    */
   private focusLastCell(): void {
-    const columns = this.gridCore.getColumns();
-    const lastColumn = columns[columns.length - 1];
-    if (lastColumn) {
+    const lastColumnKey = this.columnKeysByIndex[this.columnKeysByIndex.length - 1];
+    if (lastColumnKey) {
       this.selectSingleCell({
         rowIndex: this.state.anchorCell?.rowIndex ?? 0,
-        columnKey: lastColumn.key,
+        columnKey: lastColumnKey,
       });
     }
   }
@@ -696,7 +707,6 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
    * 범위 내 모든 셀을 selectedCells에 추가
    */
   private addCellsInRange(start: CellPosition, end: CellPosition): void {
-    const columns = this.gridCore.getColumns();
     const startColIndex = this.getColumnIndex(start.columnKey);
     const endColIndex = this.getColumnIndex(end.columnKey);
 
@@ -707,7 +717,7 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
 
     for (let row = minRow; row <= maxRow; row++) {
       for (let col = minCol; col <= maxCol; col++) {
-        const columnKey = columns[col]?.key;
+        const columnKey = this.columnKeysByIndex[col];
         if (columnKey) {
           this.state.selectedCells.add(`${row}:${columnKey}`);
         }
@@ -716,11 +726,10 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   }
 
   /**
-   * 컬럼 키 가져오기 (인덱스로)
+   * 컬럼 키 가져오기 (현재 UI 순서의 인덱스로)
    */
   getColumnKeyByIndex(index: number): string | undefined {
-    const columns = this.gridCore.getColumns();
-    return columns[index]?.key;
+    return this.columnKeysByIndex[index];
   }
 
   /**
@@ -766,5 +775,6 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
     this.state.selectedRows.clear();
     this.state.selectedCells.clear();
     this.columnIndexMap.clear();
+    this.columnKeysByIndex = [];
   }
 }

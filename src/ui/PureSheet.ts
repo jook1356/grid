@@ -97,6 +97,7 @@ export class PureSheet {
       onDragSelectionStart: this.handleDragSelectionStart.bind(this),
       onDragSelectionUpdate: this.handleDragSelectionUpdate.bind(this),
       onDragSelectionEnd: this.handleDragSelectionEnd.bind(this),
+      onColumnReorder: this.handleColumnReorder.bind(this),
     });
 
     // SelectionManager 초기화
@@ -636,6 +637,15 @@ export class PureSheet {
    */
   private handleDragSelectionEnd(): void {
     this.selectionManager.commitDragSelection();
+  }
+
+  /**
+   * 컬럼 순서 변경 핸들러
+   */
+  private handleColumnReorder(order: string[]): void {
+    // 컬럼 순서 변경 시 SelectionManager의 컬럼 인덱스 맵 업데이트
+    this.selectionManager.updateColumnIndexMap(order);
+    this.emitEvent('column:reorder', { order });
   }
 
   /**
