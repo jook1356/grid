@@ -50,7 +50,7 @@
   <!-- 네비게이션 -->
   <nav class="demo-nav">
     <a href="../index.html">🏠 홈</a>
-    <a href="pinned-rows.html" class="active">📌 행/컬럼 고정</a>
+    <a href="pinning.html" class="active">📌 행/컬럼 고정</a>
     <a href="multi-row.html">📑 Multi-Row</a>
     <a href="grouping.html">📂 행 그룹화</a>
     <a href="selection-modes.html">🎯 선택 모드</a>
@@ -68,7 +68,6 @@
       <strong>행 고정</strong>은 상단/하단에 집계, 필터, 커스텀 행을 고정합니다.
       <strong>컬럼 고정</strong>은 왼쪽/오른쪽에 컬럼을 고정합니다.
       <strong style="color: #4CAF50;">집계 행은 데이터 변경 시 자동으로 재계산됩니다!</strong>
-      "급여 랜덤화" 버튼을 눌러 테스트해보세요.
     </p>
   </div>
   
@@ -86,6 +85,23 @@
         <div class="preview-items" id="columnPreview">
           <span class="preview-item" style="border-style: solid; opacity: 0.5;">없음</span>
         </div>
+      </div>
+    </div>
+
+    <!-- 데이터 로드 툴바 -->
+    <div class="toolbar">
+      <div class="toolbar-group">
+        <label>📊 데이터 로드:</label>
+        <button onclick="loadData(1000)">1,000</button>
+        <button onclick="loadData(10000)">10,000</button>
+        <button onclick="loadData(100000)">100,000</button>
+        <button onclick="loadData(1000000)">1,000,000</button>
+        <button onclick="loadData(5000000)">5,000,000</button>
+      </div>
+      <div class="toolbar-divider"></div>
+      <div class="toolbar-group">
+        <button onclick="randomizeSalaries()" class="success">급여 랜덤화</button>
+        <button onclick="addRandomRow()">행 추가</button>
       </div>
     </div>
 
@@ -142,14 +158,6 @@
       <div class="toolbar-group">
         <button onclick="resetAll()" class="warning">전체 초기화</button>
       </div>
-      
-      <div class="toolbar-divider"></div>
-      
-      <div class="toolbar-group">
-        <label>📊 데이터:</label>
-        <button onclick="randomizeSalaries()" class="success">급여 랜덤화</button>
-        <button onclick="addRandomRow()">행 추가</button>
-      </div>
     </div>
     
     <div id="grid"></div>
@@ -199,18 +207,30 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
     let renderer = null;
     let pinnedRowCounter = 0;
     
-    // 샘플 데이터
-    const names = ['김철수', '이영희', '박민수', '정수진', '최동현', '한지민', '강호동', '유재석', '신동엽', '송혜교'];
-    const departments = ['Engineering', 'Marketing', 'Sales', 'HR', 'Finance'];
+    // 데이터 생성 웹 워커 (백그라운드에서 대량 데이터 생성)
+    const dataWorker = new Worker(
+      new URL('../dataWorker.ts', import.meta.url),
+      { type: 'module' }
+    );
     
-    const sampleData = Array.from({ length: 100 }, (_, i) => ({
-      id: i + 1,
-      name: names[i % names.length] + (Math.floor(i / 10) || ''),
-      department: departments[i % departments.length],
-      salary: 50000 + Math.floor(Math.random() * 50000),
-      bonus: 1000 + Math.floor(Math.random() * 9000),
-      performance: Math.floor(Math.random() * 100),
-    }));
+    // 워커 메시지 핸들러 (Promise로 래핑)
+    function generateDataInWorker(count) {
+      return new Promise((resolve) => {
+        const handler = (event) => {
+          const message = event.data;
+          
+          if (message.type === 'progress') {
+            updateStatus(`${count.toLocaleString()}개 데이터 생성 중... ${message.percent}%`);
+          } else if (message.type === 'complete') {
+            dataWorker.removeEventListener('message', handler);
+            resolve({ data: message.data, time: message.time });
+          }
+        };
+        
+        dataWorker.addEventListener('message', handler);
+        dataWorker.postMessage({ type: 'generate', count });
+      });
+    }
     
     // 상태 추적
     let columnPinState = {
@@ -374,6 +394,24 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
       });
     }
     
+    // 데이터 로드 함수 (웹 워커 사용)
+    window.loadData = async function(count) {
+      if (!renderer) return;
+      
+      updateStatus(`${count.toLocaleString()}개 데이터 생성 중...`);
+      
+      // 웹 워커에서 데이터 생성 (UI 블로킹 없음)
+      const { data, time: genTime } = await generateDataInWorker(count);
+      
+      updateStatus(`데이터 로드 중...`);
+      
+      const loadStart = performance.now();
+      await renderer.loadData(data);
+      const loadTime = performance.now() - loadStart;
+      
+      updateStatus(`${count.toLocaleString()}개 행 로드 완료 (생성: ${genTime.toFixed(0)}ms, 로드: ${loadTime.toFixed(0)}ms)`);
+    };
+    
     // 행 고정 함수
     window.addTopRow = function() {
       if (!renderer) return;
@@ -467,15 +505,17 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
         bonus: 500 + Math.floor(Math.random() * 15000),
       }));
       
-      await renderer.loadData(newData);  // PureSheet.loadData는 자동으로 refresh() 호출
+      await renderer.loadData(newData);
       
-      updateStatus('급여 랜덤화 완료 - 하단 집계 값이 자동 업데이트됨!');
+      updateStatus('급여 랜덤화 완료 - 집계 값 자동 업데이트됨!');
     };
     
     window.addRandomRow = async function() {
       if (!renderer) return;
       const currentData = [...renderer.getAllData()];
       const newId = currentData.length + 1;
+      const names = ['김철수', '이영희', '박민수', '정수진', '최동현'];
+      const departments = ['Engineering', 'Marketing', 'Sales', 'HR', 'Finance'];
       const newRow = {
         id: newId,
         name: names[Math.floor(Math.random() * names.length)] + newId,
@@ -486,7 +526,7 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
       };
       
       currentData.push(newRow);
-      await renderer.loadData(currentData);  // PureSheet.loadData는 자동으로 refresh() 호출
+      await renderer.loadData(currentData);
       
       updateStatus(`행 추가됨 (ID: ${newId}) - 집계 값 자동 업데이트!`);
     };
@@ -497,7 +537,7 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
       
       const columns = [
         { key: 'id', header: 'ID', width: 60, pinned: 'left' },
-        { key: 'name', header: 'Name', width: 120 },
+        { key: 'name', header: 'Name', width: 150 },
         { key: 'department', header: 'Department', width: 120 },
         { key: 'salary', header: 'Salary', width: 120, formatter: v => '$' + (v?.toLocaleString() || '0') },
         { key: 'bonus', header: 'Bonus', width: 100, formatter: v => '$' + (v?.toLocaleString() || '0') },
@@ -510,23 +550,24 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
         rowHeight: 36, 
         headerHeight: 40, 
         resizableColumns: true, 
-        reorderableColumns: true, // 헤더 드래그로 컬럼 순서 변경
-        selectionMode: 'all',     // 행+셀 선택 모드
+        reorderableColumns: true,
+        selectionMode: 'all',
         multiSelect: true,
         theme: 'light' 
       });
       
-      await renderer.loadData(sampleData);
+      // 초기 데이터 로드 (1,000개)
+      await loadData(1000);
       
       // 기본 하단 합계 행 추가
       renderer.pinRowBottom(createAggregateRow('sum', 'bottom'));
       
       updatePinnedPreview();
       updateColumnPreview();
-      updateStatus('100개 행 로드 완료 - 행과 컬럼을 고정해보세요!');
     }
     
     init().catch(console.error);
   </script>
 </body>
 </html>
+
