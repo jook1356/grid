@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>행 고정 (Pinned Rows) - PureSheet Demo</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+  <link rel="stylesheet" href="../../src/ui/style/default.css">
+  <style>
+    .row-preview {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .row-preview h4 {
+      margin: 0 0 12px 0;
+      color: var(--text);
+      font-size: 14px;
+    }
+    .preview-content {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .preview-item {
+      background: var(--bg);
+      border: 1px dashed var(--border);
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .preview-item.top {
+      border-color: #4CAF50;
+      background: rgba(76, 175, 80, 0.1);
+    }
+    .preview-item.bottom {
+      border-color: #2196F3;
+      background: rgba(33, 150, 243, 0.1);
+    }
+    .action-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .action-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .action-card h4 {
+      margin: 0 0 12px 0;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+    }
+    .action-card button {
+      width: 100%;
+      margin-top: 8px;
+    }
+    .action-card select {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .custom-row-input {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .custom-row-input input {
+      flex: 1;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg);
+      color: var(--text);
+    }
+  </style>
+</head>
+<body>
+  <!-- 네비게이션 -->
+  <nav class="demo-nav">
+    <a href="../index.html">🏠 홈</a>
+    <a href="column-pinning.html">📌 컬럼 고정</a>
+    <a href="multi-row.html">📑 Multi-Row</a>
+    <a href="grouping.html">📂 행 그룹화</a>
+    <a href="pinned-rows.html" class="active">📍 행 고정</a>
+    <a href="selection-modes.html">🎯 선택 모드</a>
+  </nav>
+  
+  <!-- 헤더 -->
+  <div class="demo-header">
+    <h1>📍 행 고정 (Pinned Rows)</h1>
+    <span class="badge badge-implemented">구현됨</span>
+  </div>
+  
+  <!-- 설명 -->
+  <div class="demo-description">
+    <p>
+      <strong>행 고정</strong>은 특정 행을 그리드의 상단 또는 하단에 고정시키는 기능입니다.
+      스크롤해도 항상 보이며, 집계(합계, 평균 등)나 필터 행으로 활용할 수 있습니다.
+      컬럼 고정과 마찬가지로 가로 스크롤 시 함께 동기화됩니다.
+    </p>
+  </div>
+
+  <div class="demo-container">
+    <!-- 현재 고정된 행 미리보기 -->
+    <div class="row-preview">
+      <h4>📊 현재 고정된 행</h4>
+      <div class="preview-content" id="pinnedPreview">
+        <span style="color: var(--text-muted); font-size: 12px;">고정된 행이 없습니다</span>
+      </div>
+    </div>
+
+    <!-- 행 추가 액션 카드 -->
+    <div class="action-cards">
+      <!-- 상단 고정 행 추가 -->
+      <div class="action-card">
+        <h4>⬆️ 상단 고정 행</h4>
+        <select id="topRowType">
+          <option value="sum">합계 (Sum)</option>
+          <option value="avg">평균 (Average)</option>
+          <option value="count">개수 (Count)</option>
+          <option value="filter">필터 행</option>
+          <option value="custom">커스텀 행</option>
+        </select>
+        <button onclick="addTopRow()">상단에 추가</button>
+      </div>
+
+      <!-- 하단 고정 행 추가 -->
+      <div class="action-card">
+        <h4>⬇️ 하단 고정 행</h4>
+        <select id="bottomRowType">
+          <option value="sum" selected>합계 (Sum)</option>
+          <option value="avg">평균 (Average)</option>
+          <option value="count">개수 (Count)</option>
+          <option value="grandtotal">총합계 (Grand Total)</option>
+          <option value="custom">커스텀 행</option>
+        </select>
+        <button onclick="addBottomRow()">하단에 추가</button>
+      </div>
+
+      <!-- 고정 행 관리 -->
+      <div class="action-card">
+        <h4>🔧 관리</h4>
+        <button onclick="clearTop()" class="secondary">상단 전체 제거</button>
+        <button onclick="clearBottom()" class="secondary">하단 전체 제거</button>
+        <button onclick="clearAll()" class="danger">모든 고정 행 제거</button>
+      </div>
+    </div>
+    
+    <div id="grid"></div>
+    
+    <div class="status-bar" id="status">
+      준비됨 - 상단/하단에 고정 행을 추가해보세요
+    </div>
+  </div>
+  
+  <!-- 코드 예제 -->
+  <div class="code-example">
+    <h3>API 사용법</h3>
+    <pre><span class="keyword">import</span> { Row } <span class="keyword">from</span> <span class="string">'puresheet'</span>;
+
+<span class="comment">// 집계 행 생성</span>
+<span class="keyword">const</span> sumRow = <span class="keyword">new</span> <span class="function">Row</span>({
+  id: <span class="string">'sum-row'</span>,
+  structural: <span class="keyword">true</span>,
+  variant: <span class="string">'subtotal'</span>,
+  pinned: <span class="string">'bottom'</span>,
+  aggregates: [
+    { columnKey: <span class="string">'salary'</span>, func: <span class="string">'sum'</span>, formatter: v => <span class="string">'$'</span> + v.toLocaleString() },
+    { columnKey: <span class="string">'bonus'</span>, func: <span class="string">'sum'</span> },
+  ],
+});
+
+<span class="comment">// 커스텀 렌더 행</span>
+<span class="keyword">const</span> customRow = <span class="keyword">new</span> <span class="function">Row</span>({
+  structural: <span class="keyword">true</span>,
+  variant: <span class="string">'custom'</span>,
+  pinned: <span class="string">'top'</span>,
+  render: (container, ctx) => {
+    container.innerHTML = <span class="string">'&lt;div&gt;Custom content here&lt;/div&gt;'</span>;
+  },
+});
+
+<span class="comment">// BodyRenderer에 고정 행 추가</span>
+<span class="keyword">const</span> bodyRenderer = renderer.<span class="function">getBodyRenderer</span>();
+bodyRenderer.<span class="function">addPinnedTopRow</span>(customRow);
+bodyRenderer.<span class="function">addPinnedBottomRow</span>(sumRow);
+
+<span class="comment">// 고정 행 제거</span>
+bodyRenderer.<span class="function">removePinnedTopRow</span>(<span class="string">'sum-row'</span>);
+bodyRenderer.<span class="function">clearPinnedRows</span>();
+
+<span class="comment">// 현재 고정 행 조회</span>
+<span class="keyword">const</span> { top, bottom } = bodyRenderer.<span class="function">getPinnedRows</span>();</pre>
+  </div>
+  
+  <!-- 타입 정보 -->
+  <div class="info-panel">
+    <h3>📝 Row 타입</h3>
+    <pre id="typeInfo"><span class="keyword">interface</span> RowConfig {
+  id?: <span class="type">string</span>;                <span class="comment">// 고유 ID (자동 생성됨)</span>
+  structural?: <span class="type">boolean</span>;       <span class="comment">// 구조적 행 여부 (선택/인덱스 제외)</span>
+  variant?: <span class="type">RowVariant</span>;       <span class="comment">// 'data' | 'group-header' | 'subtotal' | 'grandtotal' | 'filter' | 'custom'</span>
+  pinned?: <span class="string">'top'</span> | <span class="string">'bottom'</span>;  <span class="comment">// 고정 위치</span>
+  height?: <span class="type">number</span>;            <span class="comment">// 행 높이 (기본값: rowHeight)</span>
+  data?: <span class="type">Record&lt;string, any&gt;</span>; <span class="comment">// 행 데이터</span>
+  aggregates?: <span class="type">AggregateConfig[]</span>; <span class="comment">// 집계 설정</span>
+  render?: <span class="type">(container, ctx) => void</span>; <span class="comment">// 커스텀 렌더러</span>
+  className?: <span class="type">string</span>;         <span class="comment">// 추가 CSS 클래스</span>
+}</pre>
+  </div>
+  
+  <script type="module">
+    // GridCore와 GridRenderer import
+    const { GridCore, GridRenderer, Row } = await import('../../src/index.ts');
+    
+    let gridCore = null;
+    let renderer = null;
+    let pinnedRowCounter = 0;
+    
+    // 100개 샘플 데이터 생성
+    const names = ['김철수', '이영희', '박민수', '정수진', '최동현', '한지민', '강호동', '유재석', '신동엽', '송혜교'];
+    const departments = ['Engineering', 'Marketing', 'Sales', 'HR', 'Finance'];
+    
+    const sampleData = Array.from({ length: 100 }, (_, i) => ({
+      id: i + 1,
+      name: names[i % names.length] + (Math.floor(i / 10) || ''),
+      department: departments[i % departments.length],
+      salary: 50000 + Math.floor(Math.random() * 50000),
+      bonus: 1000 + Math.floor(Math.random() * 9000),
+      performance: Math.floor(Math.random() * 100),
+    }));
+    
+    function updateStatus(message) {
+      document.getElementById('status').textContent = message;
+    }
+    
+    function updatePinnedPreview() {
+      const bodyRenderer = renderer?.getBodyRenderer();
+      if (!bodyRenderer) return;
+      
+      const { top, bottom } = bodyRenderer.getPinnedRows();
+      const preview = document.getElementById('pinnedPreview');
+      
+      if (top.length === 0 && bottom.length === 0) {
+        preview.innerHTML = '<span style="color: var(--text-muted); font-size: 12px;">고정된 행이 없습니다</span>';
+        return;
+      }
+      
+      let html = '';
+      top.forEach(row => {
+        html += `<div class="preview-item top">⬆️ ${row.variant} (${row.id})</div>`;
+      });
+      bottom.forEach(row => {
+        html += `<div class="preview-item bottom">⬇️ ${row.variant} (${row.id})</div>`;
+      });
+      
+      preview.innerHTML = html;
+    }
+    
+    // 집계값 계산
+    function calculateAggregate(func, columnKey) {
+      const values = sampleData.map(d => d[columnKey]).filter(v => typeof v === 'number');
+      switch (func) {
+        case 'sum': return values.reduce((a, b) => a + b, 0);
+        case 'avg': return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+        case 'count': return values.length;
+        case 'min': return Math.min(...values);
+        case 'max': return Math.max(...values);
+        default: return 0;
+      }
+    }
+    
+    // 행 생성 함수들
+    function createAggregateRow(type, position) {
+      const id = `${type}-${position}-${++pinnedRowCounter}`;
+      
+      // 집계값 미리 계산
+      const data = {
+        id: type.toUpperCase(),
+        name: type === 'sum' ? '합계' : type === 'avg' ? '평균' : type === 'count' ? '개수' : '총합계',
+        department: '-',
+        salary: calculateAggregate(type === 'grandtotal' ? 'sum' : type, 'salary'),
+        bonus: calculateAggregate(type === 'grandtotal' ? 'sum' : type, 'bonus'),
+        performance: calculateAggregate(type === 'grandtotal' ? 'sum' : type === 'count' ? 'count' : 'avg', 'performance'),
+      };
+      
+      return new Row({
+        id,
+        structural: true,
+        variant: type === 'grandtotal' ? 'grandtotal' : 'subtotal',
+        pinned: position,
+        data,
+        className: `ps-aggregate-${type}`,
+      });
+    }
+    
+    function createFilterRow(position) {
+      const id = `filter-${position}-${++pinnedRowCounter}`;
+      
+      return new Row({
+        id,
+        structural: true,
+        variant: 'filter',
+        pinned: position,
+        render: (container, ctx) => {
+          // 셀 컨테이너 구조 확인
+          let centerContainer = container.querySelector('.ps-cells-center');
+          if (!centerContainer) {
+            container.innerHTML = `
+              <div class="ps-cells-left"></div>
+              <div class="ps-cells-center"></div>
+              <div class="ps-cells-right"></div>
+            `;
+            centerContainer = container.querySelector('.ps-cells-center');
+          }
+          
+          // 필터 입력 필드 생성
+          let html = '';
+          ctx.columns.forEach(col => {
+            if (col.visible) {
+              html += `
+                <div class="ps-cell" style="width: ${col.width}px; min-width: ${col.width}px;">
+                  <input type="text" 
+                    placeholder="Filter ${col.key}..." 
+                    style="width: 100%; padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;"
+                    onchange="window.filterColumn('${col.key}', this.value)"
+                  >
+                </div>
+              `;
+            }
+          });
+          
+          centerContainer.innerHTML = html;
+          centerContainer.style.display = 'flex';
+          centerContainer.style.alignItems = 'center';
+        },
+      });
+    }
+    
+    function createCustomRow(position) {
+      const id = `custom-${position}-${++pinnedRowCounter}`;
+      
+      return new Row({
+        id,
+        structural: true,
+        variant: 'custom',
+        pinned: position,
+        render: (container, ctx) => {
+          // 셀 컨테이너 구조 확인
+          let centerContainer = container.querySelector('.ps-cells-center');
+          if (!centerContainer) {
+            container.innerHTML = `
+              <div class="ps-cells-left"></div>
+              <div class="ps-cells-center"></div>
+              <div class="ps-cells-right"></div>
+            `;
+            centerContainer = container.querySelector('.ps-cells-center');
+          }
+          
+          centerContainer.innerHTML = `
+            <div style="
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              width: 100%;
+              height: 100%;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              color: white;
+              font-weight: 600;
+              font-size: 14px;
+              border-radius: 4px;
+              gap: 8px;
+            ">
+              <span>✨</span>
+              <span>커스텀 렌더 행 - 원하는 내용을 자유롭게 구성!</span>
+              <span>✨</span>
+            </div>
+          `;
+          centerContainer.style.display = 'flex';
+          centerContainer.style.padding = '4px';
+        },
+      });
+    }
+    
+    // 상단 행 추가
+    window.addTopRow = function() {
+      const type = document.getElementById('topRowType').value;
+      const bodyRenderer = renderer?.getBodyRenderer();
+      if (!bodyRenderer) return;
+      
+      let row;
+      switch (type) {
+        case 'filter':
+          row = createFilterRow('top');
+          break;
+        case 'custom':
+          row = createCustomRow('top');
+          break;
+        default:
+          row = createAggregateRow(type, 'top');
+      }
+      
+      bodyRenderer.addPinnedTopRow(row);
+      updatePinnedPreview();
+      updateStatus(`상단에 ${type} 행 추가됨`);
+    };
+    
+    // 하단 행 추가
+    window.addBottomRow = function() {
+      const type = document.getElementById('bottomRowType').value;
+      const bodyRenderer = renderer?.getBodyRenderer();
+      if (!bodyRenderer) return;
+      
+      let row;
+      switch (type) {
+        case 'custom':
+          row = createCustomRow('bottom');
+          break;
+        default:
+          row = createAggregateRow(type, 'bottom');
+      }
+      
+      bodyRenderer.addPinnedBottomRow(row);
+      updatePinnedPreview();
+      updateStatus(`하단에 ${type} 행 추가됨`);
+    };
+    
+    // 상단 전체 제거
+    window.clearTop = function() {
+      const bodyRenderer = renderer?.getBodyRenderer();
+      if (!bodyRenderer) return;
+      
+      const { top } = bodyRenderer.getPinnedRows();
+      top.forEach(row => bodyRenderer.removePinnedTopRow(row.id));
+      updatePinnedPreview();
+      updateStatus('상단 고정 행 모두 제거됨');
+    };
+    
+    // 하단 전체 제거
+    window.clearBottom = function() {
+      const bodyRenderer = renderer?.getBodyRenderer();
+      if (!bodyRenderer) return;
+      
+      const { bottom } = bodyRenderer.getPinnedRows();
+      bottom.forEach(row => bodyRenderer.removePinnedBottomRow(row.id));
+      updatePinnedPreview();
+      updateStatus('하단 고정 행 모두 제거됨');
+    };
+    
+    // 전체 제거
+    window.clearAll = function() {
+      const bodyRenderer = renderer?.getBodyRenderer();
+      if (!bodyRenderer) return;
+      
+      bodyRenderer.clearPinnedRows();
+      updatePinnedPreview();
+      updateStatus('모든 고정 행 제거됨');
+    };
+    
+    // 필터 (데모용)
+    window.filterColumn = function(columnKey, value) {
+      console.log(`Filter ${columnKey}: ${value}`);
+      updateStatus(`필터: ${columnKey} = "${value}" (데모용 - 실제 필터링 미구현)`);
+    };
+    
+    // 초기화
+    async function init() {
+      const container = document.getElementById('grid');
+      
+      const columns = [
+        { key: 'id', header: 'ID', width: 60 },
+        { key: 'name', header: 'Name', width: 120 },
+        { key: 'department', header: 'Department', width: 120 },
+        { key: 'salary', header: 'Salary', width: 120, formatter: (v) => '$' + (v?.toLocaleString() || '0') },
+        { key: 'bonus', header: 'Bonus', width: 100, formatter: (v) => '$' + (v?.toLocaleString() || '0') },
+        { key: 'performance', header: 'Performance', width: 100, formatter: (v) => v + '%' },
+      ];
+      
+      gridCore = new GridCore({ columns });
+      await gridCore.initialize();
+      
+      renderer = new GridRenderer(container, {
+        gridCore,
+        options: {
+          columns,
+          rowHeight: 36,
+          headerHeight: 40,
+          resizableColumns: true,
+          theme: 'light',
+        },
+        onRowClick: (rowIndex, row) => {
+          console.log('Row clicked:', rowIndex, row);
+        },
+      });
+      
+      // 데이터 로드
+      await gridCore.loadData(sampleData);
+      renderer.refresh();
+      
+      // 기본 하단 합계 행 추가
+      const bodyRenderer = renderer.getBodyRenderer();
+      const defaultSumRow = createAggregateRow('sum', 'bottom');
+      bodyRenderer.addPinnedBottomRow(defaultSumRow);
+      
+      updatePinnedPreview();
+      updateStatus('100개 행 로드 완료 - 상단/하단에 고정 행을 추가해보세요');
+    }
+    
+    init().catch(console.error);
+  </script>
+</body>
+</html>
+

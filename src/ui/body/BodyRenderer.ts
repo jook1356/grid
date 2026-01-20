@@ -21,6 +21,16 @@ import { MultiRowRenderer } from '../multirow/MultiRowRenderer';
 import { Row } from '../row/Row';
 
 /**
+ * 고정 행 설정
+ */
+export interface PinnedRowsConfig {
+  /** 상단 고정 행 */
+  top?: Row[];
+  /** 하단 고정 행 */
+  bottom?: Row[];
+}
+
+/**
  * BodyRenderer 설정
  */
 export interface BodyRendererOptions {
@@ -36,6 +46,8 @@ export interface BodyRendererOptions {
   groupingConfig?: GroupingConfig;
   /** Multi-Row 템플릿 (선택) */
   rowTemplate?: RowTemplate;
+  /** 고정 행 설정 (선택) */
+  pinnedRows?: PinnedRowsConfig;
   /** 행 클릭 콜백 */
   onRowClick?: (rowIndex: number, row: RowData, event: MouseEvent) => void;
   /** 셀 클릭 콜백 */
@@ -69,10 +81,13 @@ export class BodyRenderer {
 
   // DOM 요소
   private container: HTMLElement;
+  private pinnedTopContainer: HTMLElement;
+  private scrollWrapper: HTMLElement;
   private scrollProxy: HTMLElement;
   private viewport: HTMLElement;
   private spacer: HTMLElement;
   private rowContainer: HTMLElement;
+  private pinnedBottomContainer: HTMLElement;
 
   // 모듈
   private virtualScroller: VirtualScroller;
@@ -82,6 +97,10 @@ export class BodyRenderer {
 
   // Multi-Row 설정
   private rowTemplate: RowTemplate | null = null;
+
+  // 고정 행
+  private pinnedTopRows: Row[] = [];
+  private pinnedBottomRows: Row[] = [];
 
   // 가상 행 (그룹화된 경우 그룹 헤더 포함)
   private virtualRows: VirtualRow[] = [];
@@ -141,6 +160,13 @@ export class BodyRenderer {
     }
 
     // DOM 구조 생성
+    // 상단 고정 영역
+    this.pinnedTopContainer = this.createElement('div', 'ps-pinned-top');
+    
+    // 스크롤 영역 래퍼 (flex 레이아웃에서 나머지 공간 차지)
+    this.scrollWrapper = this.createElement('div', 'ps-scroll-wrapper');
+    
+    // 스크롤 영역 (래퍼 내부)
     this.scrollProxy = this.createElement('div', 'ps-scroll-proxy');
     this.spacer = this.createElement('div', 'ps-scroll-spacer');
     this.scrollProxy.appendChild(this.spacer);
@@ -149,8 +175,17 @@ export class BodyRenderer {
     this.rowContainer = this.createElement('div', 'ps-row-container');
     this.viewport.appendChild(this.rowContainer);
 
-    this.container.appendChild(this.scrollProxy);
-    this.container.appendChild(this.viewport);
+    // 스크롤 래퍼에 추가
+    this.scrollWrapper.appendChild(this.scrollProxy);
+    this.scrollWrapper.appendChild(this.viewport);
+
+    // 하단 고정 영역
+    this.pinnedBottomContainer = this.createElement('div', 'ps-pinned-bottom');
+
+    // DOM 추가 순서: top → scroll-wrapper → bottom
+    this.container.appendChild(this.pinnedTopContainer);
+    this.container.appendChild(this.scrollWrapper);
+    this.container.appendChild(this.pinnedBottomContainer);
 
     // 모듈 초기화
     this.virtualScroller = new VirtualScroller({
@@ -187,8 +222,33 @@ export class BodyRenderer {
     this.viewport.addEventListener('dblclick', this.handleDblClick.bind(this));
     this.viewport.addEventListener('mousedown', this.handleMouseDown.bind(this));
 
+    // 가로 스크롤 동기화 (고정 영역도 함께 스크롤)
+    this.viewport.addEventListener('scroll', this.handleHorizontalScroll.bind(this));
+
+    // 고정 행 초기화
+    if (options.pinnedRows) {
+      if (options.pinnedRows.top) {
+        this.pinnedTopRows = [...options.pinnedRows.top];
+      }
+      if (options.pinnedRows.bottom) {
+        this.pinnedBottomRows = [...options.pinnedRows.bottom];
+      }
+    }
+
     // 초기 행 수 설정
     this.updateVirtualRows();
+
+    // 고정 행 렌더링
+    this.renderPinnedRows();
+  }
+
+  /**
+   * 가로 스크롤 동기화 핸들러
+   */
+  private handleHorizontalScroll(): void {
+    const scrollLeft = this.viewport.scrollLeft;
+    this.pinnedTopContainer.scrollLeft = scrollLeft;
+    this.pinnedBottomContainer.scrollLeft = scrollLeft;
   }
 
   // ===========================================================================
@@ -201,6 +261,78 @@ export class BodyRenderer {
   refresh(): void {
     this.updateVirtualRows();
     this.renderVisibleRows();
+  }
+
+  // ===========================================================================
+  // 고정 행 API
+  // ===========================================================================
+
+  /**
+   * 상단 고정 행 추가
+   */
+  addPinnedTopRow(row: Row): void {
+    this.pinnedTopRows.push(row);
+    this.renderPinnedRows();
+  }
+
+  /**
+   * 하단 고정 행 추가
+   */
+  addPinnedBottomRow(row: Row): void {
+    this.pinnedBottomRows.push(row);
+    this.renderPinnedRows();
+  }
+
+  /**
+   * 상단 고정 행 제거
+   */
+  removePinnedTopRow(rowId: string): boolean {
+    const index = this.pinnedTopRows.findIndex(r => r.id === rowId);
+    if (index !== -1) {
+      this.pinnedTopRows.splice(index, 1);
+      this.renderPinnedRows();
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * 하단 고정 행 제거
+   */
+  removePinnedBottomRow(rowId: string): boolean {
+    const index = this.pinnedBottomRows.findIndex(r => r.id === rowId);
+    if (index !== -1) {
+      this.pinnedBottomRows.splice(index, 1);
+      this.renderPinnedRows();
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * 모든 고정 행 가져오기
+   */
+  getPinnedRows(): { top: Row[]; bottom: Row[] } {
+    return {
+      top: [...this.pinnedTopRows],
+      bottom: [...this.pinnedBottomRows],
+    };
+  }
+
+  /**
+   * 모든 고정 행 제거
+   */
+  clearPinnedRows(): void {
+    this.pinnedTopRows = [];
+    this.pinnedBottomRows = [];
+    this.renderPinnedRows();
+  }
+
+  /**
+   * 고정 행 새로고침
+   */
+  refreshPinnedRows(): void {
+    this.renderPinnedRows();
   }
 
   /**
@@ -531,6 +663,94 @@ export class BodyRenderer {
         offsetY
       );
     }
+  }
+
+  /**
+   * 고정 행 렌더링
+   *
+   * 상단/하단 고정 영역에 Row 인스턴스를 렌더링합니다.
+   * 가상화가 필요 없으므로 모든 행을 직접 렌더링합니다.
+   */
+  private renderPinnedRows(): void {
+    const columnGroups = this.getColumnGroups();
+    const baseContext: Omit<RowRenderContext, 'rowIndex' | 'dataIndex'> = {
+      columns: this.columns,
+      columnGroups,
+      columnDefs: this.columnDefs,
+      rowHeight: this.rowHeight,
+      gridCore: this.gridCore,
+    };
+
+    // 상단 고정 행 렌더링
+    this.renderPinnedContainer(
+      this.pinnedTopContainer,
+      this.pinnedTopRows,
+      baseContext,
+      'top'
+    );
+
+    // 하단 고정 행 렌더링
+    this.renderPinnedContainer(
+      this.pinnedBottomContainer,
+      this.pinnedBottomRows,
+      baseContext,
+      'bottom'
+    );
+  }
+
+  /**
+   * 고정 영역 컨테이너 렌더링
+   */
+  private renderPinnedContainer(
+    container: HTMLElement,
+    rows: Row[],
+    baseContext: Omit<RowRenderContext, 'rowIndex' | 'dataIndex'>,
+    position: 'top' | 'bottom'
+  ): void {
+    // 기존 행 요소 가져오기
+    const existingElements = Array.from(container.children) as HTMLElement[];
+
+    // 행 수에 맞게 DOM 요소 조정
+    while (existingElements.length > rows.length) {
+      container.lastChild?.remove();
+      existingElements.pop();
+    }
+    while (existingElements.length < rows.length) {
+      const rowElement = document.createElement('div');
+      rowElement.className = 'ps-row ps-pinned-row';
+      container.appendChild(rowElement);
+      existingElements.push(rowElement);
+    }
+
+    // 각 행 렌더링
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const rowElement = existingElements[i];
+      if (!row || !rowElement) continue;
+
+      // 데이터 속성 설정
+      rowElement.dataset['rowId'] = row.id;
+      rowElement.dataset['pinned'] = position;
+      rowElement.dataset['pinnedIndex'] = String(i);
+
+      // 위치 설정 (고정 영역은 transform 불필요, 상대 위치)
+      rowElement.style.position = 'relative';
+      rowElement.style.height = `${row.getHeight(this.rowHeight)}px`;
+
+      // 렌더링 컨텍스트
+      const context: RowRenderContext = {
+        ...baseContext,
+        rowIndex: i, // 고정 영역 내 인덱스
+      };
+
+      // Row 렌더링
+      row.render(rowElement, context);
+    }
+
+    // 컨테이너 높이 업데이트
+    const totalHeight = rows.reduce((sum, row) => sum + row.getHeight(this.rowHeight), 0);
+    container.style.height = totalHeight > 0 ? `${totalHeight}px` : '0';
+    container.style.display = rows.length > 0 ? 'block' : 'none';
   }
 
   /**

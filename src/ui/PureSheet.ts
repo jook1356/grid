@@ -6,13 +6,15 @@
  */
 
 import { GridCore } from '../core/GridCore';
-import type { ColumnDef, Row, SortState, FilterState } from '../types';
+import type { ColumnDef, Row as RowData, SortState, FilterState } from '../types';
 import type { GroupingConfig } from '../types/grouping.types';
 import type { PureSheetOptions, CellPosition, ColumnState, SelectionState } from './types';
 import { GridRenderer } from './GridRenderer';
 import { SelectionManager } from './interaction/SelectionManager';
 import { EditorManager } from './interaction/EditorManager';
 import { ColumnManager } from './interaction/ColumnManager';
+import { Row } from './row/Row';
+import type { RowConfig, AggregateConfig } from './row/types';
 
 /**
  * PureSheet 이벤트 타입
@@ -21,6 +23,8 @@ export type PureSheetEventType =
   | 'data:loaded'
   | 'row:click'
   | 'row:dblclick'
+  | 'row:pinned'
+  | 'row:unpinned'
   | 'cell:click'
   | 'cell:dblclick'
   | 'cell:change'
@@ -129,7 +133,7 @@ export class PureSheet {
   /**
    * 데이터 로드
    */
-  async loadData(data: Row[]): Promise<void> {
+  async loadData(data: RowData[]): Promise<void> {
     // GridCore 초기화 완료 대기
     await this.initPromise;
 
@@ -144,7 +148,7 @@ export class PureSheet {
   /**
    * 행 추가
    */
-  async addRow(row: Row): Promise<void> {
+  async addRow(row: RowData): Promise<void> {
     await this.gridCore.addRow(row);
     this.gridRenderer.refresh();
   }
@@ -152,7 +156,7 @@ export class PureSheet {
   /**
    * 행 업데이트 (ID 기반)
    */
-  async updateRow(id: string | number, updates: Partial<Row>): Promise<void> {
+  async updateRow(id: string | number, updates: Partial<RowData>): Promise<void> {
     const index = this.gridCore.getDataStore().getIndexById(id);
     if (index >= 0) {
       await this.gridCore.updateRow(index, updates);
@@ -174,15 +178,15 @@ export class PureSheet {
   /**
    * 모든 데이터 가져오기
    */
-  getAllData(): Row[] {
+  getAllData(): RowData[] {
     return this.gridCore.getAllData();
   }
 
   /**
    * 보이는 데이터 가져오기 (필터/정렬 적용 후)
    */
-  getVisibleData(): Row[] {
-    const result: Row[] = [];
+  getVisibleData(): RowData[] {
+    const result: RowData[] = [];
     const count = this.gridCore.getVisibleRowCount();
     for (let i = 0; i < count; i++) {
       const row = this.gridCore.getRowByVisibleIndex(i);
@@ -281,13 +285,132 @@ export class PureSheet {
   }
 
   // ===========================================================================
+  // 고정 행 API (Pinned Rows)
+  // ===========================================================================
+
+  /**
+   * 상단 고정 행 추가
+   *
+   * @param row - Row 인스턴스 또는 RowConfig
+   * @returns 추가된 Row 인스턴스
+   */
+  addPinnedTopRow(row: Row | RowConfig): Row {
+    const rowInstance = row instanceof Row ? row : new Row(row);
+    const bodyRenderer = this.gridRenderer.getBodyRenderer();
+    bodyRenderer?.addPinnedTopRow(rowInstance);
+    this.emitEvent('row:pinned', { row: rowInstance, position: 'top' });
+    return rowInstance;
+  }
+
+  /**
+   * 하단 고정 행 추가
+   *
+   * @param row - Row 인스턴스 또는 RowConfig
+   * @returns 추가된 Row 인스턴스
+   */
+  addPinnedBottomRow(row: Row | RowConfig): Row {
+    const rowInstance = row instanceof Row ? row : new Row(row);
+    const bodyRenderer = this.gridRenderer.getBodyRenderer();
+    bodyRenderer?.addPinnedBottomRow(rowInstance);
+    this.emitEvent('row:pinned', { row: rowInstance, position: 'bottom' });
+    return rowInstance;
+  }
+
+  /**
+   * 상단 고정 행 제거
+   *
+   * @param rowId - 제거할 Row의 ID
+   * @returns 제거 성공 여부
+   */
+  removePinnedTopRow(rowId: string): boolean {
+    const bodyRenderer = this.gridRenderer.getBodyRenderer();
+    const result = bodyRenderer?.removePinnedTopRow(rowId) ?? false;
+    if (result) {
+      this.emitEvent('row:unpinned', { rowId, position: 'top' });
+    }
+    return result;
+  }
+
+  /**
+   * 하단 고정 행 제거
+   *
+   * @param rowId - 제거할 Row의 ID
+   * @returns 제거 성공 여부
+   */
+  removePinnedBottomRow(rowId: string): boolean {
+    const bodyRenderer = this.gridRenderer.getBodyRenderer();
+    const result = bodyRenderer?.removePinnedBottomRow(rowId) ?? false;
+    if (result) {
+      this.emitEvent('row:unpinned', { rowId, position: 'bottom' });
+    }
+    return result;
+  }
+
+  /**
+   * 모든 고정 행 가져오기
+   */
+  getPinnedRows(): { top: Row[]; bottom: Row[] } {
+    const bodyRenderer = this.gridRenderer.getBodyRenderer();
+    return bodyRenderer?.getPinnedRows() ?? { top: [], bottom: [] };
+  }
+
+  /**
+   * 모든 고정 행 제거
+   */
+  clearPinnedRows(): void {
+    const bodyRenderer = this.gridRenderer.getBodyRenderer();
+    bodyRenderer?.clearPinnedRows();
+    this.emitEvent('row:unpinned', { rowId: '*', position: 'all' });
+  }
+
+  /**
+   * 고정 행 새로고침
+   */
+  refreshPinnedRows(): void {
+    const bodyRenderer = this.gridRenderer.getBodyRenderer();
+    bodyRenderer?.refreshPinnedRows();
+  }
+
+  /**
+   * 총합계 행 추가 (편의 메서드)
+   *
+   * @param aggregates - 집계 설정 배열
+   * @returns 추가된 Row 인스턴스
+   */
+  addGrandTotalRow(aggregates: AggregateConfig[]): Row {
+    const row = new Row({
+      structural: true,
+      variant: 'grandtotal',
+      aggregates,
+      pinned: 'bottom',
+    });
+    return this.addPinnedBottomRow(row);
+  }
+
+  /**
+   * 필터 행 추가 (편의 메서드)
+   *
+   * 헤더 바로 아래에 필터 입력 행을 추가합니다.
+   *
+   * @returns 추가된 Row 인스턴스
+   */
+  addFilterRow(): Row {
+    const row = new Row({
+      structural: true,
+      variant: 'filter',
+      pinned: 'top',
+    });
+    return this.addPinnedTopRow(row);
+  }
+
+  // ===========================================================================
   // 선택 API
   // ===========================================================================
 
   /**
    * 선택된 행 가져오기
    */
-  getSelectedRows(): Row[] {
+  getSelectedRows(): RowData[] {
     return this.selectionManager.getSelectedRows();
   }
 
@@ -521,7 +644,7 @@ export class PureSheet {
   /**
    * 행 클릭 핸들러
    */
-  private handleRowClick(rowIndex: number, row: Row, event: MouseEvent): void {
+  private handleRowClick(rowIndex: number, row: RowData, event: MouseEvent): void {
     // row 선택 모드에서만 행 선택 처리
     // range/cell 모드에서는 handleCellClick에서 처리
     if (this.options.selectionMode === 'row') {

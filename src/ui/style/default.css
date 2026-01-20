@@ -168,6 +168,80 @@
   flex: 1;
   position: relative;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* =============================================================================
+   고정 행 영역 (Pinned Rows)
+   ============================================================================= */
+
+.ps-pinned-top,
+.ps-pinned-bottom {
+  flex-shrink: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--ps-bg-color);
+  position: relative;
+  z-index: 10;
+}
+
+/* 고정 영역 스크롤바 숨김 (JavaScript로 동기화) */
+.ps-pinned-top::-webkit-scrollbar,
+.ps-pinned-bottom::-webkit-scrollbar {
+  display: none;
+}
+
+.ps-pinned-top {
+  scrollbar-width: none;
+  border-bottom: 2px solid var(--ps-border-color);
+  box-shadow: 0 2px 4px var(--ps-shadow-color);
+}
+
+.ps-pinned-bottom {
+  scrollbar-width: none;
+  border-top: 2px solid var(--ps-border-color);
+  box-shadow: 0 -2px 4px var(--ps-shadow-color);
+}
+
+.ps-pinned-row {
+  display: flex;
+  background: var(--ps-bg-color);
+  border-bottom: var(--ps-border-width) solid var(--ps-border-color);
+  min-width: max-content;
+}
+
+.ps-pinned-row:last-child {
+  border-bottom: none;
+}
+
+/* 고정 행 내 셀 컨테이너 (컬럼 고정과 통합) */
+.ps-pinned-row .ps-cells-left,
+.ps-pinned-row .ps-cells-center,
+.ps-pinned-row .ps-cells-right {
+  display: flex;
+  align-items: center;
+}
+
+.ps-pinned-row .ps-cells-left {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--ps-bg-color);
+}
+
+.ps-pinned-row .ps-cells-right {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background: var(--ps-bg-color);
+}
+
+/* 스크롤 영역 래퍼 */
+.ps-scroll-wrapper {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
 }
 
 /* Proxy Scrollbar */
