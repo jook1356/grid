@@ -24,8 +24,6 @@ import type { VirtualScrollerOptions, VirtualScrollState } from './types';
 interface VirtualScrollerEvents {
   /** 보이는 행 범위가 변경됨 */
   rangeChanged: { startIndex: number; endIndex: number };
-  /** 스크롤 위치가 변경됨 */
-  scroll: { scrollTop: number; scrollRatio: number };
 }
 
 /**
@@ -215,13 +213,6 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
   }
 
   /**
-   * @deprecated setRenderRowHeight 사용
-   */
-  setRowHeight(height: number): void {
-    this.setRenderRowHeight(height);
-  }
-
-  /**
    * Viewport 크기 변경 시 호출
    */
   updateViewportSize(): void {
@@ -309,13 +300,6 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
   }
 
   /**
-   * @deprecated getRenderRowHeight 사용
-   */
-  getEstimatedRowHeight(): number {
-    return this.renderRowHeight;
-  }
-
-  /**
    * 화면에 보이는 첫 번째 행 인덱스 (overscan 미포함)
    */
   getVisibleStartIndex(): number {
@@ -344,27 +328,6 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
     const chunkStartIndex = this.getChunkStartIndex(this.currentChunk);
     const indexInChunk = rowIndex - chunkStartIndex;
     return indexInChunk * this.renderRowHeight;
-  }
-
-  /**
-   * 행 위치 보정 오프셋 (맨 아래 스크롤 시)
-   */
-  getRowOffset(): number {
-    const visibleCount = this.getVisibleRowCount();
-
-    if (this.totalRows <= visibleCount) {
-      return 0;
-    }
-
-    const maxStartIndex = Math.max(0, this.totalRows - visibleCount);
-
-    if (this.currentStartIndex >= maxStartIndex && this.totalRows > 0) {
-      const contentHeight = visibleCount * this.renderRowHeight;
-      const offset = this.viewportHeight - contentHeight;
-      return Math.min(0, offset);
-    }
-
-    return 0;
   }
 
   // ===========================================================================
@@ -478,8 +441,6 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
       this.syncViewportScroll();
       this.emitRangeChanged();
     }
-
-    this.emit('scroll', { scrollTop, scrollRatio });
   }
 
   /**
@@ -501,7 +462,7 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
     if (indexInChunk >= chunkRowCount - CHUNK_TRANSITION_BUFFER &&
         this.currentChunk < this.getTotalChunks() - 1) {
       // 다음 청크로 전환
-      this.transitionToNextChunk();
+      this.transitionToAdjacentChunk('next');
       return;
     } else if (indexInChunk < CHUNK_TRANSITION_BUFFER && this.currentChunk > 0) {
       // 이전 청크로 전환하기 전에 검사:
@@ -514,7 +475,7 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
       // targetStartIndex가 이전 청크 범위를 벗어나면 전환하지 않음
       // (마지막 청크의 시작 부분에 있어서 이전 청크로 갈 수 없는 경우)
       if (targetStartIndex <= prevChunkEndIndex) {
-        this.transitionToPrevChunk();
+        this.transitionToAdjacentChunk('prev');
         return;
       }
     }
@@ -530,13 +491,19 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
   }
 
   /**
-   * 다음 청크로 전환
+   * 인접 청크로 전환 (스크롤 위치 유지)
+   *
+   * @param direction - 'next' 또는 'prev'
    */
-  private transitionToNextChunk(): void {
+  private transitionToAdjacentChunk(direction: 'next' | 'prev'): void {
     if (this.isTransitioning) return;
 
-    const nextChunk = this.currentChunk + 1;
-    if (nextChunk >= this.getTotalChunks()) return;
+    const targetChunk = direction === 'next'
+      ? this.currentChunk + 1
+      : this.currentChunk - 1;
+
+    // 범위 검사
+    if (targetChunk < 0 || targetChunk >= this.getTotalChunks()) return;
 
     this.isTransitioning = true;
 
@@ -544,50 +511,13 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
     const currentGlobalIndex = this.currentStartIndex;
 
     // 청크 전환
-    this.currentChunk = nextChunk;
+    this.currentChunk = targetChunk;
     this.updateRowContainerHeight();
 
     // 새 청크에서의 스크롤 위치 계산
-    const newChunkStartIndex = this.getChunkStartIndex(nextChunk);
+    const newChunkStartIndex = this.getChunkStartIndex(targetChunk);
     const indexInNewChunk = currentGlobalIndex - newChunkStartIndex;
     const newScrollTop = Math.max(0, indexInNewChunk * this.renderRowHeight);
-
-    // Viewport 스크롤 위치 설정
-    if (this.viewport) {
-      this.isSyncingProxy = true;
-      this.viewport.scrollTop = newScrollTop;
-    }
-
-    this.emitRangeChanged();
-
-    requestAnimationFrame(() => {
-      this.isTransitioning = false;
-      this.isSyncingProxy = false;
-    });
-  }
-
-  /**
-   * 이전 청크로 전환
-   */
-  private transitionToPrevChunk(): void {
-    if (this.isTransitioning) return;
-
-    const prevChunk = this.currentChunk - 1;
-    if (prevChunk < 0) return;
-
-    this.isTransitioning = true;
-
-    // 현재 보이는 전역 인덱스 기억
-    const currentGlobalIndex = this.currentStartIndex;
-
-    // 청크 전환
-    this.currentChunk = prevChunk;
-    this.updateRowContainerHeight();
-
-    // 새 청크에서의 스크롤 위치 계산
-    const newChunkStartIndex = this.getChunkStartIndex(prevChunk);
-    const indexInNewChunk = currentGlobalIndex - newChunkStartIndex;
-    const newScrollTop = indexInNewChunk * this.renderRowHeight;
 
     // Viewport 스크롤 위치 설정
     if (this.viewport) {
