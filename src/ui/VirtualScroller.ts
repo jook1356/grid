@@ -242,7 +242,12 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
    * 특정 행으로 스크롤
    */
   scrollToRow(rowIndex: number): void {
-    const clampedIndex = Math.max(0, Math.min(rowIndex, this.totalRows - 1));
+    // 최대 시작 인덱스 계산 (마지막 화면을 벗어나지 않도록)
+    const visibleCount = this.getVisibleRowCount();
+    const maxStartIndex = Math.max(0, this.totalRows - visibleCount);
+    
+    // rowIndex를 유효 범위로 클램프 (0 ~ maxStartIndex)
+    const clampedIndex = Math.max(0, Math.min(rowIndex, maxStartIndex));
     const targetChunk = this.getChunkForIndex(clampedIndex);
 
     // 청크 전환 필요시
@@ -254,9 +259,20 @@ export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
 
     // Viewport 스크롤 위치 설정 (청크 내 상대 위치)
     if (this.viewport) {
-      const indexInChunk = clampedIndex - this.getChunkStartIndex(this.currentChunk);
+      const chunkStartIndex = this.getChunkStartIndex(this.currentChunk);
+      const chunkRowCount = this.getChunkRowCount(this.currentChunk);
+      const indexInChunk = clampedIndex - chunkStartIndex;
+      
+      let targetScrollTop = indexInChunk * this.renderRowHeight;
+      
+      // 맨 아래 행을 보고 있을 때: viewport를 최대 스크롤 위치로
+      if (clampedIndex >= maxStartIndex) {
+        const maxScroll = (chunkRowCount * this.renderRowHeight) - this.viewportHeight;
+        targetScrollTop = Math.max(0, maxScroll);
+      }
+      
       this.isSyncingProxy = true;
-      this.viewport.scrollTop = indexInChunk * this.renderRowHeight;
+      this.viewport.scrollTop = targetScrollTop;
       requestAnimationFrame(() => {
         this.isSyncingProxy = false;
       });
