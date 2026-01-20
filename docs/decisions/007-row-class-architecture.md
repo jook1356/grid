@@ -1,5 +1,8 @@
 # 007. Row 클래스 아키텍처 및 행 고정 기능
 
+> **업데이트**: Row 클래스에서 렌더링 로직을 분리하여 Row = 순수 데이터, RowRenderer = 렌더링으로 재설계되었습니다.
+> 상세 내용: [008. 피봇 그리드 아키텍처](./008-pivot-grid-architecture.md)
+
 ## 1. 배경 및 동기
 
 ### 현재 상태
@@ -799,6 +802,7 @@ Option B를 재검토할 수 있다.
 
 - [006. 셀 렌더링 전략](./006-cell-rendering-strategy.md)
 - [004. 셀 병합 및 행 그룹화](./004-cell-merge-and-row-grouping.md)
+- [008. 피봇 그리드 아키텍처](./008-pivot-grid-architecture.md) - Row/RowRenderer 분리 결정
 - [UI 아키텍처](../base/ARCHITECTURE-UI.md)
 
 ---

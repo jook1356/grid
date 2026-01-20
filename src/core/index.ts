@@ -9,6 +9,24 @@
 export { GridCore } from './GridCore';
 export type { GridCoreOptions, ViewRange } from './GridCore';
 
+// 뷰 관리 (피봇/일반 통합)
+export { ViewDataManager } from './ViewDataManager';
+export type { ViewDataManagerEventMap } from './ViewDataManager';
+export {
+  createNormalViewConfig,
+  createPivotViewConfig,
+  isPivotMode,
+} from './ViewConfig';
+export type {
+  ViewMode,
+  ViewConfig,
+  ValueField,
+  AggregateFunction,
+  PivotConfig,
+  PivotResult,
+  ColumnGroup,
+} from './ViewConfig';
+
 // 내부 모듈 (고급 사용자용)
 export { EventEmitter } from './EventEmitter';
 export { DataStore } from './DataStore';

@@ -19,6 +19,7 @@ import { RowPool } from './RowPool';
 import { GroupManager } from '../grouping/GroupManager';
 import { MultiRowRenderer } from '../multirow/MultiRowRenderer';
 import { Row } from '../row/Row';
+import { RowRenderer } from '../row/RowRenderer';
 
 /**
  * 고정 행 설정
@@ -94,6 +95,7 @@ export class BodyRenderer {
   private rowPool: RowPool;
   private groupManager: GroupManager;
   private multiRowRenderer: MultiRowRenderer | null = null;
+  private rowRenderer: RowRenderer;
 
   // Multi-Row 설정
   private rowTemplate: RowTemplate | null = null;
@@ -193,6 +195,9 @@ export class BodyRenderer {
     });
 
     this.rowPool = new RowPool(this.rowContainer, this.columns.length);
+    
+    // RowRenderer 초기화 (Row 렌더링 전담)
+    this.rowRenderer = new RowRenderer();
 
     // GroupManager 초기화
     this.groupManager = new GroupManager({
@@ -743,8 +748,8 @@ export class BodyRenderer {
         rowIndex: i, // 고정 영역 내 인덱스
       };
 
-      // Row 렌더링
-      row.render(rowElement, context);
+      // RowRenderer로 렌더링 위임
+      this.rowRenderer.render(row, rowElement, context);
     }
 
     // 컨테이너 높이 업데이트
@@ -794,8 +799,8 @@ export class BodyRenderer {
       rowIndex,
     };
 
-    // Row 클래스로 렌더링 위임
-    row.render(rowElement, context);
+    // RowRenderer로 렌더링 위임
+    this.rowRenderer.render(row, rowElement, context);
   }
 
 
@@ -847,8 +852,8 @@ export class BodyRenderer {
       dataIndex: dataRow.dataIndex,
     };
 
-    // Row 클래스로 렌더링 위임
-    row.render(rowElement, context);
+    // RowRenderer로 렌더링 위임
+    this.rowRenderer.render(row, rowElement, context);
 
     // 셀 선택 상태 적용 (Row 렌더링 후)
     this.applyCellSelectionToRow(rowElement, rowIndex);
