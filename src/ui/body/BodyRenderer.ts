@@ -60,6 +60,7 @@ export class BodyRenderer {
 
   // 선택 상태
   private selectedRows: Set<string | number> = new Set();
+  private selectedRowIndices: Set<number> = new Set();  // 셀 선택에서 파생된 행 인덱스
 
   // DOM 요소
   private container: HTMLElement;
@@ -329,10 +330,22 @@ export class BodyRenderer {
 
   /**
    * 셀 선택 상태 업데이트
+   * 선택된 셀이 있는 행도 함께 하이라이트됩니다.
    */
   updateCellSelection(selectedCells: Set<string>): void {
     this.selectedCells = selectedCells;
+    
+    // 선택된 셀에서 행 인덱스 추출
+    this.selectedRowIndices.clear();
+    for (const cellKey of selectedCells) {
+      const rowIndex = parseInt(cellKey.split(':')[0], 10);
+      if (!isNaN(rowIndex)) {
+        this.selectedRowIndices.add(rowIndex);
+      }
+    }
+    
     this.updateCellSelectionStyles();
+    this.updateCombinedRowSelectionStyles();
   }
 
   /**
@@ -585,9 +598,10 @@ export class BodyRenderer {
     }
     delete rowElement.dataset['groupId'];
 
-    // 선택 상태
-    const isSelected = rowId !== undefined && this.selectedRows.has(rowId);
-    rowElement.classList.toggle('ps-selected', isSelected);
+    // 선택 상태 (셀 선택에서 파생된 행 인덱스 또는 명시적 행 선택)
+    const isSelectedByCell = this.selectedRowIndices.has(rowIndex);
+    const isSelectedByRow = rowId !== undefined && this.selectedRows.has(rowId);
+    rowElement.classList.toggle('ps-selected', isSelectedByCell || isSelectedByRow);
 
     // 셀 컨테이너 가져오기
     const leftContainer = rowElement.querySelector('.ps-cells-left') as HTMLElement;
@@ -807,15 +821,31 @@ export class BodyRenderer {
   }
 
   /**
-   * 선택 상태 스타일 업데이트
+   * 선택 상태 스타일 업데이트 (행 ID 기준 - 명시적 행 선택)
    */
   private updateRowSelectionStyles(): void {
-    for (const [rowIndex, rowElement] of this.rowPool.getActiveRows()) {
-      const rowData = this.gridCore.getRowByVisibleIndex(rowIndex);
-      if (!rowData) continue;
+    this.updateCombinedRowSelectionStyles();
+  }
 
-      const rowId = rowData['id'];
-      const isSelected = rowId !== undefined && this.selectedRows.has(rowId);
+  /**
+   * 통합 행 선택 스타일 업데이트
+   * - selectedRows: 명시적 행 선택 (행 ID 기준)
+   * - selectedRowIndices: 셀 선택에서 파생된 행 (행 인덱스 기준)
+   */
+  private updateCombinedRowSelectionStyles(): void {
+    for (const [rowIndex, rowElement] of this.rowPool.getActiveRows()) {
+      // 1. 셀 선택에서 파생된 행 인덱스 체크
+      let isSelected = this.selectedRowIndices.has(rowIndex);
+      
+      // 2. 명시적 행 선택 (ID 기준) 체크
+      if (!isSelected && this.selectedRows.size > 0) {
+        const rowData = this.gridCore.getRowByVisibleIndex(rowIndex);
+        if (rowData) {
+          const rowId = rowData['id'];
+          isSelected = rowId !== undefined && this.selectedRows.has(rowId);
+        }
+      }
+      
       rowElement.classList.toggle('ps-selected', isSelected);
     }
   }
