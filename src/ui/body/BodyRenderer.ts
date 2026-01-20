@@ -5,6 +5,7 @@
  * RowPool을 사용하여 DOM 요소를 재사용합니다.
  * GroupManager를 통해 그룹화된 데이터를 렌더링합니다.
  * MultiRowRenderer를 통해 Multi-Row 레이아웃을 지원합니다.
+ * 드래그 선택(Marquee Selection)을 지원합니다.
  */
 
 import type { GridCore } from '../../core/GridCore';
@@ -38,6 +39,12 @@ export interface BodyRendererOptions {
   onCellDblClick?: (position: CellPosition, value: unknown, event: MouseEvent) => void;
   /** 그룹 토글 콜백 */
   onGroupToggle?: (groupId: string, collapsed: boolean) => void;
+  /** 드래그 선택 시작 콜백 */
+  onDragSelectionStart?: (position: CellPosition, event: MouseEvent) => void;
+  /** 드래그 선택 업데이트 콜백 */
+  onDragSelectionUpdate?: (position: CellPosition) => void;
+  /** 드래그 선택 완료 콜백 */
+  onDragSelectionEnd?: () => void;
 }
 
 /**
@@ -53,7 +60,6 @@ export class BodyRenderer {
 
   // 선택 상태
   private selectedRows: Set<string | number> = new Set();
-  private focusedCell: CellPosition | null = null;
 
   // DOM 요소
   private container: HTMLElement;
@@ -79,6 +85,25 @@ export class BodyRenderer {
   private onCellClick?: BodyRendererOptions['onCellClick'];
   private onCellDblClick?: BodyRendererOptions['onCellDblClick'];
   private onGroupToggle?: BodyRendererOptions['onGroupToggle'];
+  private onDragSelectionStart?: BodyRendererOptions['onDragSelectionStart'];
+  private onDragSelectionUpdate?: BodyRendererOptions['onDragSelectionUpdate'];
+  private onDragSelectionEnd?: BodyRendererOptions['onDragSelectionEnd'];
+
+  // 드래그 선택 상태
+  private isDragging = false;
+  private dragStartPosition: CellPosition | null = null;
+  private lastDragColumnKey: string | null = null;  // 드래그 중 마지막 컬럼 키
+
+  // 선택된 셀 Set (O(1) 조회용)
+  private selectedCells: Set<string> = new Set();
+
+  // 자동 스크롤 관련
+  private autoScrollAnimationId: number | null = null;
+  private autoScrollSpeed = 0;
+
+  // 이벤트 핸들러 바인딩 (제거용)
+  private boundHandleMouseMove: (e: MouseEvent) => void;
+  private boundHandleMouseUp: (e: MouseEvent) => void;
 
   constructor(container: HTMLElement, options: BodyRendererOptions) {
     this.container = container;
@@ -89,6 +114,13 @@ export class BodyRenderer {
     this.onCellClick = options.onCellClick;
     this.onCellDblClick = options.onCellDblClick;
     this.onGroupToggle = options.onGroupToggle;
+    this.onDragSelectionStart = options.onDragSelectionStart;
+    this.onDragSelectionUpdate = options.onDragSelectionUpdate;
+    this.onDragSelectionEnd = options.onDragSelectionEnd;
+
+    // 이벤트 핸들러 바인딩
+    this.boundHandleMouseMove = this.handleMouseMove.bind(this);
+    this.boundHandleMouseUp = this.handleMouseUp.bind(this);
 
     // 컬럼 정의 맵 생성
     for (const col of this.gridCore.getColumns()) {
@@ -140,6 +172,7 @@ export class BodyRenderer {
     this.virtualScroller.on('rangeChanged', this.onRangeChanged.bind(this));
     this.viewport.addEventListener('click', this.handleClick.bind(this));
     this.viewport.addEventListener('dblclick', this.handleDblClick.bind(this));
+    this.viewport.addEventListener('mousedown', this.handleMouseDown.bind(this));
 
     // 초기 행 수 설정
     this.updateVirtualRows();
@@ -284,12 +317,19 @@ export class BodyRenderer {
   }
 
   /**
-   * 선택 상태 업데이트
+   * 선택 상태 업데이트 (행 선택)
    */
-  updateSelection(selectedRows: Set<string | number>, focusedCell: CellPosition | null): void {
+  updateSelection(selectedRows: Set<string | number>): void {
     this.selectedRows = selectedRows;
-    this.focusedCell = focusedCell;
     this.updateRowSelectionStyles();
+  }
+
+  /**
+   * 셀 선택 상태 업데이트
+   */
+  updateCellSelection(selectedCells: Set<string>): void {
+    this.selectedCells = selectedCells;
+    this.updateCellSelectionStyles();
   }
 
   /**
@@ -314,9 +354,27 @@ export class BodyRenderer {
   }
 
   /**
+   * VirtualScroller 인스턴스 반환 (자동 스크롤용)
+   */
+  getVirtualScroller(): VirtualScroller {
+    return this.virtualScroller;
+  }
+
+  /**
+   * 컬럼 상태 반환
+   */
+  getColumnStates(): ColumnState[] {
+    return this.columns;
+  }
+
+  /**
    * 리소스 해제
    */
   destroy(): void {
+    // 드래그 이벤트 정리
+    this.cleanupDragEvents();
+    this.stopAutoScroll();
+
     this.virtualScroller.destroy();
     this.rowPool.destroy();
     this.container.innerHTML = '';
@@ -584,10 +642,10 @@ export class BodyRenderer {
       // 데이터 속성
       cell.dataset['columnKey'] = column.key;
 
-      // 포커스 상태
-      const isFocused = this.focusedCell?.rowIndex === rowIndex &&
-        this.focusedCell?.columnKey === column.key;
-      cell.classList.toggle('ps-focused', isFocused);
+      // 셀 선택 상태 (O(1) 조회)
+      const cellKey = `${rowIndex}:${column.key}`;
+      const isSelected = this.selectedCells.has(cellKey);
+      cell.classList.toggle('ps-cell-selected', isSelected);
 
       // 값 렌더링
       const displayValue = this.formatCellValue(value, colDef);
@@ -750,16 +808,6 @@ export class BodyRenderer {
       const rowId = rowData['id'];
       const isSelected = rowId !== undefined && this.selectedRows.has(rowId);
       rowElement.classList.toggle('ps-selected', isSelected);
-
-      // 포커스된 셀 업데이트
-      if (this.focusedCell?.rowIndex === rowIndex) {
-        const cells = rowElement.querySelectorAll('.ps-cell');
-        cells.forEach((cell) => {
-          const el = cell as HTMLElement;
-          const isFocused = el.dataset['columnKey'] === this.focusedCell?.columnKey;
-          el.classList.toggle('ps-focused', isFocused);
-        });
-      }
     }
   }
 
@@ -770,5 +818,256 @@ export class BodyRenderer {
     const el = document.createElement(tag);
     el.className = className;
     return el;
+  }
+
+  // ===========================================================================
+  // 드래그 선택 (Drag Selection)
+  // ===========================================================================
+
+  /**
+   * 마우스 다운 이벤트 처리 (드래그 시작)
+   */
+  private handleMouseDown(event: MouseEvent): void {
+    // 왼쪽 버튼만 처리
+    if (event.button !== 0) return;
+
+    // 셀에서 시작했는지 확인
+    const cellPosition = this.getCellPositionFromEvent(event);
+    if (!cellPosition) return;
+
+    // 그룹 헤더에서는 드래그 선택 안함
+    const target = event.target as HTMLElement;
+    const row = target.closest('.ps-row') as HTMLElement | null;
+    if (row?.dataset['rowType'] === 'group-header') return;
+
+    // 드래그 시작
+    this.isDragging = true;
+    this.dragStartPosition = cellPosition;
+    this.lastDragColumnKey = cellPosition.columnKey;  // 초기 컬럼 키 설정
+
+    // 콜백 호출
+    if (this.onDragSelectionStart) {
+      this.onDragSelectionStart(cellPosition, event);
+    }
+
+    // 전역 이벤트 리스너 등록 (viewport 밖에서도 드래그 추적)
+    document.addEventListener('mousemove', this.boundHandleMouseMove);
+    document.addEventListener('mouseup', this.boundHandleMouseUp);
+
+    // 텍스트 선택 방지
+    event.preventDefault();
+  }
+
+  /**
+   * 마우스 이동 이벤트 처리 (드래그 중)
+   */
+  private handleMouseMove(event: MouseEvent): void {
+    if (!this.isDragging) return;
+
+    // 현재 마우스 위치에서 셀 위치 계산
+    const cellPosition = this.getCellPositionFromMousePosition(event);
+    if (!cellPosition) return;
+
+    // 마지막 컬럼 키 저장 (자동 스크롤 시 사용)
+    this.lastDragColumnKey = cellPosition.columnKey;
+
+    // 콜백 호출
+    if (this.onDragSelectionUpdate) {
+      this.onDragSelectionUpdate(cellPosition);
+    }
+
+    // 자동 스크롤 체크
+    this.checkAutoScroll(event);
+  }
+
+  /**
+   * 마우스 업 이벤트 처리 (드래그 종료)
+   */
+  private handleMouseUp(_event: MouseEvent): void {
+    if (!this.isDragging) return;
+
+    this.isDragging = false;
+    this.dragStartPosition = null;
+    this.lastDragColumnKey = null;
+
+    // 자동 스크롤 중지
+    this.stopAutoScroll();
+
+    // 콜백 호출
+    if (this.onDragSelectionEnd) {
+      this.onDragSelectionEnd();
+    }
+
+    // 전역 이벤트 리스너 제거
+    this.cleanupDragEvents();
+  }
+
+  /**
+   * 드래그 이벤트 정리
+   */
+  private cleanupDragEvents(): void {
+    document.removeEventListener('mousemove', this.boundHandleMouseMove);
+    document.removeEventListener('mouseup', this.boundHandleMouseUp);
+  }
+
+  /**
+   * 이벤트에서 셀 위치 추출
+   */
+  private getCellPositionFromEvent(event: MouseEvent): CellPosition | null {
+    const target = event.target as HTMLElement;
+    const cell = target.closest('.ps-cell') as HTMLElement | null;
+    const row = target.closest('.ps-row') as HTMLElement | null;
+
+    if (!cell || !row) return null;
+
+    const rowIndex = parseInt(row.dataset['rowIndex'] ?? '-1', 10);
+    const columnKey = cell.dataset['columnKey'];
+
+    if (rowIndex < 0 || !columnKey) return null;
+
+    return { rowIndex, columnKey };
+  }
+
+  /**
+   * 마우스 좌표에서 셀 위치 계산 (viewport 밖에서도 동작)
+   */
+  private getCellPositionFromMousePosition(event: MouseEvent): CellPosition | null {
+    const viewportRect = this.viewport.getBoundingClientRect();
+    const effectiveRowHeight = this.getEffectiveRowHeight();
+
+    // 마우스 Y 좌표 → 행 인덱스
+    // viewport 내부의 Y 좌표 (음수면 위, viewportHeight 초과면 아래)
+    const viewportY = event.clientY - viewportRect.top;
+    
+    // 현재 보이는 첫 번째 행 인덱스 기준으로 계산
+    const visibleStartIndex = this.virtualScroller.getVisibleStartIndex();
+    let rowIndex = visibleStartIndex + Math.floor(viewportY / effectiveRowHeight);
+
+    // 범위 제한
+    rowIndex = Math.max(0, Math.min(rowIndex, this.virtualRows.length - 1));
+
+    // 마우스 X 좌표 → 컬럼 키
+    const relativeX = event.clientX - viewportRect.left + this.viewport.scrollLeft;
+    const columnKey = this.getColumnKeyFromX(relativeX);
+
+    if (!columnKey) return null;
+
+    return { rowIndex, columnKey };
+  }
+
+  /**
+   * X 좌표에서 컬럼 키 찾기
+   */
+  private getColumnKeyFromX(x: number): string | null {
+    const columnGroups = this.getColumnGroups();
+    const allColumns = [...columnGroups.left, ...columnGroups.center, ...columnGroups.right];
+
+    let accumulatedWidth = 0;
+    for (const col of allColumns) {
+      accumulatedWidth += col.width;
+      if (x < accumulatedWidth) {
+        return col.key;
+      }
+    }
+
+    // X가 모든 컬럼을 넘어가면 마지막 컬럼 반환
+    return allColumns[allColumns.length - 1]?.key ?? null;
+  }
+
+  /**
+   * 셀 선택 스타일 업데이트
+   */
+  private updateCellSelectionStyles(): void {
+    for (const [rowIndex, rowElement] of this.rowPool.getActiveRows()) {
+      const cells = rowElement.querySelectorAll('.ps-cell');
+      cells.forEach((cell) => {
+        const el = cell as HTMLElement;
+        const columnKey = el.dataset['columnKey'];
+        if (columnKey) {
+          const cellKey = `${rowIndex}:${columnKey}`;
+          const isSelected = this.selectedCells.has(cellKey);
+          el.classList.toggle('ps-cell-selected', isSelected);
+        }
+      });
+    }
+  }
+
+  // ===========================================================================
+  // 자동 스크롤 (드래그 중 viewport 경계 도달 시)
+  // ===========================================================================
+
+  /**
+   * 자동 스크롤 필요 여부 체크
+   */
+  private checkAutoScroll(event: MouseEvent): void {
+    const viewportRect = this.viewport.getBoundingClientRect();
+    const edgeThreshold = 50; // 경계에서 50px 이내면 자동 스크롤
+
+    const distanceFromTop = event.clientY - viewportRect.top;
+    const distanceFromBottom = viewportRect.bottom - event.clientY;
+
+    if (distanceFromTop < edgeThreshold && distanceFromTop > 0) {
+      // 위쪽으로 스크롤
+      this.autoScrollSpeed = -Math.ceil((edgeThreshold - distanceFromTop) / 10);
+      this.startAutoScroll();
+    } else if (distanceFromBottom < edgeThreshold && distanceFromBottom > 0) {
+      // 아래쪽으로 스크롤
+      this.autoScrollSpeed = Math.ceil((edgeThreshold - distanceFromBottom) / 10);
+      this.startAutoScroll();
+    } else {
+      // 스크롤 중지
+      this.stopAutoScroll();
+    }
+  }
+
+  /**
+   * 자동 스크롤 시작
+   */
+  private startAutoScroll(): void {
+    if (this.autoScrollAnimationId !== null) return;
+
+    const scroll = () => {
+      if (!this.isDragging || this.autoScrollSpeed === 0) {
+        this.stopAutoScroll();
+        return;
+      }
+
+      // 현재 보이는 시작 인덱스 가져오기
+      const currentStartIndex = this.virtualScroller.getVisibleStartIndex();
+      const newStartIndex = currentStartIndex + this.autoScrollSpeed;
+
+      // 스크롤
+      this.virtualScroller.scrollToRow(newStartIndex);
+
+      // 드래그 선택 업데이트 (현재 마우스 위치 기준)
+      if (this.onDragSelectionUpdate && this.dragStartPosition && this.lastDragColumnKey) {
+        const visibleStart = this.virtualScroller.getVisibleStartIndex();
+        const visibleCount = this.virtualScroller.getVisibleRowCount();
+        const targetRow = this.autoScrollSpeed > 0
+          ? Math.min(visibleStart + visibleCount - 1, this.virtualRows.length - 1)
+          : Math.max(visibleStart, 0);
+
+        // 마지막으로 드래그한 컬럼 키 유지
+        this.onDragSelectionUpdate({
+          rowIndex: targetRow,
+          columnKey: this.lastDragColumnKey,
+        });
+      }
+
+      this.autoScrollAnimationId = requestAnimationFrame(scroll);
+    };
+
+    this.autoScrollAnimationId = requestAnimationFrame(scroll);
+  }
+
+  /**
+   * 자동 스크롤 중지
+   */
+  private stopAutoScroll(): void {
+    if (this.autoScrollAnimationId !== null) {
+      cancelAnimationFrame(this.autoScrollAnimationId);
+      this.autoScrollAnimationId = null;
+    }
+    this.autoScrollSpeed = 0;
   }
 }

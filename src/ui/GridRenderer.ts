@@ -43,6 +43,12 @@ export interface GridRendererOptions {
   onSortChange?: (sorts: SortState[]) => void;
   /** 컬럼 순서 변경 콜백 */
   onColumnReorder?: (order: string[]) => void;
+  /** 드래그 선택 시작 콜백 */
+  onDragSelectionStart?: (position: { rowIndex: number; columnKey: string }, event: MouseEvent) => void;
+  /** 드래그 선택 업데이트 콜백 */
+  onDragSelectionUpdate?: (position: { rowIndex: number; columnKey: string }) => void;
+  /** 드래그 선택 완료 콜백 */
+  onDragSelectionEnd?: () => void;
 }
 
 /**
@@ -72,6 +78,9 @@ export class GridRenderer {
   private onGroupToggle?: GridRendererOptions['onGroupToggle'];
   private onSortChange?: GridRendererOptions['onSortChange'];
   private onColumnReorder?: GridRendererOptions['onColumnReorder'];
+  private onDragSelectionStart?: GridRendererOptions['onDragSelectionStart'];
+  private onDragSelectionUpdate?: GridRendererOptions['onDragSelectionUpdate'];
+  private onDragSelectionEnd?: GridRendererOptions['onDragSelectionEnd'];
 
   // ResizeObserver
   private resizeObserver: ResizeObserver | null = null;
@@ -86,6 +95,9 @@ export class GridRenderer {
     this.onGroupToggle = options.onGroupToggle;
     this.onSortChange = options.onSortChange;
     this.onColumnReorder = options.onColumnReorder;
+    this.onDragSelectionStart = options.onDragSelectionStart;
+    this.onDragSelectionUpdate = options.onDragSelectionUpdate;
+    this.onDragSelectionEnd = options.onDragSelectionEnd;
 
     // 스타일 삽입
     this.injectStyles();
@@ -179,11 +191,8 @@ export class GridRenderer {
   /**
    * 선택 상태 업데이트
    */
-  updateSelection(
-    selectedRows: Set<string | number>,
-    focusedCell: { rowIndex: number; columnKey: string } | null
-  ): void {
-    this.bodyRenderer?.updateSelection(selectedRows, focusedCell);
+  updateSelection(selectedRows: Set<string | number>): void {
+    this.bodyRenderer?.updateSelection(selectedRows);
   }
 
   /**
@@ -333,6 +342,9 @@ export class GridRenderer {
       onCellClick: this.onCellClick,
       onCellDblClick: this.onCellDblClick,
       onGroupToggle: this.onGroupToggle,
+      onDragSelectionStart: this.onDragSelectionStart,
+      onDragSelectionUpdate: this.onDragSelectionUpdate,
+      onDragSelectionEnd: this.onDragSelectionEnd,
     });
 
     // 가로 스크롤 동기화 설정

@@ -70,13 +70,12 @@
   </div>
   
   <div class="info-panel">
-    <h3>선택된 행</h3>
+    <h3>선택 정보</h3>
     <pre id="selectedRows">[]</pre>
   </div>
   
   <script type="module">
-    // 빌드된 모듈 대신 직접 import (개발용)
-    // 실제 사용 시: import { PureSheet } from '@puresheet/core';
+    // PureSheet 사용 (완전한 기능 지원)
     
     // 데이터 생성 웹 워커 (백그라운드에서 대량 데이터 생성)
     const dataWorker = new Worker(
@@ -112,12 +111,31 @@
       document.getElementById('status').textContent = message;
     }
     
-    function updateSelectedRows(rows) {
-      const display = rows.slice(0, 10).map(r => ({ id: r.id, name: r.name }));
-      if (rows.length > 10) {
-        display.push({ '...': `외 ${rows.length - 10}개` });
+    function updateSelectionInfo(state) {
+      const info = {
+        selectedRows: state.selectedRows?.length || 0,
+        selectedCells: state.selectedCells?.length || 0,
+      };
+      
+      // 행 선택 시 행 정보 표시
+      if (state.selectedRows?.length > 0 && sheet) {
+        const rows = sheet.getSelectedRows();
+        const display = rows.slice(0, 5).map(r => ({ id: r.id, name: r.name }));
+        if (rows.length > 5) {
+          display.push({ '...': `외 ${rows.length - 5}개 행` });
+        }
+        info.rows = display;
       }
-      document.getElementById('selectedRows').textContent = JSON.stringify(display, null, 2);
+      
+      // 셀 선택 시 셀 정보 표시
+      if (state.selectedCells?.length > 0) {
+        info.cells = state.selectedCells.slice(0, 10);
+        if (state.selectedCells.length > 10) {
+          info.cells.push(`... 외 ${state.selectedCells.length - 10}개 셀`);
+        }
+      }
+      
+      document.getElementById('selectedRows').textContent = JSON.stringify(info, null, 2);
     }
     
     // 전역 함수 (버튼에서 호출)
@@ -149,7 +167,7 @@
       if (sheet) {
         sheet.clearSelection();
         updateStatus('선택 해제됨');
-        updateSelectedRows([]);
+        updateSelectionInfo({ selectedRows: [], selectedCells: [] });
       }
     };
     
@@ -166,11 +184,11 @@
     async function init() {
       const container = document.getElementById('grid');
       
-      // GridCore와 GridRenderer를 직접 사용 (PureSheet 빌드 전)
-      const { GridCore, GridRenderer } = await import('../src/index.ts');
+      // PureSheet import
+      const { PureSheet } = await import('../src/index.ts');
       
       const columns = [
-        { key: 'id', header: 'ID', width: 60, pinned: 'left' },
+        { key: 'id', header: 'ID', width: 60, frozen: 'left' },
         { key: 'name', header: 'Name', width: 150 },
         { key: 'email', header: 'Email', width: 250 },
         { key: 'department', header: 'Department', width: 120 },
@@ -179,41 +197,37 @@
         { key: 'joinDate', header: 'Join Date', width: 120 },
       ];
       
-      const gridCore = new GridCore({ columns });
-      await gridCore.initialize();
-      
-      const renderer = new GridRenderer(container, {
-        gridCore,
-        options: {
-          columns,
-          rowHeight: 36,
-          headerHeight: 40,
-          resizableColumns: true,
-          reorderableColumns: true,
-          theme: 'light',
-        },
-        onRowClick: (rowIndex, row) => {
-          console.log('Row clicked:', rowIndex, row);
-          updateSelectedRows([row]);
-        },
+      // PureSheet 인스턴스 생성 (완전한 기능 지원)
+      sheet = new PureSheet(container, {
+        columns,
+        rowHeight: 36,
+        headerHeight: 40,
+        selectionMode: 'range',    // 범위 선택 모드 활성화 (Marquee Selection)
+        multiSelect: true,          // 다중 선택 허용
+        resizableColumns: true,
+        reorderableColumns: true,
+        theme: 'light',
       });
       
-      // 임시로 sheet 객체 생성 (loadData 함수용)
-      sheet = {
-        loadData: async (data) => {
-          await gridCore.loadData(data);
-          renderer.refresh();
-        },
-        selectAll: () => {
-          console.log('Select all - not implemented in demo');
-        },
-        clearSelection: () => {
-          console.log('Clear selection - not implemented in demo');
-        },
-      };
+      // 선택 변경 이벤트
+      sheet.on('selection:changed', (state) => {
+        updateSelectionInfo(state);
+      });
+      
+      // 행 클릭 이벤트
+      sheet.on('row:click', ({ row, rowIndex }) => {
+        console.log('Row clicked:', rowIndex, row);
+      });
+      
+      // 셀 클릭 이벤트
+      sheet.on('cell:click', ({ row, columnKey, value }) => {
+        console.log('Cell clicked:', columnKey, value);
+      });
       
       // 초기 데이터 로드
       await window.loadData(1000);
+      
+      updateStatus('준비 완료! 드래그로 셀 선택, Shift+클릭으로 범위 확장, Ctrl+클릭으로 개별 선택');
     }
     
     init().catch(console.error);

@@ -56,6 +56,9 @@ export class PureSheet {
   // 이벤트 핸들러
   private eventHandlers: Map<string, Set<Function>> = new Map();
 
+  // GridCore 초기화 Promise
+  private initPromise: Promise<void>;
+
   constructor(container: HTMLElement, options: PureSheetOptions) {
     this.container = container;
     this.options = {
@@ -76,6 +79,9 @@ export class PureSheet {
       columns: this.options.columns,
     });
 
+    // GridCore Worker 초기화 (Promise 저장하여 나중에 await 가능)
+    this.initPromise = this.gridCore.initialize();
+
     // ColumnManager 초기화
     this.columnManager = new ColumnManager({
       columns: this.options.columns,
@@ -88,6 +94,9 @@ export class PureSheet {
       onRowClick: this.handleRowClick.bind(this),
       onCellClick: this.handleCellClick.bind(this),
       onCellDblClick: this.handleCellDblClick.bind(this),
+      onDragSelectionStart: this.handleDragSelectionStart.bind(this),
+      onDragSelectionUpdate: this.handleDragSelectionUpdate.bind(this),
+      onDragSelectionEnd: this.handleDragSelectionEnd.bind(this),
     });
 
     // SelectionManager 초기화
@@ -120,6 +129,9 @@ export class PureSheet {
    * 데이터 로드
    */
   async loadData(data: Row[]): Promise<void> {
+    // GridCore 초기화 완료 대기
+    await this.initPromise;
+
     await this.gridCore.loadData(data);
     this.gridRenderer.refresh();
     this.emitEvent('data:loaded', {
@@ -309,13 +321,6 @@ export class PureSheet {
     this.updateSelectionUI();
   }
 
-  /**
-   * 포커스된 셀 가져오기
-   */
-  getFocusedCell(): CellPosition | null {
-    return this.selectionManager.getFocusedCell();
-  }
-
   // ===========================================================================
   // 컬럼 API
   // ===========================================================================
@@ -486,8 +491,8 @@ export class PureSheet {
     this.selectionManager.on('selectionChanged', (state: SelectionState) => {
       this.updateSelectionUI();
       this.emitEvent('selection:changed', {
-        selectedRows: Array.from(state.selectedRows),
-        selectedCells: Array.from(state.selectedCells.values()),
+        selectedRows: Array.from(state.selectedRows ?? []),
+        selectedCells: Array.from(state.selectedCells ?? []),
       });
     });
 
@@ -574,13 +579,52 @@ export class PureSheet {
   }
 
   /**
-   * 선택 UI 업데이트
+   * 선택 UI 업데이트 (행 선택)
    */
   private updateSelectionUI(): void {
-    this.gridRenderer.updateSelection(
-      this.selectionManager.getSelectedRowIds(),
-      this.selectionManager.getFocusedCell()
-    );
+    this.gridRenderer.updateSelection(this.selectionManager.getSelectedRowIds());
+    // 셀 선택도 함께 업데이트
+    this.updateCellSelectionUI();
+  }
+
+  /**
+   * 셀 선택 UI 업데이트
+   */
+  private updateCellSelectionUI(): void {
+    const bodyRenderer = this.gridRenderer.getBodyRenderer();
+    if (bodyRenderer) {
+      bodyRenderer.updateCellSelection(this.selectionManager.getSelectedCells());
+    }
+  }
+
+  // ===========================================================================
+  // 드래그 선택 핸들러
+  // ===========================================================================
+
+  /**
+   * 드래그 선택 시작 핸들러
+   */
+  private handleDragSelectionStart(position: CellPosition, event: MouseEvent): void {
+    // range 모드에서만 드래그 선택 활성화
+    if (this.options.selectionMode !== 'range') return;
+
+    this.selectionManager.startDragSelection(position, event);
+  }
+
+  /**
+   * 드래그 선택 업데이트 핸들러
+   */
+  private handleDragSelectionUpdate(position: CellPosition): void {
+    if (!this.selectionManager.isDragging()) return;
+
+    this.selectionManager.updateDragSelection(position);
+  }
+
+  /**
+   * 드래그 선택 완료 핸들러
+   */
+  private handleDragSelectionEnd(): void {
+    this.selectionManager.commitDragSelection();
   }
 
   /**

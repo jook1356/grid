@@ -359,12 +359,6 @@
 /* 마지막 셀도 오른쪽 border 유지 (그리드 우측 경계) */
 /* .ps-cell:last-child { border-right: none; } */
 
-/* 포커스된 셀 */
-.ps-cell.ps-focused {
-  outline: 2px solid var(--ps-focus-color);
-  outline-offset: -2px;
-}
-
 /* 편집 중인 셀 */
 .ps-cell.ps-editing {
   padding: 0;
@@ -634,4 +628,45 @@
 
 .ps-multirow-container.ps-selected .ps-multi-row-cell[style*="span"] {
   background: var(--ps-row-selected-bg);
+}
+
+/* =============================================================================
+   Cell Selection
+   ============================================================================= */
+
+/* 선택된 셀 배경 */
+.ps-cell.ps-cell-selected {
+  background: var(--ps-cell-selected-bg, rgba(25, 118, 210, 0.15));
+}
+
+/* 다크 테마 선택된 셀 */
+.ps-theme-dark .ps-cell.ps-cell-selected {
+  background: var(--ps-cell-selected-bg, rgba(14, 99, 156, 0.3));
+}
+
+/* 선택된 셀 + 호버 */
+.ps-row:hover .ps-cell.ps-cell-selected {
+  background: var(--ps-cell-selected-hover-bg, rgba(25, 118, 210, 0.25));
+}
+
+.ps-theme-dark .ps-row:hover .ps-cell.ps-cell-selected {
+  background: var(--ps-cell-selected-hover-bg, rgba(14, 99, 156, 0.4));
+}
+
+/* 드래그 중 커서 */
+.ps-body.ps-dragging,
+.ps-body.ps-dragging * {
+  cursor: crosshair !important;
+  user-select: none;
+}
+
+/* CSS 변수 추가 (테마 커스터마이징용) */
+.ps-grid-container {
+  --ps-cell-selected-bg: rgba(25, 118, 210, 0.15);
+  --ps-cell-selected-hover-bg: rgba(25, 118, 210, 0.25);
+}
+
+.ps-grid-container.ps-theme-dark {
+  --ps-cell-selected-bg: rgba(14, 99, 156, 0.3);
+  --ps-cell-selected-hover-bg: rgba(14, 99, 156, 0.4);
 }

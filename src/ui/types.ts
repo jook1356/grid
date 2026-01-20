@@ -73,19 +73,35 @@ export interface SortState {
 export type SelectionMode = 'row' | 'cell' | 'range' | 'none';
 
 /**
- * 선택 상태
+ * 셀 범위 (사각형 영역)
+ */
+export interface CellRange {
+  /** 시작 행 인덱스 */
+  startRow: number;
+  /** 끝 행 인덱스 */
+  endRow: number;
+  /** 시작 컬럼 인덱스 */
+  startCol: number;
+  /** 끝 컬럼 인덱스 */
+  endCol: number;
+}
+
+/**
+ * 선택 상태 (단순화)
+ * - 선택된 셀은 Set<string>으로만 관리 ("rowIndex:columnKey" 형식)
+ * - 포커스 셀 개념 없음 (모든 선택된 셀이 동일하게 취급)
  */
 export interface SelectionState {
   /** 선택된 행 ID 집합 */
   selectedRows: Set<string | number>;
-  /** 선택된 셀 맵 (key: "rowIndex:columnKey") */
-  selectedCells: Map<string, CellPosition>;
-  /** 현재 포커스된 셀 */
-  focusedCell: CellPosition | null;
+  /** 선택된 셀 Set (key: "rowIndex:columnKey") - O(1) 조회 */
+  selectedCells: Set<string>;
   /** 선택 모드 */
   selectionMode: SelectionMode;
-  /** Shift 선택 시작점 (앵커) */
+  /** Shift 선택 시작점 (앵커) - Shift+클릭 범위 확장용 */
   anchorCell: CellPosition | null;
+  /** 드래그 선택 중 여부 */
+  isDragging: boolean;
 }
 
 // =============================================================================

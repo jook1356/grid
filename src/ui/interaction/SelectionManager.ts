@@ -5,12 +5,16 @@
  * - 단일/다중 선택
  * - Shift 범위 선택
  * - Ctrl/Cmd 토글 선택
+ * - 드래그 범위 선택 (Marquee)
  * - 키보드 네비게이션
+ *
+ * 선택된 셀은 Set<string>에 "rowIndex:columnKey" 형태로 저장됩니다.
+ * Set.has()를 사용하여 O(1) 조회 성능을 보장합니다.
  */
 
 import { EventEmitter } from '../../core/EventEmitter';
 import type { GridCore } from '../../core/GridCore';
-import type { Row } from '../../types';
+import type { ColumnDef, Row } from '../../types';
 import type { CellPosition, SelectionMode, SelectionState } from '../types';
 
 /**
@@ -19,8 +23,6 @@ import type { CellPosition, SelectionMode, SelectionState } from '../types';
 interface SelectionManagerEvents {
   /** 선택 상태 변경 */
   selectionChanged: SelectionState;
-  /** 포커스 셀 변경 */
-  focusChanged: CellPosition | null;
 }
 
 /**
@@ -45,6 +47,9 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   // 선택 상태
   private state: SelectionState;
 
+  // 컬럼 순서 캐시 (컬럼 인덱스 조회용)
+  private columnIndexMap: Map<string, number> = new Map();
+
   constructor(options: SelectionManagerOptions) {
     super();
 
@@ -53,11 +58,14 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
 
     this.state = {
       selectedRows: new Set(),
-      selectedCells: new Map(),
-      focusedCell: null,
+      selectedCells: new Set(),
       selectionMode: options.selectionMode,
       anchorCell: null,
+      isDragging: false,
     };
+
+    // 컬럼 인덱스 맵 초기화
+    this.updateColumnIndexMap();
   }
 
   // ===========================================================================
@@ -68,11 +76,28 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
    * 현재 선택 상태 가져오기
    */
   getState(): SelectionState {
+    // 항상 새로운 객체와 Set을 반환 (불변성 보장)
     return {
-      ...this.state,
-      selectedRows: new Set(this.state.selectedRows),
-      selectedCells: new Map(this.state.selectedCells),
+      selectedRows: new Set(this.state.selectedRows ?? []),
+      selectedCells: new Set(this.state.selectedCells ?? []),
+      selectionMode: this.state.selectionMode,
+      anchorCell: this.state.anchorCell,
+      isDragging: this.state.isDragging,
     };
+  }
+
+  /**
+   * 선택된 셀 Set 가져오기 (O(1) 조회용)
+   */
+  getSelectedCells(): Set<string> {
+    return this.state.selectedCells;
+  }
+
+  /**
+   * 셀이 선택되었는지 확인 (O(1))
+   */
+  isCellSelected(rowIndex: number, columnKey: string): boolean {
+    return this.state.selectedCells.has(`${rowIndex}:${columnKey}`);
   }
 
   /**
@@ -97,10 +122,10 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   }
 
   /**
-   * 포커스된 셀 가져오기
+   * 드래그 중인지 확인
    */
-  getFocusedCell(): CellPosition | null {
-    return this.state.focusedCell;
+  isDragging(): boolean {
+    return this.state.isDragging;
   }
 
   /**
@@ -109,6 +134,17 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   setSelectionMode(mode: SelectionMode): void {
     this.state.selectionMode = mode;
     this.clearSelection();
+  }
+
+  /**
+   * 컬럼 인덱스 맵 업데이트 (컬럼 순서 변경 시 호출)
+   */
+  updateColumnIndexMap(): void {
+    this.columnIndexMap.clear();
+    const columns = this.gridCore.getColumns();
+    columns.forEach((col, index) => {
+      this.columnIndexMap.set(col.key, index);
+    });
   }
 
   // ===========================================================================
@@ -206,14 +242,49 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   selectAll(): void {
     if (!this.multiSelect) return;
 
-    this.state.selectedRows.clear();
+    if (this.state.selectionMode === 'range') {
+      // 범위 모드: 모든 셀 선택
+      this.selectAllCells();
+    } else {
+      // 행 모드: 모든 행 선택
+      this.state.selectedRows.clear();
+      const totalRows = this.gridCore.getVisibleRowCount();
+      for (let i = 0; i < totalRows; i++) {
+        const row = this.gridCore.getRowByViewIndex(i);
+        if (row && row['id'] !== undefined) {
+          this.state.selectedRows.add(row['id'] as string | number);
+        }
+      }
+    }
+
+    this.emitSelectionChanged();
+  }
+
+  /**
+   * 모든 셀 선택
+   */
+  selectAllCells(): void {
+    if (!this.multiSelect) return;
 
     const totalRows = this.gridCore.getVisibleRowCount();
-    for (let i = 0; i < totalRows; i++) {
-      const row = this.gridCore.getRowByViewIndex(i);
-      if (row && row['id'] !== undefined) {
-        this.state.selectedRows.add(row['id'] as string | number);
+    const columns = this.gridCore.getColumns();
+
+    this.state.selectedCells.clear();
+
+    for (let row = 0; row < totalRows; row++) {
+      for (const col of columns) {
+        this.state.selectedCells.add(`${row}:${col.key}`);
       }
+    }
+
+    // 선택 범위 업데이트
+    if (totalRows > 0 && columns.length > 0) {
+      this.state.selectionRange = {
+        startRow: 0,
+        endRow: totalRows - 1,
+        startCol: 0,
+        endCol: columns.length - 1,
+      };
     }
 
     this.emitSelectionChanged();
@@ -225,8 +296,8 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   clearSelection(): void {
     this.state.selectedRows.clear();
     this.state.selectedCells.clear();
-    this.state.focusedCell = null;
     this.state.anchorCell = null;
+    this.state.isDragging = false;
 
     this.emitSelectionChanged();
   }
@@ -246,29 +317,16 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
     const isCtrlOrCmd = event.ctrlKey || event.metaKey;
     const isShift = event.shiftKey;
 
-    if (this.state.selectionMode === 'cell') {
-      // 단일 셀 선택 모드
-      this.focusCell(position);
-    } else if (this.state.selectionMode === 'range') {
-      // 범위 선택 모드
-      if (isShift && this.state.anchorCell) {
-        this.selectCellRange(this.state.anchorCell, position);
-      } else if (isCtrlOrCmd && this.multiSelect) {
-        this.toggleCellSelection(position);
-      } else {
-        this.selectSingleCell(position);
-      }
+    if (isShift && this.state.anchorCell) {
+      // Shift + 클릭: 앵커에서 현재 셀까지 범위 선택
+      this.selectCellRange(this.state.anchorCell, position);
+    } else if (isCtrlOrCmd && this.multiSelect) {
+      // Ctrl + 클릭: 토글 선택
+      this.toggleCellSelection(position);
+    } else {
+      // 일반 클릭: 단일 셀 선택
+      this.selectSingleCell(position);
     }
-  }
-
-  /**
-   * 셀 포커스
-   */
-  focusCell(position: CellPosition): void {
-    this.state.focusedCell = position;
-    this.state.anchorCell = position;
-    this.emit('focusChanged', position);
-    this.emitSelectionChanged();
   }
 
   /**
@@ -277,15 +335,14 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   selectSingleCell(position: CellPosition): void {
     this.state.selectedCells.clear();
     const key = this.getCellKey(position);
-    this.state.selectedCells.set(key, position);
-    this.state.focusedCell = position;
-    this.state.anchorCell = position;
+    this.state.selectedCells.add(key);
+    this.state.anchorCell = position;  // Shift+클릭 기준점
 
     this.emitSelectionChanged();
   }
 
   /**
-   * 셀 선택 토글
+   * 셀 선택 토글 (Ctrl + 클릭)
    */
   toggleCellSelection(position: CellPosition): void {
     const key = this.getCellKey(position);
@@ -293,32 +350,108 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
     if (this.state.selectedCells.has(key)) {
       this.state.selectedCells.delete(key);
     } else {
-      this.state.selectedCells.set(key, position);
+      this.state.selectedCells.add(key);
     }
 
-    this.state.focusedCell = position;
+    // 앵커 업데이트 (다음 Shift+클릭의 기준점)
+    this.state.anchorCell = position;
+
     this.emitSelectionChanged();
   }
 
   /**
-   * 셀 범위 선택
+   * 셀 범위 선택 (Shift + 클릭 또는 드래그)
+   *
+   * @param start - 시작 셀 (앵커)
+   * @param end - 끝 셀
+   * @param addToExisting - 기존 선택에 추가할지 여부 (Ctrl+Shift)
    */
-  selectCellRange(start: CellPosition, end: CellPosition): void {
-    // 간단한 구현: 행 범위만 처리 (컬럼 순서 파악 필요)
+  selectCellRange(start: CellPosition, end: CellPosition, addToExisting = false): void {
+    const columns = this.gridCore.getColumns();
+
+    // 컬럼 인덱스 찾기
+    const startColIndex = this.getColumnIndex(start.columnKey);
+    const endColIndex = this.getColumnIndex(end.columnKey);
+
+    // 범위 정규화 (min/max)
     const minRow = Math.min(start.rowIndex, end.rowIndex);
     const maxRow = Math.max(start.rowIndex, end.rowIndex);
+    const minCol = Math.min(startColIndex, endColIndex);
+    const maxCol = Math.max(startColIndex, endColIndex);
 
-    this.state.selectedCells.clear();
-
-    for (let row = minRow; row <= maxRow; row++) {
-      // 시작과 끝 컬럼 사이의 모든 셀 선택
-      // 실제 구현에서는 컬럼 순서를 고려해야 함
-      const position: CellPosition = { rowIndex: row, columnKey: end.columnKey };
-      const key = this.getCellKey(position);
-      this.state.selectedCells.set(key, position);
+    // 기존 선택 유지 여부
+    if (!addToExisting) {
+      this.state.selectedCells.clear();
     }
 
-    this.state.focusedCell = end;
+    // 범위 내 모든 셀 선택
+    for (let row = minRow; row <= maxRow; row++) {
+      for (let col = minCol; col <= maxCol; col++) {
+        const columnKey = columns[col]?.key;
+        if (columnKey) {
+          this.state.selectedCells.add(`${row}:${columnKey}`);
+        }
+      }
+    }
+
+    this.emitSelectionChanged();
+  }
+
+  // ===========================================================================
+  // 드래그 선택
+  // ===========================================================================
+
+  /**
+   * 드래그 선택 시작
+   */
+  startDragSelection(position: CellPosition, event: MouseEvent): void {
+    if (this.state.selectionMode !== 'range') return;
+
+    const isCtrlOrCmd = event.ctrlKey || event.metaKey;
+
+    // Ctrl 없으면 기존 선택 초기화
+    if (!isCtrlOrCmd) {
+      this.state.selectedCells.clear();
+    }
+
+    this.state.isDragging = true;
+    this.state.anchorCell = position;  // 드래그 시작점 = 앵커
+
+    // 시작 셀 선택
+    this.state.selectedCells.add(this.getCellKey(position));
+
+    this.emitSelectionChanged();
+  }
+
+  /**
+   * 드래그 선택 업데이트 (마우스 이동 중)
+   */
+  updateDragSelection(position: CellPosition): void {
+    if (!this.state.isDragging || !this.state.anchorCell) return;
+
+    // 앵커에서 현재 위치까지 범위 선택
+    this.selectCellRange(this.state.anchorCell, position);
+  }
+
+  /**
+   * 드래그 선택 완료
+   */
+  commitDragSelection(): void {
+    if (!this.state.isDragging) return;
+
+    this.state.isDragging = false;
+    this.emitSelectionChanged();
+  }
+
+  /**
+   * 드래그 선택 취소
+   */
+  cancelDragSelection(): void {
+    if (!this.state.isDragging) return;
+
+    this.state.isDragging = false;
+    this.state.selectedCells.clear();
+
     this.emitSelectionChanged();
   }
 
@@ -384,29 +517,51 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   }
 
   /**
-   * 포커스 이동
+   * 셀 이동 (화살표 키)
    */
-  private moveFocus(rowDelta: number, _colDelta: number, _extendSelection: boolean): void {
-    if (!this.state.focusedCell) {
-      // 첫 셀로 포커스
-      this.focusCell({ rowIndex: 0, columnKey: '' });
+  private moveFocus(rowDelta: number, colDelta: number, extendSelection: boolean): void {
+    const columns = this.gridCore.getColumns();
+
+    if (!this.state.anchorCell) {
+      // 첫 셀 선택
+      const firstCol = columns[0];
+      if (firstCol) {
+        this.selectSingleCell({ rowIndex: 0, columnKey: firstCol.key });
+      }
       return;
     }
 
+    // 새 위치 계산
+    const currentColIndex = this.getColumnIndex(this.state.anchorCell.columnKey);
     const newRowIndex = Math.max(
       0,
       Math.min(
-        this.state.focusedCell.rowIndex + rowDelta,
+        this.state.anchorCell.rowIndex + rowDelta,
         this.gridCore.getVisibleRowCount() - 1
       )
     );
+    const newColIndex = Math.max(
+      0,
+      Math.min(currentColIndex + colDelta, columns.length - 1)
+    );
+
+    const newColumn = columns[newColIndex];
+    if (!newColumn) return;
 
     const newPosition: CellPosition = {
       rowIndex: newRowIndex,
-      columnKey: this.state.focusedCell.columnKey,
+      columnKey: newColumn.key,
     };
 
-    this.focusCell(newPosition);
+    if (extendSelection && this.state.selectionMode === 'range') {
+      // Shift + 화살표: 선택 확장 (anchorCell 유지)
+      const anchor = this.state.anchorCell;
+      this.selectCellRange(anchor, newPosition);
+      // anchorCell은 확장 시 변경하지 않음 (시작점 유지)
+    } else {
+      // 일반 이동: 단일 셀 선택
+      this.selectSingleCell(newPosition);
+    }
 
     // 행 모드에서는 행도 선택
     if (this.state.selectionMode === 'row') {
@@ -418,46 +573,52 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   }
 
   /**
-   * 첫 번째 행으로 포커스
+   * 첫 번째 행으로 이동
    */
   private focusFirstRow(): void {
-    this.focusCell({ rowIndex: 0, columnKey: this.state.focusedCell?.columnKey ?? '' });
+    const columnKey = this.state.anchorCell?.columnKey;
+    if (columnKey) {
+      this.selectSingleCell({ rowIndex: 0, columnKey });
+    }
   }
 
   /**
-   * 마지막 행으로 포커스
+   * 마지막 행으로 이동
    */
   private focusLastRow(): void {
     const lastIndex = this.gridCore.getVisibleRowCount() - 1;
-    this.focusCell({
-      rowIndex: Math.max(0, lastIndex),
-      columnKey: this.state.focusedCell?.columnKey ?? '',
-    });
+    const columnKey = this.state.anchorCell?.columnKey;
+    if (columnKey) {
+      this.selectSingleCell({
+        rowIndex: Math.max(0, lastIndex),
+        columnKey,
+      });
+    }
   }
 
   /**
-   * 첫 번째 셀로 포커스
+   * 첫 번째 열로 이동
    */
   private focusFirstCell(): void {
     const columns = this.gridCore.getColumns();
     const firstColumn = columns[0];
     if (firstColumn) {
-      this.focusCell({
-        rowIndex: this.state.focusedCell?.rowIndex ?? 0,
+      this.selectSingleCell({
+        rowIndex: this.state.anchorCell?.rowIndex ?? 0,
         columnKey: firstColumn.key,
       });
     }
   }
 
   /**
-   * 마지막 셀로 포커스
+   * 마지막 열로 이동
    */
   private focusLastCell(): void {
     const columns = this.gridCore.getColumns();
     const lastColumn = columns[columns.length - 1];
     if (lastColumn) {
-      this.focusCell({
-        rowIndex: this.state.focusedCell?.rowIndex ?? 0,
+      this.selectSingleCell({
+        rowIndex: this.state.anchorCell?.rowIndex ?? 0,
         columnKey: lastColumn.key,
       });
     }
@@ -475,6 +636,28 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   }
 
   /**
+   * 컬럼 인덱스 가져오기
+   */
+  private getColumnIndex(columnKey: string): number {
+    return this.columnIndexMap.get(columnKey) ?? 0;
+  }
+
+  /**
+   * 컬럼 키 가져오기 (인덱스로)
+   */
+  getColumnKeyByIndex(index: number): string | undefined {
+    const columns = this.gridCore.getColumns();
+    return columns[index]?.key;
+  }
+
+  /**
+   * 컬럼 목록 가져오기
+   */
+  getColumns(): ColumnDef[] {
+    return this.gridCore.getColumns();
+  }
+
+  /**
    * 선택 변경 이벤트 발생
    */
   private emitSelectionChanged(): void {
@@ -488,5 +671,6 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
     this.removeAllListeners();
     this.state.selectedRows.clear();
     this.state.selectedCells.clear();
+    this.columnIndexMap.clear();
   }
 }
