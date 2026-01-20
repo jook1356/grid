@@ -947,33 +947,42 @@ class PureSheet {
   // ===========================================================================
   
   /**
-   * 고정 행 추가
+   * 상단에 행 고정
    */
-  addPinnedRow(row: Row, position: 'top' | 'bottom'): void {
-    this.gridRenderer.addPinnedRow(row, position);
+  pinRowTop(row: Row | RowConfig): Row {
+    const rowInstance = row instanceof Row ? row : new Row(row);
+    this.gridRenderer.getBodyRenderer()?.pinRowTop(rowInstance);
+    return rowInstance;
   }
   
   /**
-   * 고정 행 제거
+   * 하단에 행 고정
    */
-  removePinnedRow(row: Row): void;
-  removePinnedRow(rowId: string): void;
-  removePinnedRow(rowOrId: Row | string): void {
-    this.gridRenderer.removePinnedRow(rowOrId);
+  pinRowBottom(row: Row | RowConfig): Row {
+    const rowInstance = row instanceof Row ? row : new Row(row);
+    this.gridRenderer.getBodyRenderer()?.pinRowBottom(rowInstance);
+    return rowInstance;
+  }
+  
+  /**
+   * 행 고정 해제
+   */
+  unpinRow(rowId: string): boolean {
+    return this.gridRenderer.getBodyRenderer()?.unpinRow(rowId) ?? false;
   }
   
   /**
    * 고정 행 조회
    */
-  getPinnedRows(position: 'top' | 'bottom'): Row[] {
-    return this.gridRenderer.getPinnedRows(position);
+  getPinnedRows(): { top: Row[]; bottom: Row[] } {
+    return this.gridRenderer.getBodyRenderer()?.getPinnedRows() ?? { top: [], bottom: [] };
   }
   
   /**
    * 고정 행 새로고침
    */
-  refreshPinnedRows(position?: 'top' | 'bottom'): void {
-    this.gridRenderer.refreshPinnedRows(position);
+  refreshPinnedRows(): void {
+    this.gridRenderer.getBodyRenderer()?.refreshPinnedRows();
   }
   
   /**
@@ -986,8 +995,7 @@ class PureSheet {
       pinned: 'bottom',
       aggregates,
     });
-    this.addPinnedRow(row, 'bottom');
-    return row;
+    return this.pinRowBottom(row);
   }
   
   // ===========================================================================
@@ -1230,7 +1238,7 @@ const summaryRow = new Row({
   ],
 });
 
-grid.addPinnedRow(summaryRow, 'bottom');
+grid.pinRowBottom(summaryRow);
 
 // 커스텀 렌더러 사용
 const filterRow = new Row({
@@ -1242,7 +1250,7 @@ const filterRow = new Row({
   },
 });
 
-grid.addPinnedRow(filterRow, 'top');
+grid.pinRowTop(filterRow);
 
 // 동적 업데이트
 summaryRow.setData({ amount: newTotal });

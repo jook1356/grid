@@ -257,10 +257,14 @@ export class BodyRenderer {
 
   /**
    * 데이터 변경 시 새로고침
+   *
+   * 가상화된 행과 고정된 행 모두 다시 렌더링합니다.
+   * 고정된 집계 행(subtotal, grandtotal)은 데이터 기반으로 자동 재계산됩니다.
    */
   refresh(): void {
     this.updateVirtualRows();
     this.renderVisibleRows();
+    this.renderPinnedRows(); // 고정 행도 다시 렌더링 (집계 재계산)
   }
 
   // ===========================================================================
@@ -268,39 +272,34 @@ export class BodyRenderer {
   // ===========================================================================
 
   /**
-   * 상단 고정 행 추가
+   * 상단에 행 고정
    */
-  addPinnedTopRow(row: Row): void {
+  pinRowTop(row: Row): void {
     this.pinnedTopRows.push(row);
     this.renderPinnedRows();
   }
 
   /**
-   * 하단 고정 행 추가
+   * 하단에 행 고정
    */
-  addPinnedBottomRow(row: Row): void {
+  pinRowBottom(row: Row): void {
     this.pinnedBottomRows.push(row);
     this.renderPinnedRows();
   }
 
   /**
-   * 상단 고정 행 제거
+   * 행 고정 해제 (상단/하단 모두 탐색)
    */
-  removePinnedTopRow(rowId: string): boolean {
-    const index = this.pinnedTopRows.findIndex(r => r.id === rowId);
+  unpinRow(rowId: string): boolean {
+    // 상단에서 찾기
+    let index = this.pinnedTopRows.findIndex(r => r.id === rowId);
     if (index !== -1) {
       this.pinnedTopRows.splice(index, 1);
       this.renderPinnedRows();
       return true;
     }
-    return false;
-  }
-
-  /**
-   * 하단 고정 행 제거
-   */
-  removePinnedBottomRow(rowId: string): boolean {
-    const index = this.pinnedBottomRows.findIndex(r => r.id === rowId);
+    // 하단에서 찾기
+    index = this.pinnedBottomRows.findIndex(r => r.id === rowId);
     if (index !== -1) {
       this.pinnedBottomRows.splice(index, 1);
       this.renderPinnedRows();

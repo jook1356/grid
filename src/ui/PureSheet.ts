@@ -289,59 +289,44 @@ export class PureSheet {
   // ===========================================================================
 
   /**
-   * 상단 고정 행 추가
+   * 상단에 행 고정
    *
    * @param row - Row 인스턴스 또는 RowConfig
    * @returns 추가된 Row 인스턴스
    */
-  addPinnedTopRow(row: Row | RowConfig): Row {
+  pinRowTop(row: Row | RowConfig): Row {
     const rowInstance = row instanceof Row ? row : new Row(row);
     const bodyRenderer = this.gridRenderer.getBodyRenderer();
-    bodyRenderer?.addPinnedTopRow(rowInstance);
+    bodyRenderer?.pinRowTop(rowInstance);
     this.emitEvent('row:pinned', { row: rowInstance, position: 'top' });
     return rowInstance;
   }
 
   /**
-   * 하단 고정 행 추가
+   * 하단에 행 고정
    *
    * @param row - Row 인스턴스 또는 RowConfig
    * @returns 추가된 Row 인스턴스
    */
-  addPinnedBottomRow(row: Row | RowConfig): Row {
+  pinRowBottom(row: Row | RowConfig): Row {
     const rowInstance = row instanceof Row ? row : new Row(row);
     const bodyRenderer = this.gridRenderer.getBodyRenderer();
-    bodyRenderer?.addPinnedBottomRow(rowInstance);
+    bodyRenderer?.pinRowBottom(rowInstance);
     this.emitEvent('row:pinned', { row: rowInstance, position: 'bottom' });
     return rowInstance;
   }
 
   /**
-   * 상단 고정 행 제거
+   * 행 고정 해제
    *
-   * @param rowId - 제거할 Row의 ID
-   * @returns 제거 성공 여부
+   * @param rowId - 해제할 Row의 ID
+   * @returns 해제 성공 여부
    */
-  removePinnedTopRow(rowId: string): boolean {
+  unpinRow(rowId: string): boolean {
     const bodyRenderer = this.gridRenderer.getBodyRenderer();
-    const result = bodyRenderer?.removePinnedTopRow(rowId) ?? false;
+    const result = bodyRenderer?.unpinRow(rowId) ?? false;
     if (result) {
-      this.emitEvent('row:unpinned', { rowId, position: 'top' });
-    }
-    return result;
-  }
-
-  /**
-   * 하단 고정 행 제거
-   *
-   * @param rowId - 제거할 Row의 ID
-   * @returns 제거 성공 여부
-   */
-  removePinnedBottomRow(rowId: string): boolean {
-    const bodyRenderer = this.gridRenderer.getBodyRenderer();
-    const result = bodyRenderer?.removePinnedBottomRow(rowId) ?? false;
-    if (result) {
-      this.emitEvent('row:unpinned', { rowId, position: 'bottom' });
+      this.emitEvent('row:unpinned', { rowId });
     }
     return result;
   }
@@ -384,7 +369,7 @@ export class PureSheet {
       aggregates,
       pinned: 'bottom',
     });
-    return this.addPinnedBottomRow(row);
+    return this.pinRowBottom(row);
   }
 
   /**
@@ -400,7 +385,7 @@ export class PureSheet {
       variant: 'filter',
       pinned: 'top',
     });
-    return this.addPinnedTopRow(row);
+    return this.pinRowTop(row);
   }
 
   // ===========================================================================

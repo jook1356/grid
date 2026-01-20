@@ -95,6 +95,96 @@ export class Row {
   }
 
   // ==========================================================================
+  // 정적 팩토리 메서드
+  // ==========================================================================
+
+  /**
+   * 집계 행 생성 (합계, 평균 등)
+   *
+   * 데이터 변경 시 자동으로 재계산됩니다.
+   *
+   * @param aggregates - 집계 설정 배열
+   * @param options - 추가 옵션
+   * @returns 집계 Row 인스턴스
+   *
+   * @example
+   * ```ts
+   * const sumRow = Row.createAggregateRow([
+   *   { columnKey: 'salary', func: 'sum', formatter: v => '$' + v.toLocaleString() },
+   *   { columnKey: 'bonus', func: 'sum' },
+   * ], { pinned: 'bottom', variant: 'grandtotal' });
+   * ```
+   */
+  static createAggregateRow(
+    aggregates: AggregateConfig[],
+    options: {
+      id?: string;
+      pinned?: 'top' | 'bottom';
+      variant?: 'subtotal' | 'grandtotal';
+      height?: number;
+      className?: string;
+      labelColumn?: string; // 라벨을 표시할 컬럼
+      label?: string; // 라벨 텍스트 (기본: variant에 따라 '소계'/'총합계')
+    } = {}
+  ): Row {
+    const variant = options.variant ?? 'subtotal';
+    const label = options.label ?? (variant === 'grandtotal' ? '총합계' : '소계');
+
+    // 라벨 데이터 설정
+    const data: Record<string, unknown> = {};
+    if (options.labelColumn) {
+      data[options.labelColumn] = label;
+    }
+
+    return new Row({
+      id: options.id,
+      structural: true,
+      variant,
+      pinned: options.pinned ?? 'bottom',
+      height: options.height,
+      className: options.className,
+      aggregates,
+      data,
+    });
+  }
+
+  /**
+   * 총합계 행 생성 (편의 메서드)
+   *
+   * @param aggregates - 집계 설정 배열
+   * @param options - 추가 옵션
+   * @returns 총합계 Row 인스턴스
+   *
+   * @example
+   * ```ts
+   * const totalRow = Row.createGrandTotalRow([
+   *   { columnKey: 'amount', func: 'sum' },
+   *   { columnKey: 'count', func: 'count' },
+   * ]);
+   * ```
+   */
+  static createGrandTotalRow(
+    aggregates: AggregateConfig[],
+    options: Omit<Parameters<typeof Row.createAggregateRow>[1], 'variant'> = {}
+  ): Row {
+    return Row.createAggregateRow(aggregates, { ...options, variant: 'grandtotal' });
+  }
+
+  /**
+   * 소계 행 생성 (편의 메서드)
+   *
+   * @param aggregates - 집계 설정 배열
+   * @param options - 추가 옵션
+   * @returns 소계 Row 인스턴스
+   */
+  static createSubtotalRow(
+    aggregates: AggregateConfig[],
+    options: Omit<Parameters<typeof Row.createAggregateRow>[1], 'variant'> = {}
+  ): Row {
+    return Row.createAggregateRow(aggregates, { ...options, variant: 'subtotal' });
+  }
+
+  // ==========================================================================
   // 공개 API - 데이터 접근
   // ==========================================================================
 
@@ -174,6 +264,49 @@ export class Row {
    */
   getAggregates(): AggregateConfig[] | null {
     return this.aggregates;
+  }
+
+  /**
+   * 집계 설정 변경
+   *
+   * 설정 변경 후 renderPinnedRows()를 호출하면 새 설정으로 재계산됩니다.
+   */
+  setAggregates(aggregates: AggregateConfig[]): void {
+    this.aggregates = aggregates;
+  }
+
+  /**
+   * 집계 설정 추가
+   */
+  addAggregate(config: AggregateConfig): void {
+    if (!this.aggregates) {
+      this.aggregates = [];
+    }
+    // 같은 컬럼의 기존 설정 제거
+    this.aggregates = this.aggregates.filter(a => a.columnKey !== config.columnKey);
+    this.aggregates.push(config);
+  }
+
+  /**
+   * 집계 설정 제거
+   */
+  removeAggregate(columnKey: string): void {
+    if (this.aggregates) {
+      this.aggregates = this.aggregates.filter(a => a.columnKey !== columnKey);
+    }
+  }
+
+  /**
+   * 계산된 집계 값 반환
+   *
+   * 현재 GridCore의 데이터를 기반으로 집계 값을 계산합니다.
+   * 렌더링 없이 값만 필요할 때 사용합니다.
+   *
+   * @param gridCore - GridCore 인스턴스
+   * @returns 컬럼 키 → 집계 값 맵
+   */
+  getComputedAggregates(gridCore: GridCore): Map<string, CellValue> {
+    return this.calculateAggregates(gridCore);
   }
 
   // ==========================================================================
@@ -569,11 +702,29 @@ export class Row {
 
   /**
    * 그룹 데이터 가져오기 (소계용)
+   *
+   * 그룹 경로를 기반으로 해당 그룹에 속한 데이터만 필터링합니다.
+   * 그룹 정보가 없으면 전체 데이터를 반환합니다.
    */
   private getGroupData(gridCore: GridCore): RowData[] {
-    // TODO: 그룹 경로를 기반으로 해당 그룹의 데이터만 필터링
-    // 현재는 전체 데이터 반환 (추후 GroupManager 연동 시 구현)
-    return [...gridCore.getAllData()];
+    const allData = [...gridCore.getAllData()];
+
+    // 그룹 정보가 없으면 전체 데이터 반환
+    if (!this.group || !this.group.path || this.group.path.length === 0) {
+      return allData;
+    }
+
+    // 그룹 경로와 컬럼 정보를 기반으로 필터링
+    // group.path = ['Engineering', 'Active'] (그룹 값 배열) - 다중 레벨 그룹 지원 시 사용
+    // group.column = 'department' (마지막 그룹 컬럼)
+    const { column: groupColumn, value: groupValue } = this.group;
+
+    // 단일 레벨 그룹: 해당 컬럼의 값이 일치하는 데이터만
+    // TODO: 다중 레벨 그룹 지원 시 path를 사용하여 전체 경로 매칭
+    return allData.filter(row => {
+      const rowValue = row[groupColumn];
+      return rowValue === groupValue;
+    });
   }
 
   /**

@@ -551,25 +551,29 @@ class PureSheet {
   // === 고정 행 관리 ===
   
   /**
-   * 고정 행 추가
+   * 상단에 행 고정
    */
-  addPinnedRow(row: Row, position: 'top' | 'bottom'): void;
+  pinRowTop(row: Row | RowConfig): Row;
   
   /**
-   * 고정 행 제거
+   * 하단에 행 고정
    */
-  removePinnedRow(row: Row): void;
-  removePinnedRow(rowId: string): void;
+  pinRowBottom(row: Row | RowConfig): Row;
+  
+  /**
+   * 행 고정 해제
+   */
+  unpinRow(rowId: string): boolean;
   
   /**
    * 고정 행 조회
    */
-  getPinnedRows(position: 'top' | 'bottom'): Row[];
+  getPinnedRows(): { top: Row[]; bottom: Row[] };
   
   /**
    * 모든 고정 행 제거
    */
-  clearPinnedRows(position?: 'top' | 'bottom'): void;
+  clearPinnedRows(): void;
   
   // === 집계 행 편의 메서드 ===
   
@@ -633,7 +637,7 @@ const summaryRow = new Row({
   },
 });
 
-grid.addPinnedRow(summaryRow, 'top');
+grid.pinRowTop(summaryRow);
 
 // 선택 변경 시 업데이트
 grid.on('selection:changed', ({ selectedRows }) => {

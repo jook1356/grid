@@ -67,7 +67,8 @@
     <p>
       <strong>행 고정</strong>은 상단/하단에 집계, 필터, 커스텀 행을 고정합니다.
       <strong>컬럼 고정</strong>은 왼쪽/오른쪽에 컬럼을 고정합니다.
-      두 기능을 함께 사용하면 가로/세로 스크롤에도 특정 행과 컬럼이 항상 표시됩니다.
+      <strong style="color: #4CAF50;">집계 행은 데이터 변경 시 자동으로 재계산됩니다!</strong>
+      "급여 랜덤화" 버튼을 눌러 테스트해보세요.
     </p>
   </div>
   
@@ -141,6 +142,14 @@
       <div class="toolbar-group">
         <button onclick="resetAll()" class="warning">전체 초기화</button>
       </div>
+      
+      <div class="toolbar-divider"></div>
+      
+      <div class="toolbar-group">
+        <label>📊 데이터:</label>
+        <button onclick="randomizeSalaries()" class="success">급여 랜덤화</button>
+        <button onclick="addRandomRow()">행 추가</button>
+      </div>
     </div>
     
     <div id="grid"></div>
@@ -164,27 +173,29 @@
     <h3>API 사용법</h3>
     <pre><span class="keyword">import</span> { Row } <span class="keyword">from</span> <span class="string">'puresheet'</span>;
 
-<span class="comment">// 집계 행 생성 및 고정</span>
-<span class="keyword">const</span> sumRow = <span class="keyword">new</span> <span class="function">Row</span>({
-  structural: <span class="keyword">true</span>,
-  variant: <span class="string">'subtotal'</span>,
-  pinned: <span class="string">'bottom'</span>,
-  data: { name: <span class="string">'합계'</span>, salary: 1000000 },
-});
+<span class="comment">// 팩토리 메서드로 총합계 행 생성 (데이터 변경 시 자동 재계산!)</span>
+<span class="keyword">const</span> totalRow = Row.<span class="function">createGrandTotalRow</span>([
+  { columnKey: <span class="string">'salary'</span>, func: <span class="string">'sum'</span>, formatter: v => <span class="string">'$'</span> + v.toLocaleString() },
+  { columnKey: <span class="string">'bonus'</span>, func: <span class="string">'sum'</span> },
+  { columnKey: <span class="string">'performance'</span>, func: <span class="string">'avg'</span> },
+], { labelColumn: <span class="string">'name'</span>, label: <span class="string">'총합계'</span> });
 
-<span class="keyword">const</span> bodyRenderer = renderer.<span class="function">getBodyRenderer</span>();
-bodyRenderer.<span class="function">addPinnedBottomRow</span>(sumRow);
+<span class="comment">// 소계 행 생성</span>
+<span class="keyword">const</span> subtotalRow = Row.<span class="function">createSubtotalRow</span>([
+  { columnKey: <span class="string">'salary'</span>, func: <span class="string">'avg'</span> },
+], { pinned: <span class="string">'top'</span> });
 
-<span class="comment">// 컬럼 고정</span>
-renderer.<span class="function">setColumnPinned</span>(<span class="string">'id'</span>, <span class="string">'left'</span>);
-renderer.<span class="function">setColumnPinned</span>(<span class="string">'actions'</span>, <span class="string">'right'</span>);
-renderer.<span class="function">setColumnPinned</span>(<span class="string">'name'</span>, <span class="string">'none'</span>); <span class="comment">// 해제</span></pre>
+<span class="comment">// PureSheet에서 직접 고정 행 추가</span>
+pureSheet.<span class="function">pinRowBottom</span>(totalRow);
+
+<span class="comment">// 데이터 변경 후 refresh() 호출하면 집계 값 자동 업데이트</span>
+<span class="keyword">await</span> pureSheet.<span class="function">loadData</span>(newData);
+pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집계 행도 자동 재계산!</span></pre>
   </div>
   
   <script type="module">
-    const { GridCore, GridRenderer, Row } = await import('../../src/index.ts');
+    const { PureSheet, Row } = await import('../../src/index.ts');
     
-    let gridCore = null;
     let renderer = null;
     let pinnedRowCounter = 0;
     
@@ -218,8 +229,7 @@ renderer.<span class="function">setColumnPinned</span>(<span class="string">'nam
     }
     
     function updatePinStateDisplay() {
-      const bodyRenderer = renderer?.getBodyRenderer();
-      const { top, bottom } = bodyRenderer ? bodyRenderer.getPinnedRows() : { top: [], bottom: [] };
+      const { top, bottom } = renderer ? renderer.getPinnedRows() : { top: [], bottom: [] };
       
       const state = {
         rows: {
@@ -235,10 +245,9 @@ renderer.<span class="function">setColumnPinned</span>(<span class="string">'nam
     }
     
     function updatePinnedPreview() {
-      const bodyRenderer = renderer?.getBodyRenderer();
-      if (!bodyRenderer) return;
+      if (!renderer) return;
       
-      const { top, bottom } = bodyRenderer.getPinnedRows();
+      const { top, bottom } = renderer.getPinnedRows();
       const preview = document.getElementById('pinnedPreview');
       
       if (top.length === 0 && bottom.length === 0) {
@@ -265,27 +274,47 @@ renderer.<span class="function">setColumnPinned</span>(<span class="string">'nam
       updatePinStateDisplay();
     }
     
-    // 집계값 계산
-    function calcAggregate(func, key) {
-      const vals = sampleData.map(d => d[key]).filter(v => typeof v === 'number');
-      if (func === 'sum') return vals.reduce((a, b) => a + b, 0);
-      if (func === 'avg') return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
-      if (func === 'count') return vals.length;
-      return 0;
-    }
-    
-    // 행 생성 함수들
+    // 행 생성 함수들 - 새로운 팩토리 메서드 사용 (자동 재계산!)
     function createAggregateRow(type, position) {
       const id = `${type}-${position}-${++pinnedRowCounter}`;
-      const data = {
-        id: type.toUpperCase(),
-        name: type === 'sum' ? '합계' : type === 'avg' ? '평균' : type === 'count' ? '개수' : '총합계',
-        department: '-',
-        salary: calcAggregate(type === 'grandtotal' ? 'sum' : type, 'salary'),
-        bonus: calcAggregate(type === 'grandtotal' ? 'sum' : type, 'bonus'),
-        performance: calcAggregate(type === 'grandtotal' ? 'sum' : type === 'count' ? 'count' : 'avg', 'performance'),
-      };
-      return new Row({ id, structural: true, variant: type === 'grandtotal' ? 'grandtotal' : 'subtotal', pinned: position, data });
+      
+      // 집계 설정 - 데이터 변경 시 자동 재계산됨
+      const aggregates = [
+        { 
+          columnKey: 'salary', 
+          func: type === 'count' ? 'count' : type === 'grandtotal' ? 'sum' : type,
+          formatter: v => '$' + (v?.toLocaleString() || '0')
+        },
+        { 
+          columnKey: 'bonus', 
+          func: type === 'count' ? 'count' : type === 'grandtotal' ? 'sum' : type,
+          formatter: v => '$' + (v?.toLocaleString() || '0')
+        },
+        { 
+          columnKey: 'performance', 
+          func: type === 'count' ? 'count' : type === 'sum' || type === 'grandtotal' ? 'sum' : 'avg',
+          formatter: v => (v?.toFixed?.(1) || v) + '%'
+        },
+      ];
+      
+      const label = type === 'sum' ? '합계' : type === 'avg' ? '평균' : type === 'count' ? '개수' : '총합계';
+      
+      // 팩토리 메서드 사용 (데이터 변경 시 자동 재계산!)
+      if (type === 'grandtotal') {
+        return Row.createGrandTotalRow(aggregates, { 
+          id, 
+          pinned: position,
+          labelColumn: 'name',
+          label: '총합계'
+        });
+      } else {
+        return Row.createSubtotalRow(aggregates, { 
+          id, 
+          pinned: position,
+          labelColumn: 'name',
+          label
+        });
+      }
     }
     
     function createFilterRow(position) {
@@ -347,37 +376,33 @@ renderer.<span class="function">setColumnPinned</span>(<span class="string">'nam
     
     // 행 고정 함수
     window.addTopRow = function() {
+      if (!renderer) return;
       const type = document.getElementById('topRowType').value;
-      const bodyRenderer = renderer?.getBodyRenderer();
-      if (!bodyRenderer) return;
       const row = type === 'filter' ? createFilterRow('top') : type === 'custom' ? createCustomRow('top') : createAggregateRow(type, 'top');
-      bodyRenderer.addPinnedTopRow(row);
+      renderer.pinRowTop(row);
       updatePinnedPreview();
       updateStatus(`상단에 ${type} 행 추가됨`);
     };
     
     window.addBottomRow = function() {
+      if (!renderer) return;
       const type = document.getElementById('bottomRowType').value;
-      const bodyRenderer = renderer?.getBodyRenderer();
-      if (!bodyRenderer) return;
       const row = type === 'custom' ? createCustomRow('bottom') : createAggregateRow(type, 'bottom');
-      bodyRenderer.addPinnedBottomRow(row);
+      renderer.pinRowBottom(row);
       updatePinnedPreview();
       updateStatus(`하단에 ${type} 행 추가됨`);
     };
     
     window.clearTop = function() {
-      const bodyRenderer = renderer?.getBodyRenderer();
-      if (!bodyRenderer) return;
-      bodyRenderer.getPinnedRows().top.forEach(r => bodyRenderer.removePinnedTopRow(r.id));
+      if (!renderer) return;
+      renderer.getPinnedRows().top.forEach(r => renderer.unpinRow(r.id));
       updatePinnedPreview();
       updateStatus('상단 고정 행 제거됨');
     };
     
     window.clearBottom = function() {
-      const bodyRenderer = renderer?.getBodyRenderer();
-      if (!bodyRenderer) return;
-      bodyRenderer.getPinnedRows().bottom.forEach(r => bodyRenderer.removePinnedBottomRow(r.id));
+      if (!renderer) return;
+      renderer.getPinnedRows().bottom.forEach(r => renderer.unpinRow(r.id));
       updatePinnedPreview();
       updateStatus('하단 고정 행 제거됨');
     };
@@ -389,7 +414,7 @@ renderer.<span class="function">setColumnPinned</span>(<span class="string">'nam
       columnPinState.center = columnPinState.center.filter(k => k !== key);
       columnPinState.rightPinned = columnPinState.rightPinned.filter(k => k !== key);
       columnPinState.leftPinned.push(key);
-      renderer?.setColumnPinned(key, 'left');
+      renderer?.pinColumnLeft(key);
       updateColumnPreview();
       updateStatus(`"${columnHeaders[key]}" 왼쪽 고정됨`);
     };
@@ -400,7 +425,7 @@ renderer.<span class="function">setColumnPinned</span>(<span class="string">'nam
       columnPinState.center = columnPinState.center.filter(k => k !== key);
       columnPinState.rightPinned = columnPinState.rightPinned.filter(k => k !== key);
       columnPinState.rightPinned.push(key);
-      renderer?.setColumnPinned(key, 'right');
+      renderer?.pinColumnRight(key);
       updateColumnPreview();
       updateStatus(`"${columnHeaders[key]}" 오른쪽 고정됨`);
     };
@@ -414,22 +439,56 @@ renderer.<span class="function">setColumnPinned</span>(<span class="string">'nam
       columnPinState.leftPinned = columnPinState.leftPinned.filter(k => k !== key);
       columnPinState.rightPinned = columnPinState.rightPinned.filter(k => k !== key);
       if (!columnPinState.center.includes(key)) columnPinState.center.push(key);
-      renderer?.setColumnPinned(key, 'none');
+      renderer?.unpinColumn(key);
       updateColumnPreview();
       updateStatus(`"${columnHeaders[key]}" 고정 해제됨`);
     };
     
     window.resetAll = function() {
-      const bodyRenderer = renderer?.getBodyRenderer();
-      if (bodyRenderer) bodyRenderer.clearPinnedRows();
+      if (renderer) renderer.clearPinnedRows();
       
       const allCols = ['id', 'name', 'department', 'salary', 'bonus', 'performance'];
-      allCols.forEach(k => renderer?.setColumnPinned(k, 'none'));
+      allCols.forEach(k => renderer?.unpinColumn(k));
       columnPinState = { leftPinned: [], center: allCols, rightPinned: [] };
       
       updatePinnedPreview();
       updateColumnPreview();
       updateStatus('모든 고정 상태 초기화됨');
+    };
+    
+    // 데이터 수정 함수들 (집계 자동 재계산 테스트용)
+    window.randomizeSalaries = async function() {
+      if (!renderer) return;
+      // 모든 급여를 랜덤하게 변경
+      const currentData = [...renderer.getAllData()];
+      const newData = currentData.map(row => ({
+        ...row,
+        salary: 30000 + Math.floor(Math.random() * 70000),
+        bonus: 500 + Math.floor(Math.random() * 15000),
+      }));
+      
+      await renderer.loadData(newData);  // PureSheet.loadData는 자동으로 refresh() 호출
+      
+      updateStatus('급여 랜덤화 완료 - 하단 집계 값이 자동 업데이트됨!');
+    };
+    
+    window.addRandomRow = async function() {
+      if (!renderer) return;
+      const currentData = [...renderer.getAllData()];
+      const newId = currentData.length + 1;
+      const newRow = {
+        id: newId,
+        name: names[Math.floor(Math.random() * names.length)] + newId,
+        department: departments[Math.floor(Math.random() * departments.length)],
+        salary: 40000 + Math.floor(Math.random() * 60000),
+        bonus: 1000 + Math.floor(Math.random() * 9000),
+        performance: Math.floor(Math.random() * 100),
+      };
+      
+      currentData.push(newRow);
+      await renderer.loadData(currentData);  // PureSheet.loadData는 자동으로 refresh() 호출
+      
+      updateStatus(`행 추가됨 (ID: ${newId}) - 집계 값 자동 업데이트!`);
     };
     
     // 초기화
@@ -445,21 +504,22 @@ renderer.<span class="function">setColumnPinned</span>(<span class="string">'nam
         { key: 'performance', header: 'Performance', width: 100, formatter: v => v + '%' },
       ];
       
-      gridCore = new GridCore({ columns });
-      await gridCore.initialize();
-      
-      renderer = new GridRenderer(container, {
-        gridCore,
-        options: { columns, rowHeight: 36, headerHeight: 40, resizableColumns: true, theme: 'light' },
-        onRowClick: (rowIndex, row) => console.log('Row clicked:', rowIndex, row),
+      // PureSheet 사용 (SelectionManager 포함)
+      renderer = new PureSheet(container, {
+        columns, 
+        rowHeight: 36, 
+        headerHeight: 40, 
+        resizableColumns: true, 
+        reorderableColumns: true, // 헤더 드래그로 컬럼 순서 변경
+        selectionMode: 'all',     // 행+셀 선택 모드
+        multiSelect: true,
+        theme: 'light' 
       });
       
-      await gridCore.loadData(sampleData);
-      renderer.refresh();
+      await renderer.loadData(sampleData);
       
       // 기본 하단 합계 행 추가
-      const bodyRenderer = renderer.getBodyRenderer();
-      bodyRenderer.addPinnedBottomRow(createAggregateRow('sum', 'bottom'));
+      renderer.pinRowBottom(createAggregateRow('sum', 'bottom'));
       
       updatePinnedPreview();
       updateColumnPreview();
