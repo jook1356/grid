@@ -743,6 +743,52 @@ Pinned Bot ← 가로 스크롤 동기화
 └──────────┴─────────────┴──────────┘
 ```
 
+### 6.5 Row 컨테이너 재사용 시 초기화 전략
+
+RowPool에서 DOM 요소를 재사용할 때, 이전 variant(data, group-header 등)의 
+스타일/구조가 남아있을 수 있다. 이를 처리하는 두 가지 접근법을 검토했다.
+
+#### Option A: Row 클래스 내 중앙집중식 초기화 ✅ (채택)
+
+```typescript
+// Row.ts
+private resetContainerForVariant(container: HTMLElement): void {
+  container.classList.remove('ps-group-header', 'ps-subtotal', ...);
+  container.style.display = '';
+  // 모든 variant 관련 초기화를 한 곳에서 처리
+}
+```
+
+| 장점 | 단점 |
+|------|------|
+| 단순함 - 한 곳에서 관리 | Row가 DOM 구조를 알아야 함 |
+| 사용하기 쉬움 | 새 variant 추가 시 Row 수정 필요 |
+| 일관된 초기화 보장 | RowPool/BodyRenderer의 DOM 구조에 의존 |
+
+#### Option B: 콜백 기반 초기화 (대안)
+
+```typescript
+// Row 생성 시 초기화 콜백 전달
+new Row({
+  variant: 'data',
+  onReset?: (container: HTMLElement, fromVariant: RowVariant) => void,
+});
+```
+
+| 장점 | 단점 |
+|------|------|
+| Row가 DOM 구조에 독립적 | 초기화 로직 중복 가능 |
+| 확장성 - 새 환경에서 유연 | 사용 복잡성 증가 |
+| 관심사 분리 (Row=데이터, 렌더러=DOM) | 초기화 누락 시 버그 가능 |
+
+#### 결정: Option A 채택
+
+현재 Row가 이미 `renderData()`, `renderGroupHeader()` 등에서 DOM을 직접 조작하므로,
+초기화도 같은 레벨에서 처리하는 것이 응집도가 높고 사용이 간단하다.
+
+만약 향후 Row를 순수 데이터 모델로 분리하고 렌더링을 완전히 외부로 위임한다면
+Option B를 재검토할 수 있다.
+
 ---
 
 ## 7. 관련 문서

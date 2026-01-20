@@ -194,16 +194,19 @@ export class Row {
    * 커스텀 렌더러가 있으면 우선 사용합니다.
    */
   render(container: HTMLElement, context: RowRenderContext): void {
-    // CSS 클래스 설정
+    // 1. 컨테이너 초기화 (이전 variant 스타일/구조 제거)
+    this.resetContainerForVariant(container);
+
+    // 2. CSS 클래스 설정
     this.applyBaseStyles(container);
 
-    // 커스텀 렌더러가 있으면 사용
+    // 3. 커스텀 렌더러가 있으면 사용
     if (this.customRender) {
       this.customRender(container, context);
       return;
     }
 
-    // variant별 기본 렌더링
+    // 4. variant별 기본 렌더링
     switch (this.variant) {
       case 'group-header':
         this.renderGroupHeader(container, context);
@@ -228,8 +231,40 @@ export class Row {
   }
 
   // ==========================================================================
-  // Private - 기본 스타일 적용
+  // Private - 컨테이너 초기화 및 스타일 적용
   // ==========================================================================
+
+  /**
+   * 컨테이너 초기화 (RowPool 재사용 시)
+   *
+   * 이전 variant의 스타일/구조를 제거하고 공통 구조를 보장합니다.
+   * 모든 variant 관련 초기화를 한 곳에서 처리합니다.
+   */
+  private resetContainerForVariant(container: HTMLElement): void {
+    // 1. 모든 variant 관련 클래스 제거
+    container.classList.remove(
+      'ps-group-header',
+      'ps-subtotal',
+      'ps-grandtotal',
+      'ps-row-group-header',
+      'ps-row-subtotal',
+      'ps-row-grandtotal',
+      'ps-row-filter',
+      'ps-row-custom',
+      'ps-structural'
+    );
+
+    // 2. 인라인 스타일 초기화
+    container.style.display = '';
+    container.style.paddingLeft = '';
+
+    // 3. 공통 DOM 구조 보장 (ps-cells-left/center/right)
+    const hasStructure = container.querySelector('.ps-cells-left');
+    if (!hasStructure) {
+      // 그룹 헤더 등에서 직접 콘텐츠가 들어간 경우 초기화
+      container.innerHTML = '';
+    }
+  }
 
   /**
    * 기본 CSS 클래스 적용
@@ -261,16 +296,6 @@ export class Row {
    */
   private renderData(container: HTMLElement, context: RowRenderContext): void {
     const { columnGroups, columnDefs } = context;
-
-    // 그룹 헤더에서 재사용된 경우 구조 초기화
-    if (!container.querySelector('.ps-cells-left')) {
-      container.innerHTML = '';
-    }
-
-    // 그룹 헤더 스타일 제거
-    container.classList.remove('ps-group-header');
-    container.style.display = '';
-    container.style.paddingLeft = '';
 
     // 셀 컨테이너 가져오기 또는 생성
     const leftContainer = this.getOrCreateCellContainer(container, 'ps-cells-left');
@@ -305,15 +330,16 @@ export class Row {
     columnDefs: Map<string, ColumnDef>,
     isCenter: boolean = false
   ): void {
-    // 그룹 헤더에서 재사용된 경우 스타일 초기화
-    container.style.display = '';
-
-    // 그룹 헤더 콘텐츠가 남아있으면 제거
-    const groupToggle = container.querySelector('.ps-group-toggle');
-    if (groupToggle) {
+    // 그룹 헤더 콘텐츠가 남아있으면 제거 (ps-group-toggle 등)
+    const hasNonCellContent = container.firstChild && 
+      !(container.firstChild as HTMLElement).classList?.contains('ps-cell');
+    if (hasNonCellContent) {
       container.innerHTML = '';
     }
 
+    // 스타일 초기화
+    container.style.display = '';
+    
     // 중앙 컨테이너에 그룹 들여쓰기 적용 (CSS 변수 사용)
     if (isCenter) {
       container.style.paddingLeft = 'var(--ps-group-indent, 0px)';
