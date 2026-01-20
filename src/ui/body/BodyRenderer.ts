@@ -27,6 +27,8 @@ export interface BodyRendererOptions {
   gridCore: GridCore;
   /** 컬럼 상태 */
   columns: ColumnState[];
+  /** 선택 모드 */
+  selectionMode?: 'none' | 'row' | 'range' | 'all';
   /** 그룹화 설정 (선택) */
   groupingConfig?: GroupingConfig;
   /** Multi-Row 템플릿 (선택) */
@@ -81,6 +83,9 @@ export class BodyRenderer {
   // 가상 행 (그룹화된 경우 그룹 헤더 포함)
   private virtualRows: VirtualRow[] = [];
 
+  // 선택 모드
+  private selectionMode: 'none' | 'row' | 'range' | 'all' = 'row';
+
   // 콜백
   private onRowClick?: BodyRendererOptions['onRowClick'];
   private onCellClick?: BodyRendererOptions['onCellClick'];
@@ -114,6 +119,7 @@ export class BodyRenderer {
     this.gridCore = options.gridCore;
     this.rowHeight = options.rowHeight;
     this.columns = options.columns;
+    this.selectionMode = options.selectionMode ?? 'row';
     this.onRowClick = options.onRowClick;
     this.onCellClick = options.onCellClick;
     this.onCellDblClick = options.onCellDblClick;
@@ -332,22 +338,30 @@ export class BodyRenderer {
 
   /**
    * 셀 선택 상태 업데이트
-   * 선택된 셀이 있는 행도 함께 하이라이트됩니다.
+   * 'all' 모드에서는 선택된 셀이 있는 행도 함께 하이라이트됩니다.
+   * 'range' 모드에서는 셀만 하이라이트되고 행은 건드리지 않습니다.
    */
   updateCellSelection(selectedCells: Set<string>): void {
     this.selectedCells = selectedCells;
     
-    // 선택된 셀에서 행 인덱스 추출
-    this.selectedRowIndices.clear();
-    for (const cellKey of selectedCells) {
-      const rowIndex = parseInt(cellKey.split(':')[0], 10);
-      if (!isNaN(rowIndex)) {
-        this.selectedRowIndices.add(rowIndex);
+    // 'range' 모드가 아닐 때만 행 하이라이트 (all 모드에서만 행도 선택)
+    if (this.selectionMode !== 'range') {
+      // 선택된 셀에서 행 인덱스 추출
+      this.selectedRowIndices.clear();
+      for (const cellKey of selectedCells) {
+        const rowIndex = parseInt(cellKey.split(':')[0], 10);
+        if (!isNaN(rowIndex)) {
+          this.selectedRowIndices.add(rowIndex);
+        }
       }
+      this.updateCombinedRowSelectionStyles();
+    } else {
+      // range 모드: 행 선택 초기화 (셀만 선택)
+      this.selectedRowIndices.clear();
+      this.updateCombinedRowSelectionStyles();
     }
     
     this.updateCellSelectionStyles();
-    this.updateCombinedRowSelectionStyles();  // 행 선택도 여기서 통합 처리
   }
 
   /**
@@ -748,7 +762,6 @@ export class BodyRenderer {
       const columnKey = cell.dataset['columnKey'];
       if (columnKey) {
         const value = rowData[columnKey];
-        console.log('[BodyRenderer] Cell click detected:', { rowIndex, columnKey });
         this.onCellClick({ rowIndex, columnKey }, value, event);
       }
     }

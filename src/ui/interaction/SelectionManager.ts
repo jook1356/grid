@@ -319,13 +319,8 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
    * - Ctrl+Shift+클릭: 기존 선택 유지 + 범위 추가
    */
   handleCellClick(position: CellPosition, event: MouseEvent): void {
-    console.log('[SelectionManager] handleCellClick', {
-      position,
-      selectionMode: this.state.selectionMode,
-    });
     // 'range' 또는 'all' 모드에서만 셀 선택 가능
     if (this.state.selectionMode !== 'range' && this.state.selectionMode !== 'all') {
-      console.log('[SelectionManager] Skipped - mode is', this.state.selectionMode);
       return;
     }
 
@@ -349,12 +344,10 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
    * 단일 셀 선택
    */
   selectSingleCell(position: CellPosition): void {
-    console.log('[SelectionManager] selectSingleCell', position);
     this.state.selectedCells.clear();
     const key = this.getCellKey(position);
     this.state.selectedCells.add(key);
     this.state.anchorCell = position;  // Shift+클릭 기준점
-    console.log('[SelectionManager] selectedCells after add:', [...this.state.selectedCells]);
 
     this.emitSelectionChanged();
   }
@@ -397,31 +390,48 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   // 드래그 선택
   // ===========================================================================
 
+  // 드래그 시작 전 행 선택 상태 (row 모드용)
+  private preDragRowSelection: Set<string | number> = new Set();
+
   /**
    * 드래그 선택 시작
    */
   startDragSelection(position: CellPosition, event: MouseEvent): void {
-    // 'range' 또는 'all' 모드에서만 드래그 선택 가능
-    if (this.state.selectionMode !== 'range' && this.state.selectionMode !== 'all') return;
+    // 'none' 모드에서는 드래그 선택 불가
+    if (this.state.selectionMode === 'none') return;
 
     const isCtrlOrCmd = event.ctrlKey || event.metaKey;
     
     // Ctrl 상태 저장 (드래그 세션 동안 유지)
     this.dragAddToExisting = isCtrlOrCmd;
     
-    // 드래그 시작 전 선택 상태 저장 (Ctrl+드래그 시 복원용)
-    if (isCtrlOrCmd) {
-      this.preDragSelection = new Set(this.state.selectedCells);
-    } else {
-      this.preDragSelection.clear();
-      this.state.selectedCells.clear();
-    }
-
     this.state.isDragging = true;
     this.state.anchorCell = position;  // 드래그 시작점 = 앵커
 
-    // 시작 셀 선택
-    this.state.selectedCells.add(this.getCellKey(position));
+    if (this.state.selectionMode === 'row') {
+      // row 모드: 행 선택
+      if (isCtrlOrCmd) {
+        this.preDragRowSelection = new Set(this.state.selectedRows);
+      } else {
+        this.preDragRowSelection.clear();
+        this.state.selectedRows.clear();
+      }
+      // 시작 행 선택
+      const row = this.gridCore.getRowByVisibleIndex(position.rowIndex);
+      if (row && row['id'] !== undefined) {
+        this.state.selectedRows.add(row['id'] as string | number);
+      }
+    } else {
+      // range/all 모드: 셀 선택
+      if (isCtrlOrCmd) {
+        this.preDragSelection = new Set(this.state.selectedCells);
+      } else {
+        this.preDragSelection.clear();
+        this.state.selectedCells.clear();
+      }
+      // 시작 셀 선택
+      this.state.selectedCells.add(this.getCellKey(position));
+    }
 
     this.emitSelectionChanged();
   }
@@ -432,15 +442,34 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   updateDragSelection(position: CellPosition): void {
     if (!this.state.isDragging || !this.state.anchorCell) return;
 
-    // Ctrl+드래그: 이전 선택 복원 후 새 범위 추가
-    if (this.dragAddToExisting) {
-      this.state.selectedCells = new Set(this.preDragSelection);
+    if (this.state.selectionMode === 'row') {
+      // row 모드: 행 범위 선택
+      if (this.dragAddToExisting) {
+        this.state.selectedRows = new Set(this.preDragRowSelection);
+      } else {
+        this.state.selectedRows.clear();
+      }
+      
+      // 앵커에서 현재 위치까지 행 추가
+      const startRow = Math.min(this.state.anchorCell.rowIndex, position.rowIndex);
+      const endRow = Math.max(this.state.anchorCell.rowIndex, position.rowIndex);
+      for (let i = startRow; i <= endRow; i++) {
+        const row = this.gridCore.getRowByVisibleIndex(i);
+        if (row && row['id'] !== undefined) {
+          this.state.selectedRows.add(row['id'] as string | number);
+        }
+      }
     } else {
-      this.state.selectedCells.clear();
+      // range/all 모드: 셀 범위 선택
+      if (this.dragAddToExisting) {
+        this.state.selectedCells = new Set(this.preDragSelection);
+      } else {
+        this.state.selectedCells.clear();
+      }
+      // 앵커에서 현재 위치까지 범위 추가
+      this.addCellsInRange(this.state.anchorCell, position);
     }
-
-    // 앵커에서 현재 위치까지 범위 추가
-    this.addCellsInRange(this.state.anchorCell, position);
+    
     this.emitSelectionChanged();
   }
 
@@ -453,6 +482,7 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
     this.state.isDragging = false;
     this.dragAddToExisting = false;
     this.preDragSelection.clear();
+    this.preDragRowSelection.clear();
     this.emitSelectionChanged();
   }
 
@@ -724,12 +754,7 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
       this.syncRowsFromCells();
     }
     
-    const state = this.getState();
-    console.log('[SelectionManager] emitSelectionChanged', {
-      selectedCells: [...state.selectedCells],
-      selectedRows: [...state.selectedRows],
-    });
-    this.emit('selectionChanged', state);
+    this.emit('selectionChanged', this.getState());
   }
 
   /**

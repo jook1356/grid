@@ -490,10 +490,6 @@ export class PureSheet {
     // SelectionManager 이벤트
     this.selectionManager.on('selectionChanged', (event) => {
       const state = event.payload;  // event = { type, payload, timestamp }
-      console.log('[PureSheet] Received selectionChanged', {
-        selectedCells: state.selectedCells ? [...state.selectedCells] : [],
-        selectedRows: state.selectedRows ? [...state.selectedRows] : [],
-      });
       this.updateSelectionUI();
       this.emitEvent('selection:changed', {
         selectedRows: Array.from(state.selectedRows ?? []),
@@ -589,23 +585,26 @@ export class PureSheet {
 
   /**
    * 선택 UI 업데이트
+   * - row 모드: 행만 업데이트
+   * - range 모드: 셀만 업데이트
+   * - all 모드: 셀 + 행 (셀에서 파생)
    */
   private updateSelectionUI(): void {
-    // row 모드에서만 명시적 행 선택 업데이트
-    if (this.options.selectionMode === 'row') {
-      this.gridRenderer.updateSelection(this.selectionManager.getSelectedRowIds());
-    }
-    // 셀 선택 업데이트 (행 하이라이트도 여기서 처리)
-    this.updateCellSelectionUI();
-  }
-
-  /**
-   * 셀 선택 UI 업데이트
-   */
-  private updateCellSelectionUI(): void {
+    const mode = this.options.selectionMode;
     const bodyRenderer = this.gridRenderer.getBodyRenderer();
-    if (bodyRenderer) {
-      bodyRenderer.updateCellSelection(this.selectionManager.getSelectedCells());
+    
+    if (mode === 'row') {
+      // row 모드: 행만 업데이트
+      this.gridRenderer.updateSelection(this.selectionManager.getSelectedRowIds());
+      // 셀 선택은 비움
+      if (bodyRenderer) {
+        bodyRenderer.updateCellSelection(new Set());
+      }
+    } else if (mode === 'range' || mode === 'all') {
+      // range/all 모드: 셀 업데이트 (all에서는 행도 자동 처리됨)
+      if (bodyRenderer) {
+        bodyRenderer.updateCellSelection(this.selectionManager.getSelectedCells());
+      }
     }
   }
 
@@ -617,9 +616,8 @@ export class PureSheet {
    * 드래그 선택 시작 핸들러
    */
   private handleDragSelectionStart(position: CellPosition, event: MouseEvent): void {
-    // 'range' 또는 'all' 모드에서만 드래그 선택 활성화
-    const mode = this.options.selectionMode;
-    if (mode !== 'range' && mode !== 'all') return;
+    // 'none' 모드 외에는 드래그 선택 활성화
+    if (this.options.selectionMode === 'none') return;
 
     this.selectionManager.startDragSelection(position, event);
   }

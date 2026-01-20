@@ -336,6 +336,7 @@ export class GridRenderer {
       rowHeight: this.options.rowHeight ?? 36,
       gridCore: this.gridCore,
       columns: this.columnStates,
+      selectionMode: this.options.selectionMode ?? 'row',
       groupingConfig: this.options.groupingConfig,
       rowTemplate: this.options.rowTemplate,
       onRowClick: this.onRowClick,
