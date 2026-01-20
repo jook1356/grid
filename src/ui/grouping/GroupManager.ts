@@ -3,9 +3,14 @@
  *
  * 데이터를 그룹화하고, 그룹 헤더/데이터 행을 가상화용 플랫 배열로 변환합니다.
  * 접기/펼치기, 집계 기능을 제공합니다.
+ *
+ * Row 클래스 통합:
+ * - flattenWithRows()로 Row 인스턴스 배열 반환
+ * - 그룹 헤더: structural: true, variant: 'group-header'
+ * - 데이터 행: structural: false, variant: 'data'
  */
 
-import type { Row, CellValue } from '../../types';
+import type { Row as RowData, CellValue } from '../../types';
 import type {
   GroupingConfig,
   GroupNode,
@@ -16,6 +21,8 @@ import type {
   AggregateFn,
   AggregateType,
 } from '../../types/grouping.types';
+import { Row } from '../row/Row';
+import type { VirtualRowInfo } from '../row/types';
 
 /**
  * GroupManager 설정
@@ -39,7 +46,10 @@ export class GroupManager {
 
   // 캐시
   private cachedVirtualRows: VirtualRow[] | null = null;
-  private cachedData: Row[] | null = null;
+  private cachedData: RowData[] | null = null;
+
+  // Row 인스턴스 캐시
+  private cachedRowInstances: VirtualRowInfo[] | null = null;
 
   constructor(options: GroupManagerOptions = {}) {
     if (options.config) {
@@ -137,7 +147,7 @@ export class GroupManager {
   /**
    * 모든 그룹 접기
    */
-  collapseAll(data: Row[]): void {
+  collapseAll(data: RowData[]): void {
     // 모든 그룹 ID를 수집하여 접기
     const virtualRows = this.flattenWithGroups(data);
     for (const row of virtualRows) {
@@ -153,7 +163,7 @@ export class GroupManager {
    *
    * 그룹화가 활성화된 경우 그룹 헤더 행을 포함합니다.
    */
-  flattenWithGroups(data: Row[]): VirtualRow[] {
+  flattenWithGroups(data: RowData[]): VirtualRow[] {
     // 캐시 확인
     if (this.cachedVirtualRows && this.cachedData === data) {
       return this.cachedVirtualRows;
@@ -189,6 +199,116 @@ export class GroupManager {
   invalidateCache(): void {
     this.cachedVirtualRows = null;
     this.cachedData = null;
+    this.cachedRowInstances = null;
+  }
+
+  /**
+   * 데이터를 Row 인스턴스 배열로 변환 (Phase 3: Row 클래스 통합)
+   *
+   * 그룹 헤더: structural: true, variant: 'group-header'
+   * 데이터 행: structural: false, variant: 'data'
+   */
+  flattenWithRows(data: RowData[]): VirtualRowInfo[] {
+    // 캐시 확인
+    if (this.cachedRowInstances && this.cachedData === data) {
+      return this.cachedRowInstances;
+    }
+
+    // 그룹화가 비활성화된 경우 데이터 행으로 변환
+    if (!this.isGroupingEnabled()) {
+      const result: VirtualRowInfo[] = data.map((rowData, index) => ({
+        row: new Row({
+          structural: false,
+          variant: 'data',
+          data: rowData as Record<string, unknown>,
+        }),
+        structural: false,
+        dataIndex: index,
+        groupPath: [],
+      }));
+      this.cachedRowInstances = result;
+      this.cachedData = data;
+      return result;
+    }
+
+    // 그룹화 수행
+    const grouped = this.groupData(data);
+    const result: VirtualRowInfo[] = [];
+
+    this.traverseGroupsWithRows(grouped, [], result, data);
+
+    this.cachedRowInstances = result;
+    this.cachedData = data;
+    return result;
+  }
+
+  /**
+   * 그룹 트리를 순회하며 Row 인스턴스 배열로 변환
+   */
+  private traverseGroupsWithRows(
+    nodes: GroupNode[],
+    path: GroupIdentifier[],
+    result: VirtualRowInfo[],
+    data: RowData[]
+  ): void {
+    for (const node of nodes) {
+      const currentPath: GroupIdentifier[] = [
+        ...path,
+        { column: node.column, value: node.value },
+      ];
+
+      // 그룹 ID 생성 (경로 기반)
+      const groupId = this.createGroupId(currentPath);
+      const isCollapsed = this.collapsedGroups.has(groupId);
+
+      // 그룹 헤더 Row 생성
+      const headerRow = new Row({
+        id: groupId,
+        structural: true,
+        variant: 'group-header',
+        group: {
+          id: groupId,
+          level: path.length,
+          path: currentPath.map(p => String(p.value)),
+          value: node.value,
+          column: node.column,
+          collapsed: isCollapsed,
+          itemCount: node.count,
+          aggregates: node.aggregates,
+        },
+      });
+
+      result.push({
+        row: headerRow,
+        structural: true,
+        groupPath: currentPath.map(p => String(p.value)),
+        level: path.length,
+      });
+
+      // 접힌 상태면 하위 항목 스킵
+      if (isCollapsed) continue;
+
+      // 하위 그룹 또는 데이터 행 추가
+      if (node.children && node.children.length > 0) {
+        this.traverseGroupsWithRows(node.children, currentPath, result, data);
+      } else if (node.rows && node.dataIndices) {
+        for (let i = 0; i < node.rows.length; i++) {
+          const dataRow = new Row({
+            structural: false,
+            variant: 'data',
+            data: node.rows[i] as Record<string, unknown>,
+          });
+
+          result.push({
+            row: dataRow,
+            structural: false,
+            dataIndex: node.dataIndices[i],
+            groupPath: currentPath.map(p => String(p.value)),
+            level: path.length,
+          });
+        }
+      }
+    }
   }
 
   // ===========================================================================
@@ -198,7 +318,7 @@ export class GroupManager {
   /**
    * 데이터를 트리 구조로 그룹화
    */
-  private groupData(data: Row[]): GroupNode[] {
+  private groupData(data: RowData[]): GroupNode[] {
     if (this.groupColumns.length === 0) {
       return [];
     }
@@ -210,12 +330,12 @@ export class GroupManager {
    * 특정 레벨에서 그룹화
    */
   private groupByColumn(
-    data: Row[],
+    data: RowData[],
     level: number,
     dataIndices: number[]
   ): GroupNode[] {
     const columnKey = this.groupColumns[level];
-    const groups: Map<CellValue, { rows: Row[]; indices: number[] }> = new Map();
+    const groups: Map<CellValue, { rows: RowData[]; indices: number[] }> = new Map();
 
     // 원본 인덱스 유지
     const indexedData =
@@ -330,7 +450,7 @@ export class GroupManager {
   /**
    * 집계 계산
    */
-  private calculateAggregates(rows: Row[]): Record<string, CellValue> {
+  private calculateAggregates(rows: RowData[]): Record<string, CellValue> {
     const result: Record<string, CellValue> = {};
 
     for (const [columnKey, fn] of Object.entries(this.aggregates)) {

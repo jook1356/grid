@@ -493,14 +493,13 @@ export class BodyRenderer {
    *
    * RowPool을 사용하여 컨테이너를 재활용합니다.
    * 스크롤 시 DOM 생성을 최소화하여 성능을 개선합니다.
+   * Row 클래스 인스턴스를 생성하여 MultiRowRenderer에 전달합니다.
    */
   private renderMultiRowMode(
     state: { startIndex: number; endIndex: number },
     totalRowCount: number
   ): void {
     if (!this.multiRowRenderer) return;
-
-    const effectiveRowHeight = this.multiRowRenderer.getTotalRowHeight();
 
     // RowPool을 사용하여 보이는 범위의 행 컨테이너 획득/반환
     const activeRows = this.rowPool.updateVisibleRange(state.startIndex, state.endIndex);
@@ -517,10 +516,17 @@ export class BodyRenderer {
       // 청크 내 상대 위치 (청크 기반 네이티브 스크롤용)
       const offsetY = this.virtualScroller.getRowOffsetInChunk(rowIndex);
 
-      // 기존 컨테이너 재사용: 내용만 업데이트
-      this.multiRowRenderer.updateDataRow(
+      // Row 인스턴스 생성 (Row는 데이터만 보유, MultiRowRenderer가 스타일링)
+      const row = new Row({
+        structural: false,
+        variant: 'data',
+        data: virtualRow.data as Record<string, unknown>,
+      });
+
+      // MultiRowRenderer를 통해 렌더링
+      this.multiRowRenderer.renderRow(
+        row,
         container,
-        virtualRow.data,
         virtualRow.dataIndex,
         offsetY
       );

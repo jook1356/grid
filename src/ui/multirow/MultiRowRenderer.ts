@@ -5,10 +5,15 @@
  * 하나의 데이터 행을 여러 줄(visual rows)로 표시합니다.
  *
  * CSS Grid를 사용하여 colSpan/rowSpan을 처리합니다.
+ *
+ * Row 클래스 통합:
+ * - Row 인스턴스를 받아서 getData()로 데이터에 접근
+ * - Row는 데이터만 보유, MultiRowRenderer가 스타일링 담당
  */
 
 import type { RowTemplate, RowLayoutItem } from '../../types/grouping.types';
-import type { ColumnDef, Row } from '../../types';
+import type { ColumnDef, Row as RowData } from '../../types';
+import type { Row } from '../row/Row';
 
 /**
  * 셀 위치 정보 (Grid 배치용)
@@ -259,7 +264,7 @@ export class MultiRowRenderer {
    */
   renderDataRow(
     container: HTMLElement,
-    rowData: Row,
+    rowData: RowData,
     dataIndex: number,
     offsetY: number
   ): HTMLElement {
@@ -284,6 +289,22 @@ export class MultiRowRenderer {
   }
 
   /**
+   * Row 클래스 인스턴스로 Multi-Row 렌더링
+   *
+   * Row.getData()를 사용하여 데이터에 접근합니다.
+   * Row는 데이터만 보유하고, 이 렌더러가 Multi-Row 스타일링을 담당합니다.
+   */
+  renderRow(
+    row: Row,
+    gridContainer: HTMLElement,
+    dataIndex: number,
+    offsetY: number
+  ): void {
+    const rowData = row.getData() as RowData;
+    this.updateDataRow(gridContainer, rowData, dataIndex, offsetY);
+  }
+
+  /**
    * 기존 Multi-Row 컨테이너 업데이트 (RowPool 재사용)
    *
    * 컨테이너는 RowPool에서 제공받고, 이 메서드는 내용만 채웁니다.
@@ -291,7 +312,7 @@ export class MultiRowRenderer {
    */
   updateDataRow(
     gridContainer: HTMLElement,
-    rowData: Row,
+    rowData: RowData,
     dataIndex: number,
     offsetY: number
   ): void {
@@ -326,7 +347,7 @@ export class MultiRowRenderer {
   /**
    * 기존 데이터 셀 업데이트 (DOM 재사용)
    */
-  private updateDataCell(cell: HTMLElement, placement: CellPlacement, rowData: Row): void {
+  private updateDataCell(cell: HTMLElement, placement: CellPlacement, rowData: RowData): void {
     const { item, colDef } = placement;
 
     // 값 렌더링
@@ -339,7 +360,7 @@ export class MultiRowRenderer {
   /**
    * 데이터 셀 생성
    */
-  private createDataCell(placement: CellPlacement, rowData: Row): HTMLElement {
+  private createDataCell(placement: CellPlacement, rowData: RowData): HTMLElement {
     const { item, colDef, gridRow, gridColumn, rowSpan, colSpan } = placement;
 
     const cell = document.createElement('div');
