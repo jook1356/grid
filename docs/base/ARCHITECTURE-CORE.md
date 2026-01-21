@@ -4,110 +4,34 @@
 
 ```mermaid
 flowchart TB
-    subgraph Wrappers [Framework Wrappers]
+    subgraph Wrappers [Framework Wrappers - 나중에 구현]
         ReactGrid[React Grid]
         VueGrid[Vue Grid]
         AngularGrid[Angular Grid]
     end
     
-    subgraph Core [Grid Core]
+    subgraph Core [Grid Core - 이번에 구현]
         subgraph DataLayer [Data Layer]
             DS[DataStore]
             IM[IndexManager]
             EM[EventEmitter]
         end
         
-        subgraph ViewLayer [View Layer]
-            VDM[ViewDataManager]
-            VC[ViewConfig]
-        end
-        
         subgraph ProcessorLayer [Processor Layer]
             WB[WorkerBridge]
             DP[DataProcessor - Arquero]
-            PL[DataPipeline]
         end
     end
     
-    subgraph UILayer [UI Layer]
-        VR[VirtualScroller]
-        BR[BodyRenderer]
-        RR[RowRenderer]
+    subgraph FutureDOM [DOM Layer - 다음에 구현]
+        VR[VirtualRenderer]
+        CR[CellRenderer]
     end
     
     ReactGrid --> Core
     VueGrid --> Core
     AngularGrid --> Core
-    DS --> VDM
-    IM --> VDM
-    DP --> VDM
-    PL --> VDM
-    VDM --> BR
-```
-
-### ViewDataManager - 단일 접근점
-
-DOM 렌더링에 필요한 모든 데이터를 제공하는 단일 고정 포인트입니다.
-
-```
-[일반 모드]
-DataStore → IndexManager → ViewDataManager → Row[] → BodyRenderer
-
-[피봇 모드]
-DataStore → ArqueroProcessor(피봇) → ViewDataManager → Row[] → BodyRenderer
-```
-
-> 상세 결정 과정: [피봇 그리드 아키텍처](../decisions/008-pivot-grid-architecture.md)
-
-### ViewDataManager = 뷰 설정 관리자
-
-ViewDataManager는 **"데이터 저장소"가 아니라 "뷰 설정 관리자"**입니다.
-
-#### 저장하는 것 vs 저장하지 않는 것
-
-| 저장 | 저장하지 않음 |
-|------|-------------|
-| mode (normal/pivot) | scrollableRows (DataStore + IndexManager 참조) |
-| pinnedLeftColumnKeys | scrollableColumns (계산) |
-| pinnedRightColumnKeys | |
-| pinnedTopRowIds | |
-| pinnedBottomRowIds | |
-| pivotedData (피봇 모드만) | |
-| pivotedColumns (피봇 모드만) | |
-
-#### 필터/정렬 vs 피봇의 차이
-
-```
-필터/정렬: Uint32Array (인덱스만 반환) → DataStore 원본 참조
-피봇: 새로운 Row[] + ColumnDef[] 생성 → ViewDataManager에 저장 필요
-```
-
-#### 인터페이스
-
-```typescript
-class ViewDataManager {
-  // ===== 저장: 뷰 설정 =====
-  private mode: 'normal' | 'pivot' = 'normal';
-  private pinnedLeftColumnKeys: string[] = [];
-  private pinnedRightColumnKeys: string[] = [];
-  private pinnedTopRowIds: (string | number)[] = [];
-  private pinnedBottomRowIds: (string | number)[] = [];
-  
-  // ===== 저장: 피봇 결과 (피봇 모드만) =====
-  private pivotedData: Row[] | null = null;
-  private pivotedColumns: ColumnDef[] | null = null;
-  
-  // ===== 참조: 기존 모듈 =====
-  constructor(
-    private gridCore: GridCore,
-    private groupManager: GroupManager
-  ) {}
-  
-  // ===== API =====
-  getMode(): 'normal' | 'pivot';
-  getPinnedLeftColumnKeys(): string[];
-  getPivotedData(): Row[] | null;  // 피봇 모드에서만 유효
-}
+    Core --> FutureDOM
 ```
 
 ### 핵심 설계 원칙
@@ -139,33 +63,20 @@ grid/
 │   │   ├── data.types.ts         # Row, Column, CellValue
 │   │   ├── state.types.ts        # SortState, FilterState
 │   │   ├── event.types.ts        # 이벤트 타입
-│   │   ├── processor.types.ts    # IDataProcessor 인터페이스
-│   │   └── view.types.ts         # ViewConfig, ViewLayout (NEW)
+│   │   └── processor.types.ts    # IDataProcessor 인터페이스
 │   │
 │   ├── core/                     # 핵심 모듈 (프레임워크 무관)
 │   │   ├── index.ts
 │   │   ├── GridCore.ts           # 메인 파사드 클래스
 │   │   ├── DataStore.ts          # 원본 데이터 관리
 │   │   ├── IndexManager.ts       # 인덱스 배열 관리
-│   │   ├── EventEmitter.ts       # 이벤트 시스템
-│   │   └── ViewDataManager.ts    # DOM 렌더링용 단일 접근점 (NEW)
+│   │   └── EventEmitter.ts       # 이벤트 시스템
 │   │
-│   ├── model/                    # 데이터 모델 (NEW)
-│   │   └── Row.ts                # 순수 데이터 객체 (렌더링 로직 없음)
-│   │
-│   ├── processor/                # 데이터 가공 모듈
+│   ├── processor/                # 데이터 가공 모듈 (분리됨)
 │   │   ├── index.ts
 │   │   ├── WorkerBridge.ts       # Worker 통신 브릿지
-│   │   ├── ArqueroProcessor.ts   # Arquero 기반 구현 (피봇 지원)
-│   │   ├── worker.ts             # Web Worker 엔트리
-│   │   └── pipeline/             # 데이터 변환 파이프라인 (NEW)
-│   │       ├── DataPipeline.ts
-│   │       ├── Transformer.ts
-│   │       ├── FilterTransformer.ts
-│   │       ├── SortTransformer.ts
-│   │       ├── PivotTransformer.ts
-│   │       ├── GroupTransformer.ts
-│   │       └── MaterializeTransformer.ts
+│   │   ├── ArqueroProcessor.ts   # Arquero 기반 구현
+│   │   └── worker.ts             # Web Worker 엔트리
 │   │
 │   └── utils/                    # 유틸리티
 │       ├── id.ts                 # ID 생성
@@ -173,7 +84,6 @@ grid/
 │
 └── tests/
     ├── core/
-    ├── model/
     └── processor/
 ```
 

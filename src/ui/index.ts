@@ -32,7 +32,7 @@ export { GroupManager } from './grouping';
 export { MultiRowRenderer } from './multirow';
 
 // Row 모듈
-export { Row, RowRenderer } from './row';
+export { Row } from './row';
 export type {
   RowVariant,
   RowConfig,

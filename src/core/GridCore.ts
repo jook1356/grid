@@ -45,7 +45,6 @@ import { EventEmitter } from './EventEmitter';
 import { DataStore } from './DataStore';
 import { IndexManager } from './IndexManager';
 import { WorkerBridge } from '../processor/WorkerBridge';
-import { ViewDataManager } from './ViewDataManager';
 
 // =============================================================================
 // 타입 정의
@@ -99,9 +98,6 @@ export class GridCore {
   /** Worker 통신 브릿지 */
   private readonly workerBridge: WorkerBridge;
 
-  /** 뷰 설정 관리자 (피봇/일반 통합) */
-  private readonly viewDataManager: ViewDataManager;
-
   // ===========================================================================
   // 상태
   // ===========================================================================
@@ -132,10 +128,6 @@ export class GridCore {
     this.dataStore = new DataStore(this.events, { idKey: options.idKey });
     this.indexManager = new IndexManager(this.events);
     this.workerBridge = new WorkerBridge(this.events);
-    this.viewDataManager = new ViewDataManager(this.events);
-
-    // ViewDataManager에 GridCore 연결
-    this.viewDataManager.setGridCore(this);
 
     // 초기 컬럼 설정
     this.dataStore.setColumns(options.columns);
@@ -689,21 +681,5 @@ export class GridCore {
    */
   get _workerBridge(): WorkerBridge {
     return this.workerBridge;
-  }
-
-  /**
-   * ViewDataManager 접근
-   *
-   * 뷰 설정 관리자로, 피봇/일반 모드 전환 및 고정 컬럼/행 관리에 사용됩니다.
-   *
-   * @example
-   * // 피봇 모드 설정
-   * grid.viewManager.setPivotMode(config, result);
-   *
-   * // 컬럼 고정
-   * grid.viewManager.pinColumn('name', 'left');
-   */
-  get viewManager(): ViewDataManager {
-    return this.viewDataManager;
   }
 }
