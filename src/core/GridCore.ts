@@ -8,7 +8,7 @@
  * - EventEmitter: 이벤트 발행/구독
  * - DataStore: 원본 데이터 관리
  * - IndexManager: 인덱스 배열 관리
- * - WorkerBridge: Worker 통신
+ * - ArqueroProcessor: 데이터 처리 (정렬/필터/집계)
  *
  * @example
  * const grid = new GridCore({
@@ -44,7 +44,7 @@ import type {
 import { EventEmitter } from './EventEmitter';
 import { DataStore } from './DataStore';
 import { IndexManager } from './IndexManager';
-import { WorkerBridge } from '../processor/WorkerBridge';
+import { ArqueroProcessor } from '../processor/ArqueroProcessor';
 
 // =============================================================================
 // 타입 정의
@@ -95,8 +95,8 @@ export class GridCore {
   /** 인덱스 관리자 */
   private readonly indexManager: IndexManager;
 
-  /** Worker 통신 브릿지 */
-  private readonly workerBridge: WorkerBridge;
+  /** 데이터 처리기 (정렬/필터/집계) */
+  private readonly processor: ArqueroProcessor;
 
   // ===========================================================================
   // 상태
@@ -127,7 +127,7 @@ export class GridCore {
     this.events = new EventEmitter();
     this.dataStore = new DataStore(this.events, { idKey: options.idKey });
     this.indexManager = new IndexManager(this.events);
-    this.workerBridge = new WorkerBridge(this.events);
+    this.processor = new ArqueroProcessor();
 
     // 초기 컬럼 설정
     this.dataStore.setColumns(options.columns);
@@ -140,7 +140,6 @@ export class GridCore {
   /**
    * Grid 초기화
    *
-   * Worker를 생성하고 준비합니다.
    * 데이터 로드 전에 반드시 호출해야 합니다.
    *
    * @example
@@ -151,9 +150,6 @@ export class GridCore {
     if (this.initialized) {
       return;
     }
-
-    // Worker 초기화
-    await this.workerBridge.initialize();
 
     this.initialized = true;
 
@@ -202,8 +198,8 @@ export class GridCore {
     // IndexManager 초기화
     this.indexManager.initialize(data.length);
 
-    // Worker에 데이터 전송
-    await this.workerBridge.initializeData(data);
+    // 프로세서에 데이터 로드
+    await this.processor.initialize(data);
 
     // 뷰 상태 리셋
     this.viewState = {
@@ -259,8 +255,8 @@ export class GridCore {
       changedProperty: 'sorts',
     });
 
-    // Worker에서 처리
-    const result = await this.workerBridge.query({
+    // 프로세서에서 처리
+    const result = await this.processor.query({
       sorts,
       filters: this.viewState.filters,
     });
@@ -342,8 +338,8 @@ export class GridCore {
       changedProperty: 'filters',
     });
 
-    // Worker에서 처리
-    const result = await this.workerBridge.query({
+    // 프로세서에서 처리
+    const result = await this.processor.query({
       sorts: this.viewState.sorts,
       filters,
     });
@@ -410,7 +406,7 @@ export class GridCore {
     this.ensureInitialized();
     this.ensureDataLoaded();
 
-    return this.workerBridge.aggregate(options);
+    return this.processor.aggregate(options);
   }
 
   // ===========================================================================
@@ -484,13 +480,13 @@ export class GridCore {
   async addRow(row: Row): Promise<void> {
     this.dataStore.addRow(row);
 
-    // Worker 데이터 재초기화 (TODO: 증분 업데이트 최적화)
-    await this.workerBridge.initializeData(this.dataStore.getData() as Row[]);
+    // 프로세서 데이터 재초기화 (TODO: 증분 업데이트 최적화)
+    await this.processor.initialize(this.dataStore.getData() as Row[]);
     this.indexManager.initialize(this.dataStore.getRowCount());
 
     // 현재 정렬/필터 다시 적용
     if (this.viewState.sorts.length > 0 || this.viewState.filters.length > 0) {
-      const result = await this.workerBridge.query({
+      const result = await this.processor.query({
         sorts: this.viewState.sorts,
         filters: this.viewState.filters,
       });
@@ -507,12 +503,12 @@ export class GridCore {
   async updateRow(index: number, updates: Partial<Row>): Promise<void> {
     this.dataStore.patchRow(index, updates);
 
-    // Worker 데이터 재초기화
-    await this.workerBridge.initializeData(this.dataStore.getData() as Row[]);
+    // 프로세서 데이터 재초기화
+    await this.processor.initialize(this.dataStore.getData() as Row[]);
 
     // 현재 정렬/필터 다시 적용
     if (this.viewState.sorts.length > 0 || this.viewState.filters.length > 0) {
-      const result = await this.workerBridge.query({
+      const result = await this.processor.query({
         sorts: this.viewState.sorts,
         filters: this.viewState.filters,
       });
@@ -528,13 +524,13 @@ export class GridCore {
   async removeRow(index: number): Promise<void> {
     this.dataStore.removeRow(index);
 
-    // Worker 데이터 재초기화
-    await this.workerBridge.initializeData(this.dataStore.getData() as Row[]);
+    // 프로세서 데이터 재초기화
+    await this.processor.initialize(this.dataStore.getData() as Row[]);
     this.indexManager.initialize(this.dataStore.getRowCount());
 
     // 현재 정렬/필터 다시 적용
     if (this.viewState.sorts.length > 0 || this.viewState.filters.length > 0) {
-      const result = await this.workerBridge.query({
+      const result = await this.processor.query({
         sorts: this.viewState.sorts,
         filters: this.viewState.filters,
       });
@@ -640,7 +636,7 @@ export class GridCore {
    * onUnmounted(() => grid.destroy());
    */
   destroy(): void {
-    this.workerBridge.destroy();
+    this.processor.destroy();
     this.indexManager.destroy();
     this.events.destroy();
     this.initialized = false;
@@ -676,10 +672,10 @@ export class GridCore {
   }
 
   /**
-   * WorkerBridge 접근
+   * ArqueroProcessor 접근
    * @internal
    */
-  get _workerBridge(): WorkerBridge {
-    return this.workerBridge;
+  get _processor(): ArqueroProcessor {
+    return this.processor;
   }
 }

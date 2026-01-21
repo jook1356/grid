@@ -73,8 +73,8 @@
   <!-- 코드 예제 -->
   <div class="code-example">
     <h3>API 사용법</h3>
-    <pre><span class="comment">// GridRenderer를 통한 그룹화 설정 (헤더 indent 자동 동기화)</span>
-renderer.<span class="function">setGroupingConfig</span>({
+    <pre><span class="comment">// PureSheet를 통한 그룹화 설정 (헤더 indent 자동 동기화)</span>
+pureSheet.<span class="function">setGroupingConfig</span>({
   columns: [<span class="string">'department'</span>],
   aggregates: {
     salary: <span class="string">'sum'</span>,  <span class="comment">// 'sum' | 'avg' | 'count' | 'min' | 'max'</span>
@@ -82,10 +82,10 @@ renderer.<span class="function">setGroupingConfig</span>({
 });
 
 <span class="comment">// 그룹화 해제</span>
-renderer.<span class="function">setGroupingConfig</span>(<span class="keyword">null</span>);
+pureSheet.<span class="function">setGroupingConfig</span>(<span class="keyword">null</span>);
 
 <span class="comment">// 그룹 접기/펼치기 (BodyRenderer 사용)</span>
-<span class="keyword">const</span> bodyRenderer = renderer.<span class="function">getBodyRenderer</span>();
+<span class="keyword">const</span> bodyRenderer = pureSheet.<span class="function">getBodyRenderer</span>();
 bodyRenderer.<span class="function">toggleGroup</span>(<span class="string">'department:Engineering'</span>);
 bodyRenderer.<span class="function">expandAllGroups</span>();
 bodyRenderer.<span class="function">collapseAllGroups</span>();</pre>
@@ -101,10 +101,9 @@ bodyRenderer.<span class="function">collapseAllGroups</span>();</pre>
   </div>
   
   <script type="module">
-    // GridCore와 GridRenderer import
-    const { GridCore, GridRenderer } = await import('../../src/index.ts');
+    // PureSheet import
+    const { PureSheet } = await import('../../src/index.ts');
     
-    let gridCore = null;
     let renderer = null;
     
     // 100개 샘플 데이터 생성
@@ -137,7 +136,7 @@ bodyRenderer.<span class="function">collapseAllGroups</span>();</pre>
       document.getElementById('groupState').textContent = JSON.stringify(state, null, 2);
     }
     
-    // 그룹화 적용 (GridRenderer.setGroupingConfig 사용)
+    // 그룹화 적용 (PureSheet.setGroupingConfig 사용)
     window.applyGrouping = function() {
       const groupBy = document.getElementById('groupBySelect').value;
       const aggregate = document.getElementById('aggregateSelect').value;
@@ -196,23 +195,18 @@ bodyRenderer.<span class="function">collapseAllGroups</span>();</pre>
         { key: 'joinDate', header: 'Join Date', width: 120 },
       ];
       
-      gridCore = new GridCore({ columns });
-      await gridCore.initialize();
-      
-      renderer = new GridRenderer(container, {
-        gridCore,
-        options: {
-          columns,
-          rowHeight: 36,
-          headerHeight: 40,
-          resizableColumns: true,
-          theme: 'light',
-          // 초기 그룹화 설정
-          groupingConfig: {
-            columns: ['department'],
-            aggregates: {
-              salary: 'sum',
-            },
+      // PureSheet 사용
+      renderer = new PureSheet(container, {
+        columns,
+        rowHeight: 36,
+        headerHeight: 40,
+        resizableColumns: true,
+        theme: 'light',
+        // 초기 그룹화 설정
+        groupingConfig: {
+          columns: ['department'],
+          aggregates: {
+            salary: 'sum',
           },
         },
         onRowClick: (rowIndex, row) => {
@@ -225,8 +219,7 @@ bodyRenderer.<span class="function">collapseAllGroups</span>();</pre>
       });
       
       // 데이터 로드
-      await gridCore.loadData(sampleData);
-      renderer.refresh();
+      await renderer.loadData(sampleData);
       
       updateGroupStateDisplay();
       updateStatus('100개 행 로드 완료 - 그룹 헤더를 클릭하여 접기/펼치기');

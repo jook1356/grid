@@ -1,7 +1,7 @@
 /**
  * PureSheet - 고성능 Grid 라이브러리
  *
- * Web Worker 기반의 데이터 처리로 100만 건 이상의 데이터도 부드럽게 처리합니다.
+ * Arquero 기반의 데이터 처리와 가상화로 대용량 데이터를 부드럽게 처리합니다.
  * Vanilla TypeScript로 구현되어 React, Vue, Angular 등에서 래핑하여 사용할 수 있습니다.
  */
 
