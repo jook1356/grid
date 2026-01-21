@@ -499,7 +499,12 @@ export class GridRenderer {
 
     // Viewport 스크롤 시 → 헤더도 스크롤
     viewport.addEventListener('scroll', () => {
-      header.scrollLeft = viewport.scrollLeft;
+      // 피벗 모드일 때는 PivotHeaderRenderer의 updateScrollPosition 사용
+      if (this.headerMode === 'pivot' && this.pivotHeaderRenderer) {
+        this.pivotHeaderRenderer.updateScrollPosition(viewport.scrollLeft);
+      } else {
+        header.scrollLeft = viewport.scrollLeft;
+      }
     }, { passive: true });
 
     // 헤더 스크롤 시 → Viewport도 스크롤 (드래그 등으로 직접 스크롤할 경우)

@@ -162,6 +162,7 @@ export class PivotHeaderRenderer {
       left: 0;
       z-index: 2;
       background: var(--ps-header-bg, #f5f5f5);
+      box-shadow: 2px 0 4px var(--ps-shadow-color, rgba(0, 0, 0, 0.1));
     `;
     return el;
   }
