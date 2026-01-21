@@ -3,18 +3,23 @@
  *
  * GridCore와 UI Layer를 통합하는 메인 클래스입니다.
  * 사용자는 이 클래스 하나로 모든 그리드 기능에 접근할 수 있습니다.
+ *
+ * 설정 형식: PureSheetConfig (fields 기반)
  */
 
 import { GridCore } from '../core/GridCore';
-import type { ColumnDef, Row as RowData, SortState, FilterState } from '../types';
+import type { ColumnDef, Row as RowData, SortState, FilterState, FieldDef, PureSheetConfig, PivotConfig, PivotResult } from '../types';
 import type { GroupingConfig } from '../types/grouping.types';
-import type { PureSheetOptions, CellPosition, ColumnState, SelectionState } from './types';
+import type { CellPosition, ColumnState } from './types';
 import { GridRenderer } from './GridRenderer';
 import { SelectionManager } from './interaction/SelectionManager';
 import { EditorManager } from './interaction/EditorManager';
 import { ColumnManager } from './interaction/ColumnManager';
 import { Row } from './row/Row';
 import type { RowConfig, AggregateConfig } from './row/types';
+import { configToInternalOptions, getGridMode, getPivotConfig, type InternalOptions } from './utils/configAdapter';
+import { PivotProcessor } from '../processor/PivotProcessor';
+import { PivotHeaderRenderer } from './pivot/PivotHeaderRenderer';
 
 /**
  * PureSheet 이벤트 타입
@@ -46,7 +51,7 @@ export type Unsubscribe = () => void;
  */
 export class PureSheet {
   private readonly container: HTMLElement;
-  private readonly options: PureSheetOptions;
+  private readonly options: InternalOptions;
 
   // 코어
   private gridCore: GridCore;
@@ -63,20 +68,41 @@ export class PureSheet {
   // GridCore 초기화 Promise
   private initPromise: Promise<void>;
 
-  constructor(container: HTMLElement, options: PureSheetOptions) {
+  // 그리드 모드 ('flat' | 'pivot')
+  private gridMode: 'flat' | 'pivot';
+
+  // 원본 Config
+  private originalConfig: PureSheetConfig;
+
+  // 피벗 관련
+  private pivotProcessor: PivotProcessor | null = null;
+  private pivotHeaderRenderer: PivotHeaderRenderer | null = null;
+  private pivotConfig: PivotConfig | null = null;
+  private pivotResult: PivotResult | null = null;
+
+  /**
+   * PureSheet 생성자
+   *
+   * @param container - 그리드를 렌더링할 컨테이너 요소
+   * @param config - 설정 (PureSheetConfig)
+   *
+   * @example
+   * new PureSheet(container, {
+   *   mode: 'flat',
+   *   fields: [{ key: 'name', header: '이름', dataType: 'string' }],
+   *   data: [{ name: '홍길동' }],
+   *   columns: ['name'],
+   * });
+   */
+  constructor(container: HTMLElement, config: PureSheetConfig) {
     this.container = container;
-    this.options = {
-      rowHeight: 36,
-      headerHeight: 40,
-      selectionMode: 'row',
-      multiSelect: true,
-      showCheckboxColumn: false,
-      editable: false,
-      resizableColumns: true,
-      reorderableColumns: true,
-      theme: 'light',
-      ...options,
-    };
+    this.originalConfig = config;
+
+    // 그리드 모드 결정
+    this.gridMode = getGridMode(config);
+
+    // Config를 내부 옵션으로 변환
+    this.options = configToInternalOptions(config);
 
     // GridCore 초기화
     this.gridCore = new GridCore({
@@ -238,6 +264,14 @@ export class PureSheet {
   setGrouping(config: GroupingConfig | null): void {
     // GridRenderer를 통해 그룹화 설정 및 헤더 indent 동기화
     this.gridRenderer.setGroupingConfig(config);
+  }
+
+  /**
+   * 그룹화 설정 (setGrouping의 alias)
+   * @alias setGrouping
+   */
+  setGroupingConfig(config: GroupingConfig | null): void {
+    this.setGrouping(config);
   }
 
   /**
@@ -570,6 +604,114 @@ export class PureSheet {
    */
   getColumns(): ColumnDef[] {
     return this.gridCore.getColumns();
+  }
+
+  /**
+   * 현재 그리드 모드 가져오기
+   */
+  getMode(): 'flat' | 'pivot' {
+    return this.gridMode;
+  }
+
+  /**
+   * 그리드 모드 변경
+   *
+   * @param mode - 새 모드 ('flat' | 'pivot')
+   */
+  async setMode(mode: 'flat' | 'pivot'): Promise<void> {
+    if (this.gridMode === mode) return;
+
+    this.gridMode = mode;
+
+    if (mode === 'pivot') {
+      // flat → pivot: 피벗 모드 활성화
+      if (this.pivotConfig) {
+        await this.applyPivot();
+      }
+    } else {
+      // pivot → flat: 일반 모드로 복원
+      this.restoreFromPivot();
+    }
+
+    this.refresh();
+  }
+
+  /**
+   * 피벗 설정 적용
+   *
+   * @param config - 피벗 설정
+   */
+  async setPivotConfig(config: PivotConfig): Promise<void> {
+    this.pivotConfig = config;
+
+    if (this.gridMode === 'pivot') {
+      await this.applyPivot();
+    }
+  }
+
+  /**
+   * 피벗 설정 가져오기
+   */
+  getPivotConfig(): PivotConfig | null {
+    return this.pivotConfig;
+  }
+
+  /**
+   * 피벗 결과 가져오기
+   */
+  getPivotResult(): PivotResult | null {
+    return this.pivotResult;
+  }
+
+  /**
+   * 필드 정의 가져오기 (새 API 사용 시)
+   */
+  getFields(): FieldDef[] | null {
+    return this.originalConfig?.fields ?? null;
+  }
+
+  // ===========================================================================
+  // 피벗 내부 메서드
+  // ===========================================================================
+
+  /**
+   * 피벗 적용
+   */
+  private async applyPivot(): Promise<void> {
+    if (!this.pivotConfig) return;
+
+    // PivotProcessor 초기화 (없으면 생성)
+    if (!this.pivotProcessor) {
+      this.pivotProcessor = new PivotProcessor();
+    }
+
+    // 원본 데이터로 초기화
+    const data = this.gridCore.getAllData() as RowData[];
+    await this.pivotProcessor.initialize(data);
+
+    // 피벗 연산 실행
+    this.pivotResult = await this.pivotProcessor.pivot(this.pivotConfig);
+
+    // TODO: PivotHeaderRenderer 생성 및 렌더링
+    // TODO: 피벗된 데이터로 BodyRenderer 업데이트
+
+    console.log('Pivot result:', this.pivotResult);
+  }
+
+  /**
+   * 피벗 해제 (일반 모드로 복원)
+   */
+  private restoreFromPivot(): void {
+    // PivotHeaderRenderer 제거
+    if (this.pivotHeaderRenderer) {
+      this.pivotHeaderRenderer.destroy();
+      this.pivotHeaderRenderer = null;
+    }
+
+    this.pivotResult = null;
+
+    // TODO: 원본 헤더 복원
+    // TODO: 원본 데이터로 BodyRenderer 업데이트
   }
 
   // ===========================================================================

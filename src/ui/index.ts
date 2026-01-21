@@ -31,6 +31,10 @@ export { GroupManager } from './grouping';
 // Multi-Row 모듈
 export { MultiRowRenderer } from './multirow';
 
+// Pivot 모듈
+export { PivotHeaderRenderer } from './pivot';
+export type { PivotHeaderRendererOptions } from './pivot';
+
 // Row 모듈
 export { Row } from './row';
 export type {
@@ -42,3 +46,12 @@ export type {
   RowRenderContext,
   VirtualRowInfo,
 } from './row';
+
+// Config 유틸리티
+export {
+  fieldToColumn,
+  configToInternalOptions,
+  getGridMode,
+  getPivotConfig,
+} from './utils/configAdapter';
+export type { InternalOptions } from './utils/configAdapter';

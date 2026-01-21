@@ -8,7 +8,8 @@
  */
 
 import type { GridCore } from '../core/GridCore';
-import type { ColumnState, PureSheetOptions, SortState } from './types';
+import type { ColumnState, SortState } from './types';
+import type { InternalOptions } from './utils/configAdapter';
 import { BodyRenderer } from './body/BodyRenderer';
 import { HeaderRenderer } from './header/HeaderRenderer';
 
@@ -21,8 +22,8 @@ let styleInjected = false;
 export interface GridRendererOptions {
   /** GridCore 인스턴스 */
   gridCore: GridCore;
-  /** PureSheet 옵션 */
-  options: PureSheetOptions;
+  /** 내부 옵션 */
+  options: InternalOptions;
   /** 행 클릭 콜백 */
   onRowClick?: (rowIndex: number, row: Record<string, unknown>, event: MouseEvent) => void;
   /** 셀 클릭 콜백 */
@@ -57,7 +58,7 @@ export interface GridRendererOptions {
 export class GridRenderer {
   private readonly gridCore: GridCore;
   private readonly container: HTMLElement;
-  private readonly options: PureSheetOptions;
+  private readonly options: InternalOptions;
 
   // 컬럼 상태
   private columnStates: ColumnState[] = [];

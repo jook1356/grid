@@ -72,23 +72,29 @@
   
   <!-- 코드 예제 -->
   <div class="code-example">
-    <h3>API 사용법</h3>
-    <pre><span class="comment">// PureSheet를 통한 그룹화 설정 (헤더 indent 자동 동기화)</span>
-pureSheet.<span class="function">setGroupingConfig</span>({
-  columns: [<span class="string">'department'</span>],
-  aggregates: {
-    salary: <span class="string">'sum'</span>,  <span class="comment">// 'sum' | 'avg' | 'count' | 'min' | 'max'</span>
+    <h3>API 사용법 (새 Config API)</h3>
+    <pre><span class="comment">// 새로운 Config API로 PureSheet 생성</span>
+<span class="keyword">const</span> grid = <span class="keyword">new</span> <span class="function">PureSheet</span>(container, {
+  mode: <span class="string">'flat'</span>,
+  fields: [
+    { key: <span class="string">'department'</span>, header: <span class="string">'부서'</span>, dataType: <span class="string">'string'</span> },
+    { key: <span class="string">'salary'</span>, header: <span class="string">'급여'</span>, dataType: <span class="string">'number'</span>, aggregate: <span class="string">'sum'</span> },
+  ],
+  data: myData,
+  columns: [<span class="string">'department'</span>, <span class="string">'salary'</span>],
+  group: {
+    columns: [<span class="string">'department'</span>],
+    subtotals: [<span class="string">'salary'</span>],  <span class="comment">// fields의 aggregate 함수 사용</span>
   },
 });
 
-<span class="comment">// 그룹화 해제</span>
-pureSheet.<span class="function">setGroupingConfig</span>(<span class="keyword">null</span>);
+<span class="comment">// 그룹화 동적 변경</span>
+grid.<span class="function">setGrouping</span>({ columns: [<span class="string">'status'</span>], subtotals: [<span class="string">'salary'</span>] });
 
-<span class="comment">// 그룹 접기/펼치기 (BodyRenderer 사용)</span>
-<span class="keyword">const</span> bodyRenderer = pureSheet.<span class="function">getBodyRenderer</span>();
-bodyRenderer.<span class="function">toggleGroup</span>(<span class="string">'department:Engineering'</span>);
-bodyRenderer.<span class="function">expandAllGroups</span>();
-bodyRenderer.<span class="function">collapseAllGroups</span>();</pre>
+<span class="comment">// 그룹 접기/펼치기</span>
+grid.<span class="function">toggleGroup</span>(<span class="string">'department:Engineering'</span>);
+grid.<span class="function">expandAllGroups</span>();
+grid.<span class="function">collapseAllGroups</span>();</pre>
   </div>
   
   <!-- 그룹 상태 -->
@@ -186,28 +192,30 @@ bodyRenderer.<span class="function">collapseAllGroups</span>();</pre>
     async function init() {
       const container = document.getElementById('grid');
       
-      const columns = [
-        { key: 'id', header: 'ID', width: 60 },
-        { key: 'name', header: 'Name', width: 150 },
-        { key: 'department', header: 'Department', width: 120 },
-        { key: 'status', header: 'Status', width: 100 },
-        { key: 'salary', header: 'Salary', width: 120, formatter: (v) => '$' + (v?.toLocaleString() || '0') },
-        { key: 'joinDate', header: 'Join Date', width: 120 },
+      // 새로운 Config API: fields 사용
+      const fields = [
+        { key: 'id', header: 'ID', dataType: 'number', width: 60 },
+        { key: 'name', header: 'Name', dataType: 'string', width: 150 },
+        { key: 'department', header: 'Department', dataType: 'string', width: 120 },
+        { key: 'status', header: 'Status', dataType: 'string', width: 100 },
+        { key: 'salary', header: 'Salary', dataType: 'number', width: 120, aggregate: 'sum', formatter: (v) => '$' + (v?.toLocaleString() || '0') },
+        { key: 'joinDate', header: 'Join Date', dataType: 'string', width: 120 },
       ];
       
-      // PureSheet 사용
+      // PureSheet 사용 (새 Config API)
       renderer = new PureSheet(container, {
-        columns,
+        mode: 'flat',
+        fields,
+        data: sampleData,
+        columns: ['id', 'name', 'department', 'status', 'salary', 'joinDate'],
         rowHeight: 36,
         headerHeight: 40,
         resizableColumns: true,
         theme: 'light',
         // 초기 그룹화 설정
-        groupingConfig: {
+        group: {
           columns: ['department'],
-          aggregates: {
-            salary: 'sum',
-          },
+          subtotals: ['salary'],
         },
         onRowClick: (rowIndex, row) => {
           console.log('Row clicked:', rowIndex, row);
@@ -217,9 +225,6 @@ bodyRenderer.<span class="function">collapseAllGroups</span>();</pre>
           updateStatus(`그룹 "${groupId}" ${collapsed ? '접힘' : '펼침'}`);
         },
       });
-      
-      // 데이터 로드
-      await renderer.loadData(sampleData);
       
       updateGroupStateDisplay();
       updateStatus('100개 행 로드 완료 - 그룹 헤더를 클릭하여 접기/펼치기');

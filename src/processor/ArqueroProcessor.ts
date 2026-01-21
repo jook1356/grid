@@ -91,6 +91,14 @@ export class ArqueroProcessor implements IDataProcessor {
     return this.table;
   }
 
+  /**
+   * 내부 테이블 접근 (서브클래스용)
+   * @protected
+   */
+  protected getTable(): Table | null {
+    return this.table;
+  }
+
   // ==========================================================================
   // 정렬
   // ==========================================================================

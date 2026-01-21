@@ -535,18 +535,25 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
     async function init() {
       const container = document.getElementById('grid');
       
-      const columns = [
-        { key: 'id', header: 'ID', width: 60, pinned: 'left' },
-        { key: 'name', header: 'Name', width: 150 },
-        { key: 'department', header: 'Department', width: 120 },
-        { key: 'salary', header: 'Salary', width: 120, formatter: v => '$' + (v?.toLocaleString() || '0') },
-        { key: 'bonus', header: 'Bonus', width: 100, formatter: v => '$' + (v?.toLocaleString() || '0') },
-        { key: 'performance', header: 'Performance', width: 100, formatter: v => v + '%' },
+      // 새 Config API: fields 사용
+      const fields = [
+        { key: 'id', header: 'ID', dataType: 'number', width: 60 },
+        { key: 'name', header: 'Name', dataType: 'string', width: 150 },
+        { key: 'department', header: 'Department', dataType: 'string', width: 120 },
+        { key: 'salary', header: 'Salary', dataType: 'number', width: 120, aggregate: 'sum', formatter: v => '$' + (v?.toLocaleString() || '0') },
+        { key: 'bonus', header: 'Bonus', dataType: 'number', width: 100, aggregate: 'sum', formatter: v => '$' + (v?.toLocaleString() || '0') },
+        { key: 'performance', header: 'Performance', dataType: 'number', width: 100, aggregate: 'avg', formatter: v => v + '%' },
       ];
       
-      // PureSheet 사용 (SelectionManager 포함)
+      // PureSheet 사용 (새 Config API)
       renderer = new PureSheet(container, {
-        columns, 
+        mode: 'flat',
+        fields,
+        columns: ['id', 'name', 'department', 'salary', 'bonus', 'performance'],
+        pinned: {
+          left: ['id'],
+          right: [],
+        },
         rowHeight: 36, 
         headerHeight: 40, 
         resizableColumns: true, 

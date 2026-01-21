@@ -152,22 +152,27 @@
   
   <!-- 코드 예제 -->
   <div class="code-example">
-    <h3>API 사용법</h3>
+    <h3>API 사용법 (새 Config API)</h3>
     <pre><span class="keyword">const</span> pureSheet = <span class="keyword">new</span> <span class="function">PureSheet</span>(container, {
-  columns: [...],
+  mode: <span class="string">'flat'</span>,
+  fields: [
+    { key: <span class="string">'id'</span>, header: <span class="string">'ID'</span>, dataType: <span class="string">'number'</span>, width: <span class="number">60</span> },
+    { key: <span class="string">'name'</span>, header: <span class="string">'Name'</span>, dataType: <span class="string">'string'</span>, width: <span class="number">120</span> },
+    <span class="comment">// ... 기타 필드</span>
+  ],
+  data: myData,
+  columns: [<span class="string">'id'</span>, <span class="string">'name'</span>, <span class="string">'email'</span>, <span class="string">'dept'</span>, <span class="string">'status'</span>, <span class="string">'salary'</span>, <span class="string">'joinDate'</span>],
   
   <span class="comment">// Multi-Row 템플릿 정의</span>
   rowTemplate: {
     rowCount: <span class="number">2</span>,  <span class="comment">// 데이터 1개 = 시각적 2줄</span>
     layout: [
-      <span class="comment">// 첫 번째 줄</span>
       [
         { key: <span class="string">'id'</span>, rowSpan: <span class="number">2</span> },      <span class="comment">// 2줄에 걸침</span>
         { key: <span class="string">'name'</span> },
         { key: <span class="string">'email'</span>, colSpan: <span class="number">2</span> },   <span class="comment">// 2칸 차지</span>
         { key: <span class="string">'salary'</span>, rowSpan: <span class="number">2</span> },
       ],
-      <span class="comment">// 두 번째 줄</span>
       [
         { key: <span class="string">'dept'</span> },
         { key: <span class="string">'status'</span> },
@@ -181,15 +186,15 @@
   <script type="module">
     import { PureSheet } from '../../src/index.ts';
     
-    // 컬럼 정의
-    const columns = [
-      { key: 'id', header: 'ID', width: 60 },
-      { key: 'name', header: 'Name', width: 120 },
-      { key: 'email', header: 'Email', width: 200 },
-      { key: 'dept', header: 'Dept', width: 100 },
-      { key: 'status', header: 'Status', width: 80 },
-      { key: 'salary', header: 'Salary', width: 100 },
-      { key: 'joinDate', header: 'Join Date', width: 100 },
+    // 새 Config API: fields 사용
+    const fields = [
+      { key: 'id', header: 'ID', dataType: 'number', width: 60 },
+      { key: 'name', header: 'Name', dataType: 'string', width: 120 },
+      { key: 'email', header: 'Email', dataType: 'string', width: 200 },
+      { key: 'dept', header: 'Dept', dataType: 'string', width: 100 },
+      { key: 'status', header: 'Status', dataType: 'string', width: 80 },
+      { key: 'salary', header: 'Salary', dataType: 'string', width: 100 },
+      { key: 'joinDate', header: 'Join Date', dataType: 'string', width: 100 },
     ];
     
     // 레이아웃 정의
@@ -279,14 +284,15 @@
         renderer.destroy();
       }
       
-      // 새 PureSheet 생성
+      // 새 PureSheet 생성 (새 Config API)
       renderer = new PureSheet(gridContainer, {
-        columns,
+        mode: 'flat',
+        fields,
+        data: sampleData,
+        columns: ['id', 'name', 'email', 'dept', 'status', 'salary', 'joinDate'],
         rowHeight: 36,
         rowTemplate: rowTemplate || undefined,
       });
-      
-      await renderer.loadData(sampleData);
     }
     
     // 레이아웃 1 적용
