@@ -7,6 +7,7 @@
 import type { CellValue } from './data.types';
 import type { ColumnDef } from './data.types';
 import type { AggregateFunc } from './field.types';
+import type { FilterState, SortState } from './state.types';
 
 // ============================================================================
 // 피벗 설정
@@ -33,6 +34,8 @@ export interface PivotValueField {
  * 피벗 설정 (내부용)
  *
  * PureSheetConfig의 피벗 관련 속성을 추출하여 PivotProcessor에 전달
+ * 
+ * 데이터 처리 순서: 필터 → 정렬 → 피벗
  */
 export interface PivotConfig {
   /** 행 축 필드 키 배열 */
@@ -52,6 +55,26 @@ export interface PivotConfig {
 
   /** 총 합계 표시 여부 @default false */
   showGrandTotal?: boolean;
+
+  // ==========================================================================
+  // 전처리 옵션 (피벗 전에 적용)
+  // ==========================================================================
+
+  /** 
+   * 필터 조건 (피벗 전에 적용)
+   * 
+   * 피벗 연산 전에 데이터를 필터링합니다.
+   * 필터링된 데이터만 피벗 결과에 포함됩니다.
+   */
+  filters?: FilterState[];
+
+  /**
+   * 정렬 조건 (피벗 전에 적용)
+   * 
+   * 피벗 연산 전에 데이터를 정렬합니다.
+   * 정렬 순서는 피벗 결과의 행 순서에 영향을 줄 수 있습니다.
+   */
+  sorts?: SortState[];
 }
 
 // ============================================================================

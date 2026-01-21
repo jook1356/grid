@@ -245,19 +245,45 @@ export class PureSheet {
 
   /**
    * 정렬 적용
+   * 
+   * GridCore에서 정렬을 처리하고, 피벗 모드일 때는 
+   * 정렬된 결과를 기반으로 피벗을 다시 적용합니다.
+   * 
+   * 처리 순서: GridCore(필터 → 정렬) → 피벗
    */
   async sort(sorts: SortState[]): Promise<void> {
+    // GridCore에서 정렬 처리 (IndexManager 업데이트)
     await this.gridCore.sort(sorts);
-    this.gridRenderer.refresh();
+
+    // 피벗 모드면 정렬된 데이터로 피벗 재적용
+    if (this.gridMode === 'pivot' && this.pivotConfig) {
+      await this.applyPivot();
+    } else {
+      this.gridRenderer.refresh();
+    }
+
     this.emitEvent('sort:changed', { sorts });
   }
 
   /**
    * 필터 적용
+   * 
+   * GridCore에서 필터를 처리하고, 피벗 모드일 때는 
+   * 필터링된 결과를 기반으로 피벗을 다시 적용합니다.
+   * 
+   * 처리 순서: GridCore(필터 → 정렬) → 피벗
    */
   async filter(filters: FilterState[]): Promise<void> {
+    // GridCore에서 필터 처리 (IndexManager 업데이트)
     await this.gridCore.filter(filters);
-    this.gridRenderer.refresh();
+
+    // 피벗 모드면 필터링된 데이터로 피벗 재적용
+    if (this.gridMode === 'pivot' && this.pivotConfig) {
+      await this.applyPivot();
+    } else {
+      this.gridRenderer.refresh();
+    }
+
     this.emitEvent('filter:changed', { filters });
   }
 
@@ -734,14 +760,17 @@ export class PureSheet {
   /**
    * 피벗 적용
    * 
-   * DataStore.getSourceData()에서 원본 데이터를 조회하여 피벗 연산 수행.
-   * 원본 데이터는 DataStore.sourceRows에 유지되고, 피벗 결과는 뷰(viewData)로 설정.
+   * 데이터 처리 순서: 필터 → 정렬 → 피벗
    * 
-   * 1. DataStore에서 원본 데이터 조회 (getSourceData)
-   * 2. PivotProcessor로 피벗 연산 수행
-   * 3. GridRenderer의 헤더를 PivotHeaderRenderer로 교체
-   * 4. 피벗 결과를 뷰 데이터로 설정 (setViewData)
-   * 5. rowHeaderColumns에 계층적 병합 자동 적용
+   * GridCore가 필터/정렬을 처리하고, 그 결과 인덱스로 필터링된 데이터만 피벗에 전달합니다.
+   * 이를 통해 필터/정렬 연산의 중복을 방지합니다.
+   * 
+   * 1. GridCore의 IndexManager에서 보이는 인덱스 조회 (필터/정렬 적용됨)
+   * 2. 해당 인덱스의 데이터만 추출하여 피벗에 전달
+   * 3. PivotProcessor로 피벗 연산만 수행 (필터/정렬은 이미 적용됨)
+   * 4. GridRenderer의 헤더를 PivotHeaderRenderer로 교체
+   * 5. 피벗 결과를 뷰 데이터로 설정 (setViewData)
+   * 6. rowHeaderColumns에 계층적 병합 자동 적용
    */
   private async applyPivot(): Promise<void> {
     if (!this.pivotConfig) return;
@@ -751,11 +780,19 @@ export class PureSheet {
       this.pivotProcessor = new PivotProcessor();
     }
 
-    // DataStore에서 원본 데이터 조회 (sourceRows - 변경되지 않음)
+    // DataStore에서 원본 데이터 조회
     const sourceData = this.gridCore.getDataStore().getSourceData() as RowData[];
 
-    // 원본 데이터로 Arquero 테이블 초기화 후 피벗 연산
-    await this.pivotProcessor.initialize(sourceData);
+    // GridCore의 IndexManager에서 보이는 인덱스 조회
+    // (필터/정렬이 이미 적용된 상태)
+    const visibleIndices = this.gridCore.getIndexManager().getVisibleIndices();
+
+    // 보이는 인덱스의 데이터만 추출 (필터/정렬 결과 반영)
+    const filteredData = Array.from(visibleIndices).map(i => sourceData[i]);
+
+    // 필터링된 데이터로 피벗 연산 수행
+    // (filters/sorts는 전달하지 않음 - 이미 GridCore에서 처리됨)
+    await this.pivotProcessor.initialize(filteredData);
     this.pivotResult = await this.pivotProcessor.pivot(this.pivotConfig);
 
     // 피벗 헤더로 교체 (HeaderRenderer → PivotHeaderRenderer)

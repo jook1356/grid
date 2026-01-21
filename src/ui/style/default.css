@@ -115,7 +115,7 @@
 .ps-header {
   flex-shrink: 0;
   background: var(--ps-header-bg);
-  border-bottom: 2px solid var(--ps-border-color);
+  border-bottom: 1px solid var(--ps-border-color);
   overflow-x: auto;
   overflow-y: hidden;
   z-index: 10;

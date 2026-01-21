@@ -24,7 +24,7 @@
 import * as aq from 'arquero';
 import type { Table } from 'arquero';
 import { ArqueroProcessor } from './ArqueroProcessor';
-import type { ColumnDef, CellValue, Row } from '../types';
+import type { ColumnDef, CellValue, Row, SortState } from '../types';
 import type {
   PivotConfig,
   PivotResult,
@@ -46,34 +46,57 @@ export class PivotProcessor extends ArqueroProcessor {
   /**
    * 피벗 연산 수행
    *
-   * @param config - 피벗 설정
+   * 데이터 처리 순서: 필터 → 정렬 → 피벗
+   *
+   * @param config - 피벗 설정 (filters, sorts 포함 가능)
    * @returns 피벗 결과 (헤더 트리, 데이터, 컬럼 정의 등)
    */
   async pivot(config: PivotConfig): Promise<PivotResult> {
-    const table = this.getTable();
-    if (!table) {
+    const originalTable = this.getTable();
+    if (!originalTable) {
       throw new Error('PivotProcessor not initialized. Call initialize() first.');
     }
 
-    // 1. 유니크 값 추출 (columnFields별)
+    // ==========================================================================
+    // 전처리: 필터 → 정렬 (공통 파이프라인)
+    // ==========================================================================
+    let table = originalTable;
+
+    // 1단계: 필터 적용
+    if (config.filters && config.filters.length > 0) {
+      for (const filter of config.filters) {
+        table = this.applyFilter(table, filter);
+      }
+    }
+
+    // 2단계: 정렬 적용
+    if (config.sorts && config.sorts.length > 0) {
+      table = this.applySort(table, config.sorts);
+    }
+
+    // ==========================================================================
+    // 피벗 연산 (필터/정렬된 테이블 사용)
+    // ==========================================================================
+
+    // 3단계: 유니크 값 추출 (columnFields별)
     const uniqueValues = this.extractUniqueValues(table, config.columnFields);
 
-    // 2. 집계 연산
+    // 4단계: 집계 연산
     const aggregatedData = this.aggregateData(table, config);
 
-    // 3. 컬럼 헤더 트리 빌드
+    // 5단계: 컬럼 헤더 트리 빌드
     const columnHeaderTree = this.buildHeaderTree(uniqueValues, config);
 
-    // 4. 피벗 데이터 구조 변환
+    // 6단계: 피벗 데이터 구조 변환
     const pivotedData = this.transformToPivotStructure(aggregatedData, config, uniqueValues);
 
-    // 5. 행 병합 정보 계산
+    // 7단계: 행 병합 정보 계산
     const rowMergeInfo = this.calculateRowMergeInfo(pivotedData, config.rowFields);
 
-    // 6. 컬럼 정의 생성
+    // 8단계: 컬럼 정의 생성
     const { columns, rowHeaderColumns } = this.generateColumnDefs(columnHeaderTree, config);
 
-    // 7. 헤더 레벨 수 계산
+    // 9단계: 헤더 레벨 수 계산
     const headerLevelCount = this.calculateHeaderLevelCount(config);
 
     return {
@@ -91,6 +114,29 @@ export class PivotProcessor extends ArqueroProcessor {
         ),
       },
     };
+  }
+
+  // ============================================================================
+  // 전처리 헬퍼 (필터/정렬)
+  // ============================================================================
+
+  /**
+   * 정렬 적용
+   *
+   * @param table - 대상 테이블
+   * @param sorts - 정렬 조건 배열
+   * @returns 정렬된 테이블
+   */
+  private applySort(table: Table, sorts: SortState[]): Table {
+    if (sorts.length === 0) {
+      return table;
+    }
+
+    const orderArgs = sorts.map((sort) =>
+      sort.direction === 'desc' ? aq.desc(sort.columnKey) : sort.columnKey
+    );
+
+    return table.orderby(...orderArgs);
   }
 
   // ============================================================================

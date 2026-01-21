@@ -169,8 +169,9 @@ export class ArqueroProcessor implements IDataProcessor {
 
   /**
    * 단일 필터 적용
+   * @protected - 서브클래스(PivotProcessor)에서 사용
    */
-  private applyFilter(table: Table, filter: FilterState): Table {
+  protected applyFilter(table: Table, filter: FilterState): Table {
     const { columnKey, operator, value, value2 } = filter;
 
     // Arquero의 filter는 escape()를 사용해 외부 값 주입
