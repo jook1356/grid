@@ -27,7 +27,7 @@
   /* 크기 */
   --ps-header-height: 40px;
   --ps-row-height: 36px;
-  --ps-scrollbar-width: 17px;
+  --ps-scrollbar-width: 10px;
   --ps-cell-padding: 0 12px;
   --ps-border-width: 1px;
 
@@ -64,20 +64,48 @@
   height: 100%;
   position: relative;
   display: flex;
-  flex-direction: column;
+  flex-direction: column;  /* 메인 영역 + 가로 스크롤바 세로 배치 */
   overflow: hidden;
   background: var(--ps-bg-color);
   font-family: var(--ps-font-family);
   font-size: var(--ps-font-size);
   color: var(--ps-cell-text);
   box-sizing: border-box;
-  border: var(--ps-border-width) solid var(--ps-border-color);
+  /* border: var(--ps-border-width) solid var(--ps-border-color); */
 }
 
 .ps-grid-container *,
 .ps-grid-container *::before,
 .ps-grid-container *::after {
   box-sizing: border-box;
+}
+
+/* 메인 영역 (콘텐츠 + 세로 스크롤바) */
+.ps-main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  min-height: 0;  /* flex item이 축소될 수 있도록 */
+}
+
+/* 콘텐츠 래퍼 (헤더 + 바디) */
+.ps-content-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;  /* flex item이 축소될 수 있도록 */
+}
+
+/* 가로 스크롤 영역 */
+.ps-scroll-area-x {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: row;
+  /* height: var(--ps-scrollbar-width); */
+  background: var(--ps-bg-color);
+  /* border-top: var(--ps-border-width) solid var(--ps-border-color); */
 }
 
 /* =============================================================================
@@ -91,8 +119,7 @@
   overflow-x: auto;
   overflow-y: hidden;
   z-index: 10;
-  /* 세로 스크롤바와 정렬을 위해 오른쪽 패딩 */
-  padding-right: var(--ps-scrollbar-width);
+  /* 스크롤바가 그리드 레벨에 있으므로 padding 불필요 */
 }
 
 /* 헤더 스크롤바 숨김 (바디와 동기화됨) */
@@ -189,8 +216,7 @@
   background: var(--ps-bg-color);
   position: relative;
   z-index: 10;
-  /* 세로 스크롤바와 정렬을 위해 오른쪽 패딩 */
-  padding-right: var(--ps-scrollbar-width);
+  /* 스크롤바가 그리드 레벨에 있으므로 padding 불필요 */
 }
 
 /* 고정 영역 스크롤바 숨김 (JavaScript로 동기화) */
@@ -251,38 +277,76 @@
   overflow: hidden;
 }
 
-/* Proxy Scrollbar */
-.ps-scroll-proxy {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
+/* 세로 프록시 스크롤바 (그리드 레벨 - 전체 높이 차지) */
+.ps-scroll-proxy-y {
+  flex-shrink: 0;
   width: var(--ps-scrollbar-width);
   overflow-y: auto;
   overflow-x: hidden;
   z-index: 5;
-}
-
-.ps-scroll-proxy::-webkit-scrollbar {
-  width: var(--ps-scrollbar-width);
-}
-
-.ps-scroll-proxy::-webkit-scrollbar-track {
+  border-left: var(--ps-border-width) solid var(--ps-border-color);
   background: var(--ps-bg-color);
 }
 
-.ps-scroll-proxy::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 4px;
+.ps-scroll-proxy-y::-webkit-scrollbar {
+  width: var(--ps-scrollbar-width);
 }
 
-.ps-scroll-proxy::-webkit-scrollbar-thumb:hover {
+.ps-scroll-proxy-y::-webkit-scrollbar-track {
+  background: var(--ps-bg-color);
+}
+
+.ps-scroll-proxy-y::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+}
+
+.ps-scroll-proxy-y::-webkit-scrollbar-thumb:hover {
   background: #a8a8a8;
 }
 
-.ps-scroll-spacer {
+.ps-scroll-spacer-y {
   width: 1px;
   pointer-events: none;
+}
+
+/* 가로 프록시 스크롤바 */
+.ps-scroll-proxy-x {
+  flex: 1;
+  overflow-x: auto;  /* auto 대신 scroll로 항상 스크롤 영역 확보 */
+  overflow-y: hidden;
+  z-index: 5;
+  background: var(--ps-bg-color);
+}
+
+.ps-scroll-proxy-x::-webkit-scrollbar {
+  height: var(--ps-scrollbar-width);
+}
+
+.ps-scroll-proxy-x::-webkit-scrollbar-track {
+  background: var(--ps-bg-color);
+}
+
+.ps-scroll-proxy-x::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+}
+
+.ps-scroll-proxy-x::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+.ps-scroll-spacer-x {
+  display: block;
+  height: 1px;
+  pointer-events: none;
+}
+
+/* 스크롤바 교차점 (우측 하단 코너) */
+.ps-scroll-corner {
+  flex-shrink: 0;
+  width: var(--ps-scrollbar-width);
+  /* height: var(--ps-scrollbar-width); */
+  background: var(--ps-bg-color);
+  /* border-left: var(--ps-border-width) solid var(--ps-border-color); */
 }
 
 /* Viewport */
@@ -290,55 +354,35 @@
   position: absolute;
   top: 0;
   left: 0;
-  right: var(--ps-scrollbar-width);
+  right: 0;
   bottom: 0;
   overflow-x: auto;
   overflow-y: auto;
 }
 
-/* 세로 스크롤바 숨김 (프록시 스크롤바 사용)
-   Chrome/Safari/Edge에서 세로 스크롤바만 숨김
-   Firefox는 가로/세로 구분이 불가하여 기본 스크롤바 표시됨 */
-.ps-viewport::-webkit-scrollbar:vertical {
+/* 모든 스크롤바 숨김 (프록시 스크롤바 사용) */
+.ps-viewport::-webkit-scrollbar {
   width: 0;
+  height: 0;
   display: none;
 }
 
-/* 가로 스크롤바 스타일 */
-.ps-viewport::-webkit-scrollbar {
-  height: 10px;
+.ps-viewport {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
-.ps-viewport::-webkit-scrollbar-track {
-  background: var(--ps-bg-color);
-}
-
-.ps-viewport::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 4px;
-}
-
-.ps-viewport::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
-}
-
-/* 터치 기기: viewport가 터치 이벤트 받음, 프록시 스크롤바는 시각적 표시만 */
+/* 터치 기기: 스크롤바 터치 이벤트 통과 */
 @media (pointer: coarse) {
-  .ps-viewport {
-    /* viewport가 전체 영역 차지 */
-    right: 0;
-  }
-
-  .ps-scroll-proxy {
-    /* 프록시 스크롤바는 오른쪽에 오버레이로 표시 */
-    width: var(--ps-scrollbar-width);
+  .ps-scroll-proxy-y,
+  .ps-scroll-proxy-x {
     /* 터치 이벤트 통과 - viewport가 스크롤 처리 */
     pointer-events: none;
-    background: transparent;
   }
 
   /* 터치 기기에서 스크롤바 썸만 터치 가능하게 */
-  .ps-scroll-proxy::-webkit-scrollbar-thumb {
+  .ps-scroll-proxy-y::-webkit-scrollbar-thumb,
+  .ps-scroll-proxy-x::-webkit-scrollbar-thumb {
     pointer-events: auto;
   }
 }

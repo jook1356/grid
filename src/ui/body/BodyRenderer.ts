@@ -48,6 +48,14 @@ export interface BodyRendererOptions {
   rowTemplate?: RowTemplate;
   /** 고정 행 설정 (선택) */
   pinnedRows?: PinnedRowsConfig;
+  /** 외부 세로 스크롤 프록시 (선택) - GridRenderer에서 전달 */
+  scrollProxyY?: HTMLElement;
+  /** 외부 가로 스크롤 프록시 (선택) - GridRenderer에서 전달 */
+  scrollProxyX?: HTMLElement;
+  /** 외부 세로 스페이서 (선택) - GridRenderer에서 전달 */
+  spacerY?: HTMLElement;
+  /** 외부 가로 스페이서 (선택) - GridRenderer에서 전달 */
+  spacerX?: HTMLElement;
   /** 행 클릭 콜백 */
   onRowClick?: (rowIndex: number, row: RowData, event: MouseEvent) => void;
   /** 셀 클릭 콜백 */
@@ -83,11 +91,16 @@ export class BodyRenderer {
   private container: HTMLElement;
   private pinnedTopContainer: HTMLElement;
   private scrollWrapper: HTMLElement;
-  private scrollProxy: HTMLElement;
+  private scrollProxyY: HTMLElement;
+  private scrollProxyX: HTMLElement;
   private viewport: HTMLElement;
-  private spacer: HTMLElement;
+  private spacerY: HTMLElement;
+  private spacerX: HTMLElement;
   private rowContainer: HTMLElement;
   private pinnedBottomContainer: HTMLElement;
+  
+  // 외부 스크롤 프록시 여부
+  private externalScrollProxy: boolean = false;
 
   // 모듈
   private virtualScroller: VirtualScroller;
@@ -166,17 +179,33 @@ export class BodyRenderer {
     // 스크롤 영역 래퍼 (flex 레이아웃에서 나머지 공간 차지)
     this.scrollWrapper = this.createElement('div', 'ps-scroll-wrapper');
     
-    // 스크롤 영역 (래퍼 내부)
-    this.scrollProxy = this.createElement('div', 'ps-scroll-proxy');
-    this.spacer = this.createElement('div', 'ps-scroll-spacer');
-    this.scrollProxy.appendChild(this.spacer);
+    // 스크롤 프록시와 스페이서 (외부에서 전달받거나 내부 생성)
+    if (options.scrollProxyY && options.scrollProxyX && options.spacerY && options.spacerX) {
+      // 외부에서 전달받은 경우 (그리드 컨테이너 레벨에 위치)
+      this.scrollProxyY = options.scrollProxyY;
+      this.scrollProxyX = options.scrollProxyX;
+      this.spacerY = options.spacerY;
+      this.spacerX = options.spacerX;
+      this.externalScrollProxy = true;
+    } else {
+      // 내부에서 생성 (기존 방식 - fallback)
+      this.scrollProxyY = this.createElement('div', 'ps-scroll-proxy-y');
+      this.spacerY = this.createElement('div', 'ps-scroll-spacer-y');
+      this.scrollProxyY.appendChild(this.spacerY);
+      this.scrollWrapper.appendChild(this.scrollProxyY);
+      
+      this.scrollProxyX = this.createElement('div', 'ps-scroll-proxy-x');
+      this.spacerX = this.createElement('div', 'ps-scroll-spacer-x');
+      this.scrollProxyX.appendChild(this.spacerX);
+      // 가로 스크롤바는 scrollWrapper 바깥에 추가해야 하지만 fallback에서는 일단 내부에
+      this.externalScrollProxy = false;
+    }
 
     this.viewport = this.createElement('div', 'ps-viewport');
     this.rowContainer = this.createElement('div', 'ps-row-container');
     this.viewport.appendChild(this.rowContainer);
 
-    // 스크롤 래퍼에 추가
-    this.scrollWrapper.appendChild(this.scrollProxy);
+    // 스크롤 래퍼에 viewport 추가
     this.scrollWrapper.appendChild(this.viewport);
 
     // 하단 고정 영역
@@ -214,7 +243,7 @@ export class BodyRenderer {
     }
 
     // VirtualScroller 연결 (rowContainer도 전달하여 네이티브 스크롤 지원)
-    this.virtualScroller.attach(this.scrollProxy, this.viewport, this.spacer, this.rowContainer);
+    this.virtualScroller.attach(this.scrollProxyY, this.viewport, this.spacerY, this.rowContainer);
 
     // 이벤트 바인딩
     this.virtualScroller.on('rangeChanged', this.onRangeChanged.bind(this));
@@ -222,8 +251,9 @@ export class BodyRenderer {
     this.viewport.addEventListener('dblclick', this.handleDblClick.bind(this));
     this.viewport.addEventListener('mousedown', this.handleMouseDown.bind(this));
 
-    // 가로 스크롤 동기화 (고정 영역도 함께 스크롤)
-    this.viewport.addEventListener('scroll', this.handleHorizontalScroll.bind(this));
+    // 가로 스크롤 프록시 이벤트 바인딩
+    this.scrollProxyX.addEventListener('scroll', this.handleProxyXScroll.bind(this), { passive: true });
+    this.viewport.addEventListener('scroll', this.handleViewportScroll.bind(this), { passive: true });
 
     // 고정 행 초기화
     if (options.pinnedRows) {
@@ -238,15 +268,36 @@ export class BodyRenderer {
     // 초기 행 수 설정
     this.updateVirtualRows();
 
+    // 가로 스페이서 너비 초기화
+    this.updateHorizontalSpacerWidth();
+
     // 고정 행 렌더링
     this.renderPinnedRows();
   }
 
   /**
-   * 가로 스크롤 동기화 핸들러
+   * 가로 프록시 스크롤바 스크롤 핸들러
    */
-  private handleHorizontalScroll(): void {
+  private handleProxyXScroll(): void {
+    const scrollLeft = this.scrollProxyX.scrollLeft;
+    // viewport와 고정 영역 동기화
+    if (Math.abs(this.viewport.scrollLeft - scrollLeft) > 1) {
+      this.viewport.scrollLeft = scrollLeft;
+    }
+    this.pinnedTopContainer.scrollLeft = scrollLeft;
+    this.pinnedBottomContainer.scrollLeft = scrollLeft;
+  }
+
+  /**
+   * Viewport 스크롤 핸들러 (가로 스크롤 프록시와 동기화)
+   */
+  private handleViewportScroll(): void {
     const scrollLeft = this.viewport.scrollLeft;
+    // 프록시 스크롤바와 동기화
+    if (Math.abs(this.scrollProxyX.scrollLeft - scrollLeft) > 1) {
+      this.scrollProxyX.scrollLeft = scrollLeft;
+    }
+    // 고정 영역 동기화
     this.pinnedTopContainer.scrollLeft = scrollLeft;
     this.pinnedBottomContainer.scrollLeft = scrollLeft;
   }
@@ -340,8 +391,30 @@ export class BodyRenderer {
   updateColumns(columns: ColumnState[]): void {
     this.columns = columns;
     this.rowPool.updateColumnCount(columns.length);
+    this.updateHorizontalSpacerWidth();
     this.renderVisibleRows();
     this.renderPinnedRows(); // 고정 행도 다시 렌더링
+  }
+
+  /**
+   * 가로 스페이서 너비 업데이트 (컬럼 총 너비)
+   */
+  updateHorizontalSpacerWidth(): void {
+    const totalWidth = this.columns
+      .filter(col => col.visible)
+      .reduce((sum, col) => sum + col.width, 0);
+    this.spacerX.style.width = `${totalWidth}px`;
+  }
+
+  /**
+   * 특정 컬럼 너비 업데이트 (리사이즈 시 호출)
+   */
+  updateColumnWidth(columnKey: string, width: number): void {
+    const col = this.columns.find(c => c.key === columnKey);
+    if (col) {
+      col.width = width;
+      this.updateHorizontalSpacerWidth();
+    }
   }
 
   /**

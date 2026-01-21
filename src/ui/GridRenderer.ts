@@ -70,6 +70,10 @@ export class GridRenderer {
   private gridContainer: HTMLElement | null = null;
   private headerElement: HTMLElement | null = null;
   private bodyElement: HTMLElement | null = null;
+  private scrollProxyY: HTMLElement | null = null;
+  private scrollProxyX: HTMLElement | null = null;
+  private spacerY: HTMLElement | null = null;
+  private spacerX: HTMLElement | null = null;
 
   // 모듈
   private headerRenderer: HeaderRenderer | null = null;
@@ -147,6 +151,7 @@ export class GridRenderer {
       state.width = Math.max(50, width);
       this.updateColumnWidthCSS(columnKey, state.width);
       this.headerRenderer?.updateColumnWidth(columnKey, state.width);
+      this.bodyRenderer?.updateColumnWidth(columnKey, state.width);
     }
   }
 
@@ -421,6 +426,17 @@ export class GridRenderer {
 
   /**
    * DOM 구조 생성
+   * 
+   * 구조:
+   * .ps-grid-container (flex column)
+   *   ├── .ps-main-area (flex row)
+   *   │    ├── .ps-content-wrapper (flex column)
+   *   │    │    ├── .ps-header
+   *   │    │    └── .ps-body
+   *   │    └── .ps-scroll-proxy-y (세로 스크롤바)
+   *   └── .ps-scroll-area-x (flex row)
+   *        ├── .ps-scroll-proxy-x (가로 스크롤바)
+   *        └── .ps-scroll-corner (우측 하단 코너)
    */
   private createDOMStructure(): void {
     // 메인 컨테이너
@@ -441,15 +457,54 @@ export class GridRenderer {
       this.gridContainer.style.setProperty('--ps-group-indent', `${indentPx}px`);
     }
 
+    // === 메인 영역 (콘텐츠 + 세로 스크롤바) ===
+    const mainArea = document.createElement('div');
+    mainArea.className = 'ps-main-area';
+
+    // 콘텐츠 래퍼 (헤더 + 바디)
+    const contentWrapper = document.createElement('div');
+    contentWrapper.className = 'ps-content-wrapper';
+
     // 헤더 영역
     this.headerElement = document.createElement('div');
     this.headerElement.className = 'ps-header';
-    this.gridContainer.appendChild(this.headerElement);
+    contentWrapper.appendChild(this.headerElement);
 
     // 바디 영역
     this.bodyElement = document.createElement('div');
     this.bodyElement.className = 'ps-body';
-    this.gridContainer.appendChild(this.bodyElement);
+    contentWrapper.appendChild(this.bodyElement);
+
+    mainArea.appendChild(contentWrapper);
+
+    // 세로 프록시 스크롤바
+    this.scrollProxyY = document.createElement('div');
+    this.scrollProxyY.className = 'ps-scroll-proxy-y';
+    this.spacerY = document.createElement('div');
+    this.spacerY.className = 'ps-scroll-spacer-y';
+    this.scrollProxyY.appendChild(this.spacerY);
+    mainArea.appendChild(this.scrollProxyY);
+
+    this.gridContainer.appendChild(mainArea);
+
+    // === 가로 스크롤 영역 ===
+    const scrollAreaX = document.createElement('div');
+    scrollAreaX.className = 'ps-scroll-area-x';
+
+    // 가로 프록시 스크롤바
+    this.scrollProxyX = document.createElement('div');
+    this.scrollProxyX.className = 'ps-scroll-proxy-x';
+    this.spacerX = document.createElement('div');
+    this.spacerX.className = 'ps-scroll-spacer-x';
+    this.scrollProxyX.appendChild(this.spacerX);
+    scrollAreaX.appendChild(this.scrollProxyX);
+
+    // 우측 하단 코너 (스크롤바 교차점)
+    const scrollCorner = document.createElement('div');
+    scrollCorner.className = 'ps-scroll-corner';
+    scrollAreaX.appendChild(scrollCorner);
+
+    this.gridContainer.appendChild(scrollAreaX);
 
     // 컨테이너에 추가
     this.container.appendChild(this.gridContainer);
@@ -467,7 +522,7 @@ export class GridRenderer {
       onColumnReorder: this.handleColumnReorder.bind(this),
     });
 
-    // BodyRenderer 초기화
+    // BodyRenderer 초기화 (외부 스크롤 프록시 전달)
     this.bodyRenderer = new BodyRenderer(this.bodyElement, {
       rowHeight: this.options.rowHeight ?? 36,
       gridCore: this.gridCore,
@@ -475,6 +530,10 @@ export class GridRenderer {
       selectionMode: this.options.selectionMode ?? 'row',
       groupingConfig: this.options.groupingConfig,
       rowTemplate: this.options.rowTemplate,
+      scrollProxyY: this.scrollProxyY,
+      scrollProxyX: this.scrollProxyX,
+      spacerY: this.spacerY,
+      spacerX: this.spacerX,
       onRowClick: this.onRowClick,
       onCellClick: this.onCellClick,
       onCellDblClick: this.onCellDblClick,
@@ -492,25 +551,42 @@ export class GridRenderer {
    * 헤더와 바디의 가로 스크롤 동기화
    */
   private setupHorizontalScrollSync(): void {
-    if (!this.headerElement || !this.bodyRenderer) return;
+    if (!this.headerElement || !this.bodyRenderer || !this.scrollProxyX) return;
 
     const viewport = this.bodyRenderer.getViewport();
     const header = this.headerElement;
+    const scrollProxyX = this.scrollProxyX;
 
-    // Viewport 스크롤 시 → 헤더도 스크롤
-    viewport.addEventListener('scroll', () => {
+    // 가로 프록시 스크롤바 스크롤 시 → 헤더 동기화
+    scrollProxyX.addEventListener('scroll', () => {
+      const scrollLeft = scrollProxyX.scrollLeft;
       // 피벗 모드일 때는 PivotHeaderRenderer의 updateScrollPosition 사용
       if (this.headerMode === 'pivot' && this.pivotHeaderRenderer) {
-        this.pivotHeaderRenderer.updateScrollPosition(viewport.scrollLeft);
+        this.pivotHeaderRenderer.updateScrollPosition(scrollLeft);
       } else {
-        header.scrollLeft = viewport.scrollLeft;
+        header.scrollLeft = scrollLeft;
       }
     }, { passive: true });
 
-    // 헤더 스크롤 시 → Viewport도 스크롤 (드래그 등으로 직접 스크롤할 경우)
+    // Viewport 스크롤 시 → 헤더도 스크롤
+    viewport.addEventListener('scroll', () => {
+      const scrollLeft = viewport.scrollLeft;
+      // 피벗 모드일 때는 PivotHeaderRenderer의 updateScrollPosition 사용
+      if (this.headerMode === 'pivot' && this.pivotHeaderRenderer) {
+        this.pivotHeaderRenderer.updateScrollPosition(scrollLeft);
+      } else {
+        header.scrollLeft = scrollLeft;
+      }
+    }, { passive: true });
+
+    // 헤더 스크롤 시 → Viewport와 프록시도 스크롤 (드래그 등으로 직접 스크롤할 경우)
     header.addEventListener('scroll', () => {
-      if (Math.abs(viewport.scrollLeft - header.scrollLeft) > 1) {
-        viewport.scrollLeft = header.scrollLeft;
+      const scrollLeft = header.scrollLeft;
+      if (Math.abs(viewport.scrollLeft - scrollLeft) > 1) {
+        viewport.scrollLeft = scrollLeft;
+      }
+      if (Math.abs(scrollProxyX.scrollLeft - scrollLeft) > 1) {
+        scrollProxyX.scrollLeft = scrollLeft;
       }
     }, { passive: true });
   }
