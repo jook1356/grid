@@ -86,11 +86,49 @@ grid.setMergeManager(new CustomMergeManager((row, col, data) => {
 }
 ```
 
-### 4. 성능 최적화
+### 4. 성능 최적화 (v2 - 사전 계산)
 
-- **캐시 시스템**: 병합 정보를 `Map<string, CellMergeInfo>`에 캐시
-- **지연 계산**: 스크롤 시 보이는 영역만 병합 정보 계산
-- **캐시 무효화**: 데이터 변경/스크롤 시 자동 캐시 초기화
+**기존 문제점** (v1):
+- 셀마다 O(n) 탐색으로 병합 범위 계산
+- 캐시 키에 visibleStartIndex 포함 → 스크롤마다 캐시 무효화
+- valuesEqual() 중복 구현
+
+**개선된 구조** (v2):
+
+```
+[데이터 로드/변경 시]
+    ↓
+precomputeRanges()  ← O(n) 한 번만 실행
+    ↓
+Map<"row:col", MergedRange> 저장
+    ↓
+[렌더링 시]
+    ↓
+getMergedRange() → O(1) Map 조회
+    ↓
+applyDynamicAnchor() → 간단한 조건문
+```
+
+**주요 개선사항**:
+
+1. **사전 계산 (Pre-computation)**
+   - 데이터 로드 시 O(n)으로 모든 병합 범위 계산
+   - 이후 조회는 O(1) Map lookup
+
+2. **캐시 분리**
+   - MergeManager: 원본 병합 정보 캐시 (데이터 변경 시만 무효화)
+   - BodyRenderer: 캐시 제거 (동적 앵커는 간단한 조건문)
+
+3. **코드 정리**
+   - valuesEqual()을 기본 클래스로 이동 (중복 제거)
+   - 동일한 MergedRange 객체 참조 공유 (메모리 효율)
+
+**복잡도 비교**:
+| 작업 | v1 | v2 |
+|------|----|----|
+| 셀당 병합 조회 | O(n) | O(1) |
+| 스크롤 시 캐시 | 무효화 | 유지 |
+| 메모리 | 캐시 중복 | 참조 공유 |
 
 ## 생성/수정된 파일
 

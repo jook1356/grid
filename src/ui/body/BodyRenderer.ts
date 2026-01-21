@@ -163,9 +163,6 @@ export class BodyRenderer {
   // 셀 병합 관리자
   private mergeManager: MergeManager | null = null;
 
-  // 병합 정보 캐시 (렌더링 최적화)
-  private mergeInfoCache: Map<string, CellMergeInfo> = new Map();
-
   constructor(container: HTMLElement, options: BodyRendererOptions) {
     this.container = container;
     this.gridCore = options.gridCore;
@@ -335,13 +332,12 @@ export class BodyRenderer {
    * 고정된 집계 행(subtotal, grandtotal)은 데이터 기반으로 자동 재계산됩니다.
    */
   refresh(): void {
-    // 데이터 변경 시 병합 캐시 초기화
-    this.clearMergeCache();
-
-    // MergeManager에 최신 컬럼 정의 전달
+    // MergeManager에 최신 컬럼 정의 전달 및 캐시 무효화
     if (this.mergeManager) {
       const columns = this.gridCore.getColumns();
       this.mergeManager.setColumns(columns);
+      // 데이터 변경 시 MergeManager 캐시 무효화
+      this.mergeManager.invalidateCache();
     }
 
     this.updateVirtualRows();
@@ -583,9 +579,6 @@ export class BodyRenderer {
       manager.setColumns(columns);
     }
 
-    // 캐시 초기화
-    this.clearMergeCache();
-
     // 다시 렌더링
     this.refresh();
   }
@@ -598,24 +591,19 @@ export class BodyRenderer {
   }
 
   /**
-   * 병합 캐시 초기화
-   *
-   * 데이터가 변경되거나 스크롤 시 호출됩니다.
-   */
-  clearMergeCache(): void {
-    this.mergeInfoCache.clear();
-  }
-
-  /**
    * 셀 병합 정보 조회 콜백 생성
    *
    * Row 렌더링 시 전달되는 getMergeInfo 콜백을 생성합니다.
-   * 내부적으로 캐시를 사용하여 성능을 최적화합니다.
+   * MergeManager의 사전 계산된 캐시를 활용하여 O(1)로 조회합니다.
    *
    * **동적 앵커 로직**:
    * 실제 앵커(range.startRow)가 viewport 밖에 있으면,
    * 현재 보이는 범위 내 첫 번째 행을 "가상 앵커"로 만들어 표시합니다.
    * 이로써 병합 앵커가 스크롤 아웃되어도 병합 영역이 올바르게 표시됩니다.
+   *
+   * **성능 최적화**:
+   * - MergeManager의 사전 계산 (O(n) 한 번) + 캐시 (O(1) 조회)
+   * - 동적 앵커 변환은 간단한 조건문이므로 캐시 없이도 빠름
    */
   private createMergeInfoGetter(visibleStartIndex: number): MergeInfoGetter | undefined {
     if (!this.mergeManager) {
@@ -623,27 +611,14 @@ export class BodyRenderer {
     }
 
     const data = this.gridCore.getAllData();
+    const manager = this.mergeManager;
 
     return (rowIndex: number, columnKey: string): CellMergeInfo => {
-      // 캐시 키 (visible range 포함 - 스크롤 시 캐시 무효화됨)
-      const cacheKey = `${rowIndex}:${columnKey}:${visibleStartIndex}`;
+      // MergeManager에서 원본 병합 정보 조회 (O(1) - 사전 계산됨)
+      const originalInfo = manager.getCellMergeInfo(rowIndex, columnKey, data);
 
-      // 캐시에서 조회
-      const cached = this.mergeInfoCache.get(cacheKey);
-      if (cached) {
-        return cached;
-      }
-
-      // MergeManager에서 원본 병합 정보 조회
-      const originalInfo = this.mergeManager!.getCellMergeInfo(rowIndex, columnKey, data);
-
-      // 동적 앵커 로직 적용
-      const info = this.applyDynamicAnchor(originalInfo, rowIndex, visibleStartIndex);
-
-      // 캐시에 저장
-      this.mergeInfoCache.set(cacheKey, info);
-
-      return info;
+      // 동적 앵커 로직 적용 (간단한 조건문)
+      return this.applyDynamicAnchor(originalInfo, rowIndex, visibleStartIndex);
     };
   }
 
@@ -829,10 +804,8 @@ export class BodyRenderer {
       return;
     }
 
-    // 스크롤 시 병합 캐시 초기화 (새로운 범위의 데이터)
-    this.clearMergeCache();
-
     // 병합 정보 조회 콜백 생성 (동적 앵커를 위해 visibleStartIndex 전달)
+    // MergeManager가 사전 계산된 캐시를 가지므로 추가 캐시 불필요
     const getMergeInfo = this.createMergeInfoGetter(state.startIndex);
 
     // 렌더링 컨텍스트 생성
