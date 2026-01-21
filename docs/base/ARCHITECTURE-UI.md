@@ -30,7 +30,7 @@ flowchart TB
         GC[GridCore]
         DS[DataStore]
         IM[IndexManager]
-        WB[WorkerBridge]
+        AP[ArqueroProcessor]
     end
     
     External --> PS
@@ -46,7 +46,7 @@ flowchart TB
     GR --> CM
     GC --> DS
     GC --> IM
-    GC --> WB
+    GC --> AP
 ```
 
 ### 핵심 설계 원칙
@@ -822,40 +822,88 @@ class EditorManager {
 
 GridCore와 UI Layer를 통합하는 메인 클래스.
 
+> **설정 API 상세**: [Config API 재설계](../decisions/010-config-api-redesign.md)
+
 ```typescript
 // src/ui/PureSheet.ts
 
-interface PureSheetOptions {
-  // 컬럼 정의
-  columns: ColumnDef[];
+// 데이터 타입
+type DataType = 'string' | 'number' | 'boolean' | 'date';
+type AggregateFunc = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'first' | 'last';
+
+// 필드 정의
+interface FieldDef {
+  key: string;                 // 필드 키
+  header: string;              // 헤더에 표시할 이름
+  dataType: DataType;          // 데이터 타입
+  aggregate?: AggregateFunc;   // 집계 함수
+  style?: string;              // CSS 스타일 (예: 'width: 200px;')
+  sortable?: boolean;          // 정렬 가능 여부
+  filterable?: boolean;        // 필터 가능 여부
+  editable?: boolean;          // 편집 가능 여부
+}
+
+interface PureSheetConfig {
+  // === 공통 ===
+  /** 그리드 모드 @default 'flat' */
+  mode?: 'flat' | 'pivot';
   
-  // 초기 데이터
-  data?: Record<string, any>[];
+  /** 데이터 */
+  data?: Row[];
   
-  // 행 설정
-  rowHeight?: number;          // 기본: 32
-  headerHeight?: number;       // 기본: 40
+  /** 필드 정의 */
+  fields: FieldDef[];
   
-  // 고정 행 설정 (신규)
-  pinnedRows?: {
-    top?: Row[];               // 헤더 아래 고정 행
-    bottom?: Row[];            // 하단 고정 행 (Footer)
+  // === UI 옵션 (공통) ===
+  /** 테마 @default 'light' */
+  theme?: 'light' | 'dark' | 'auto';
+  
+  /** 행 스타일 (예: 'height: 36px;') */
+  rowStyle?: string;
+  
+  /** 헤더 스타일 (예: 'height: 48px;') */
+  headerStyle?: string;
+  
+  /** 컬럼 리사이즈 가능 @default true */
+  resizableColumns?: boolean;
+  
+  /** 컬럼 재정렬 가능 @default true */
+  reorderableColumns?: boolean;
+  
+  /** 선택 모드 @default 'row' */
+  selectionMode?: 'none' | 'cell' | 'row' | 'range';
+  
+  /** 다중 선택 @default true */
+  multiSelect?: boolean;
+  
+  /** 편집 가능 @default false */
+  editable?: boolean;
+  
+  // === Flat 모드 전용 ===
+  /** 표시할 컬럼 목록 (fields의 key 참조) */
+  columns?: string[];
+  
+  /** 고정 컬럼 */
+  pinned?: {
+    left?: string[];
+    right?: string[];
   };
   
-  // 선택 설정
-  selectionMode?: 'row' | 'cell' | 'range' | 'none';
-  multiSelect?: boolean;       // 기본: true
-  showCheckboxColumn?: boolean;
+  /** 그룹핑 설정 */
+  group?: {
+    columns: string[];
+    subtotals?: string[];
+  };
   
-  // 편집 설정
-  editable?: boolean;          // 기본: false
+  // === Pivot 모드 전용 ===
+  /** 행 축 필드 */
+  rowFields?: string[];
   
-  // 컬럼 설정
-  resizableColumns?: boolean;  // 기본: true
-  reorderableColumns?: boolean;// 기본: true
+  /** 열 축 필드 (피벗되는 필드) */
+  columnFields?: string[];
   
-  // 테마
-  theme?: 'light' | 'dark' | 'auto';
+  /** 값 필드 */
+  valueFields?: string[];
 }
 
 class PureSheet {
@@ -865,21 +913,43 @@ class PureSheet {
   private editorManager: EditorManager;
   private columnManager: ColumnManager;
   
-  constructor(container: HTMLElement, options: PureSheetOptions) {
+  constructor(container: HTMLElement, config: PureSheetConfig) {
+    // fields → columns 변환 (내부 호환성)
+    const columns = this.fieldsToColumns(config.fields);
+    
     // Core 초기화
-    this.gridCore = new GridCore({
-      columns: options.columns,
-      data: options.data,
-    });
+    this.gridCore = new GridCore({ columns });
     
     // UI 초기화
-    this.gridRenderer = new GridRenderer(container, this.gridCore, options);
+    this.gridRenderer = new GridRenderer(container, this.gridCore, config);
     this.selectionManager = new SelectionManager(this.gridCore);
     this.editorManager = new EditorManager(this.gridCore);
     this.columnManager = new ColumnManager(this.gridCore);
     
     // 이벤트 연결
     this.setupEventListeners();
+    
+    // 초기 데이터 로드
+    if (config.data) {
+      this.loadData(config.data);
+    }
+    
+    // 피벗 모드 설정
+    if (config.mode === 'pivot') {
+      this.setupPivotMode(config);
+    }
+  }
+  
+  private fieldsToColumns(fields: FieldDef[]): ColumnDef[] {
+    return fields.map(f => ({
+      key: f.key,
+      label: f.header,
+      type: f.dataType,
+      sortable: f.sortable,
+      filterable: f.filterable,
+      editable: f.editable,
+      // style 파싱 → width 추출
+    }));
   }
   
   // ===========================================================================
@@ -1331,11 +1401,13 @@ const sheet = new PureSheet(container, {
 
 ## 관련 문서
 
-- [Core Architecture](./ARCHITECTURE.md)
-- [Worker 환경 지원 전략](../decisions/001-worker-environment-support.md)
+- [Core Architecture](./ARCHITECTURE-CORE.md)
 - [가로 가상화 전략](../decisions/002-horizontal-virtualization.md)
 - [가변 행 높이 가상화 전략](../decisions/003-variable-row-height-virtualization.md)
 - [셀 병합 및 행 그룹화 전략](../decisions/004-cell-merge-and-row-grouping.md)
 - [Multi-Row 레이아웃 전략](../decisions/005-multi-row-layout.md)
 - [셀 렌더링 전략](../decisions/006-cell-rendering-strategy.md)
 - [Row 클래스 아키텍처](../decisions/007-row-class-architecture.md)
+- [피벗 그리드 아키텍처](../decisions/008-pivot-grid-architecture.md)
+- [Worker 제거 결정](../decisions/009-remove-worker-architecture.md)
+- [Config API 재설계](../decisions/010-config-api-redesign.md)

@@ -18,20 +18,25 @@ flowchart TB
         end
         
         subgraph ProcessorLayer [Processor Layer]
-            WB[WorkerBridge]
-            DP[DataProcessor - Arquero]
+            DP[ArqueroProcessor]
         end
+        
+        GC[GridCore] --> DS
+        GC --> IM
+        GC --> DP
+        DP --> IM
     end
     
-    subgraph FutureDOM [DOM Layer - 다음에 구현]
-        VR[VirtualRenderer]
-        CR[CellRenderer]
+    subgraph DOMLayer [DOM Layer - 구현됨]
+        VR[VirtualScroller]
+        BR[BodyRenderer]
+        HR[HeaderRenderer]
     end
     
     ReactGrid --> Core
     VueGrid --> Core
     AngularGrid --> Core
-    Core --> FutureDOM
+    Core --> DOMLayer
 ```
 
 ### 핵심 설계 원칙
@@ -43,6 +48,7 @@ flowchart TB
 | **프레임워크 무관** | React/Vue/Angular에서 동일하게 사용 가능 |
 | **이벤트 기반** | 상태 변경을 이벤트로 알림 (반응형 프레임워크 친화적) |
 | **교체 가능** | Arquero를 다른 라이브러리로 교체 가능 |
+| **메인 스레드 처리** | Worker 오버헤드 없이 직접 처리 (상용 그리드 방식) |
 
 ---
 
@@ -52,7 +58,6 @@ flowchart TB
 grid/
 ├── package.json
 ├── tsconfig.json
-├── tsconfig.worker.json          # Worker 전용 설정
 ├── vite.config.ts                # 빌드 설정
 │
 ├── src/
@@ -72,15 +77,20 @@ grid/
 │   │   ├── IndexManager.ts       # 인덱스 배열 관리
 │   │   └── EventEmitter.ts       # 이벤트 시스템
 │   │
-│   ├── processor/                # 데이터 가공 모듈 (분리됨)
+│   ├── processor/                # 데이터 가공 모듈
 │   │   ├── index.ts
-│   │   ├── WorkerBridge.ts       # Worker 통신 브릿지
-│   │   ├── ArqueroProcessor.ts   # Arquero 기반 구현
-│   │   └── worker.ts             # Web Worker 엔트리
+│   │   └── ArqueroProcessor.ts   # Arquero 기반 구현 (메인 스레드)
+│   │
+│   ├── ui/                       # UI 렌더링 모듈
+│   │   ├── PureSheet.ts          # UI 파사드
+│   │   ├── GridRenderer.ts       # 그리드 렌더러
+│   │   ├── VirtualScroller.ts    # 가상 스크롤
+│   │   ├── header/               # 헤더 렌더러
+│   │   ├── body/                 # 바디 렌더러
+│   │   └── row/                  # 행 클래스
 │   │
 │   └── utils/                    # 유틸리티
-│       ├── id.ts                 # ID 생성
-│       └── transfer.ts           # Transferable 변환
+│       └── id.ts                 # ID 생성
 │
 └── tests/
     ├── core/
@@ -153,10 +163,10 @@ export interface ProcessorResult {
 }
 
 export interface AggregateResult {
-  [groupKey: string]: {
-    count: number;
-    [columnKey: string]: CellValue;
-  };
+  groupKey: string;
+  groupValues: Record<string, CellValue>;
+  aggregates: Record<string, CellValue>;
+  count: number;
 }
 
 // 프로세서 인터페이스 (구현체 교체 가능)
@@ -175,10 +185,7 @@ export interface IDataProcessor {
   }): Promise<ProcessorResult>;
   
   // 집계 연산
-  aggregate(options: {
-    groupBy: string[];
-    aggregates: { column: string; func: 'sum' | 'avg' | 'min' | 'max' | 'count' }[];
-  }): Promise<AggregateResult>;
+  aggregate(options: AggregateQueryOptions): Promise<AggregateResult[]>;
 }
 ```
 
@@ -406,154 +413,66 @@ export class IndexManager {
 
 ---
 
-### 3.5 WorkerBridge (`processor/WorkerBridge.ts`)
+### 3.5 ArqueroProcessor (`processor/ArqueroProcessor.ts`)
 
-Worker와의 통신을 추상화합니다.
-
-```typescript
-type MessageHandler = (data: any) => void;
-
-export class WorkerBridge {
-  private worker: Worker | null = null;
-  private messageId = 0;
-  private pendingRequests = new Map<number, {
-    resolve: (value: any) => void;
-    reject: (error: Error) => void;
-  }>();
-  
-  constructor(private events: EventEmitter) {}
-  
-  // Worker 초기화
-  async initialize(): Promise<void> {
-    // Vite/Webpack Worker 번들링 방식
-    this.worker = new Worker(
-      new URL('./worker.ts', import.meta.url),
-      { type: 'module' }
-    );
-    
-    this.worker.onmessage = this.handleMessage.bind(this);
-    this.worker.onerror = this.handleError.bind(this);
-  }
-  
-  // 요청 전송 (Promise 기반)
-  async send<T>(type: string, payload: any, transfer?: Transferable[]): Promise<T> {
-    if (!this.worker) {
-      throw new Error('Worker not initialized');
-    }
-    
-    const id = ++this.messageId;
-    
-    return new Promise((resolve, reject) => {
-      this.pendingRequests.set(id, { resolve, reject });
-      
-      this.events.emit('processing:start', { type });
-      
-      this.worker!.postMessage(
-        { id, type, payload },
-        transfer || []
-      );
-    });
-  }
-  
-  // 응답 처리
-  private handleMessage(event: MessageEvent): void {
-    const { id, type, payload, error } = event.data;
-    
-    const pending = this.pendingRequests.get(id);
-    if (pending) {
-      this.pendingRequests.delete(id);
-      this.events.emit('processing:end', { type });
-      
-      if (error) {
-        pending.reject(new Error(error));
-      } else {
-        pending.resolve(payload);
-      }
-    }
-  }
-  
-  private handleError(error: ErrorEvent): void {
-    this.events.emit('error', { message: error.message });
-  }
-  
-  // 정리
-  destroy(): void {
-    this.worker?.terminate();
-    this.worker = null;
-    this.pendingRequests.clear();
-  }
-}
-```
-
----
-
-### 3.6 ArqueroProcessor (`processor/ArqueroProcessor.ts`)
-
-Arquero를 사용한 IDataProcessor 구현체입니다.
+Arquero를 사용한 IDataProcessor 구현체입니다. **메인 스레드에서 직접 실행됩니다.**
 
 ```typescript
 import * as aq from 'arquero';
 import type { IDataProcessor, ProcessorResult, AggregateResult } from '../types';
 
-// 이 클래스는 Worker 내부에서 실행됨
 export class ArqueroProcessor implements IDataProcessor {
   private table: aq.Table | null = null;
-  private originalIndices: Uint32Array | null = null;
+  private rowCount: number = 0;
   
   async initialize(data: Row[]): Promise<void> {
+    this.rowCount = data.length;
+    
     // Arquero Table로 변환
     this.table = aq.from(data);
     
-    // 원본 인덱스 저장
-    this.originalIndices = new Uint32Array(data.length);
-    for (let i = 0; i < data.length; i++) {
-      this.originalIndices[i] = i;
-    }
-    
-    // 인덱스 컬럼 추가 (나중에 추적용)
-    this.table = this.table.derive({ __originalIndex__: (d, $) => $.index });
+    // 원본 인덱스 컬럼 추가
+    this.table = this.table.derive({
+      __rowIndex__: () => aq.op.row_number() - 1,
+    });
   }
   
   destroy(): void {
     this.table = null;
-    this.originalIndices = null;
+    this.rowCount = 0;
   }
   
   async sort(sorts: SortState[]): Promise<ProcessorResult> {
     if (!this.table) throw new Error('Not initialized');
     
-    let result = this.table;
-    
-    // 다중 정렬 지원
-    for (const sort of sorts.reverse()) {  // 역순으로 적용
-      result = result.orderby(
-        sort.direction === 'desc' 
-          ? aq.desc(sort.columnKey) 
-          : sort.columnKey
-      );
+    if (sorts.length === 0) {
+      return this.extractIndices(this.table);
     }
     
-    return this.extractResult(result);
+    const orderArgs = sorts.map((sort) =>
+      sort.direction === 'desc' ? aq.desc(sort.columnKey) : sort.columnKey
+    );
+    
+    const sorted = this.table.orderby(...orderArgs);
+    return this.extractIndices(sorted);
   }
   
   async filter(filters: FilterState[]): Promise<ProcessorResult> {
     if (!this.table) throw new Error('Not initialized');
     
-    let result = this.table;
-    
-    for (const filter of filters) {
-      result = result.filter(
-        this.buildFilterExpression(filter)
-      );
+    if (filters.length === 0) {
+      return this.extractIndices(this.table);
     }
     
-    return this.extractResult(result);
+    let result = this.table;
+    for (const filter of filters) {
+      result = this.applyFilter(result, filter);
+    }
+    
+    return this.extractIndices(result);
   }
   
-  async query(options: { 
-    sorts?: SortState[]; 
-    filters?: FilterState[]; 
-  }): Promise<ProcessorResult> {
+  async query(options: QueryOptions): Promise<ProcessorResult> {
     if (!this.table) throw new Error('Not initialized');
     
     let result = this.table;
@@ -561,74 +480,62 @@ export class ArqueroProcessor implements IDataProcessor {
     // 필터 먼저 적용
     if (options.filters?.length) {
       for (const filter of options.filters) {
-        result = result.filter(this.buildFilterExpression(filter));
+        result = this.applyFilter(result, filter);
       }
     }
     
     // 정렬 적용
     if (options.sorts?.length) {
-      const orderCols = options.sorts.map(s => 
+      const orderArgs = options.sorts.map(s => 
         s.direction === 'desc' ? aq.desc(s.columnKey) : s.columnKey
       );
-      result = result.orderby(...orderCols);
+      result = result.orderby(...orderArgs);
     }
     
-    return this.extractResult(result);
+    return this.extractIndices(result);
   }
   
-  async aggregate(options: {
-    groupBy: string[];
-    aggregates: { column: string; func: string }[];
-  }): Promise<AggregateResult> {
+  async aggregate(options: AggregateQueryOptions): Promise<AggregateResult[]> {
     if (!this.table) throw new Error('Not initialized');
     
-    const rollupSpec: Record<string, any> = {};
+    let table = this.table;
     
-    for (const agg of options.aggregates) {
-      const key = `${agg.func}_${agg.column}`;
-      rollupSpec[key] = this.getAggregateOp(agg.func, agg.column);
+    // 필터 적용
+    if (options.filters?.length) {
+      for (const filter of options.filters) {
+        table = this.applyFilter(table, filter);
+      }
     }
     
-    const result = this.table
-      .groupby(...options.groupBy)
-      .rollup(rollupSpec);
+    // 집계 수행
+    const rollupSpec: Record<string, unknown> = {
+      count: aq.op.count(),
+    };
     
-    return result.objects() as AggregateResult;
+    for (const agg of options.aggregates) {
+      const alias = agg.alias || `${agg.function}_${agg.columnKey}`;
+      rollupSpec[alias] = this.getAggregateOp(agg.function, agg.columnKey);
+    }
+    
+    const grouped = table.groupby(...options.groupBy).rollup(rollupSpec);
+    return this.transformAggregateResult(grouped, options);
   }
   
-  // 결과에서 원본 인덱스 추출
-  private extractResult(table: aq.Table): ProcessorResult {
-    const indices = new Uint32Array(
-      table.array('__originalIndex__') as number[]
-    );
-    
+  private extractIndices(table: aq.Table): ProcessorResult {
+    const indices = table.array('__rowIndex__') as number[];
     return {
-      indices,
-      totalCount: this.originalIndices!.length,
+      indices: new Uint32Array(indices),
+      totalCount: this.rowCount,
       filteredCount: indices.length,
     };
   }
   
-  private buildFilterExpression(filter: FilterState): any {
-    // Arquero escape 함수를 사용한 필터 표현식 생성
-    const col = filter.columnKey;
-    const val = filter.value;
-    
-    switch (filter.operator) {
-      case 'eq': return (d: any) => d[col] === val;
-      case 'neq': return (d: any) => d[col] !== val;
-      case 'gt': return (d: any) => d[col] > val;
-      case 'gte': return (d: any) => d[col] >= val;
-      case 'lt': return (d: any) => d[col] < val;
-      case 'lte': return (d: any) => d[col] <= val;
-      case 'contains': return (d: any) => String(d[col]).includes(String(val));
-      case 'startsWith': return (d: any) => String(d[col]).startsWith(String(val));
-      case 'endsWith': return (d: any) => String(d[col]).endsWith(String(val));
-      default: return () => true;
-    }
+  private applyFilter(table: aq.Table, filter: FilterState): aq.Table {
+    // 필터 로직 구현
+    // ...
   }
   
-  private getAggregateOp(func: string, column: string): any {
+  private getAggregateOp(func: string, column: string): unknown {
     switch (func) {
       case 'sum': return aq.op.sum(column);
       case 'avg': return aq.op.mean(column);
@@ -643,89 +550,24 @@ export class ArqueroProcessor implements IDataProcessor {
 
 ---
 
-### 3.7 Worker 엔트리 (`processor/worker.ts`)
+### 3.6 GridCore (`core/GridCore.ts`) - 파사드
 
-```typescript
-import { ArqueroProcessor } from './ArqueroProcessor';
-
-const processor = new ArqueroProcessor();
-
-self.onmessage = async (event: MessageEvent) => {
-  const { id, type, payload } = event.data;
-  
-  try {
-    let result: any;
-    
-    switch (type) {
-      case 'INITIALIZE':
-        await processor.initialize(payload.data);
-        result = { success: true };
-        break;
-        
-      case 'SORT':
-        result = await processor.sort(payload.sorts);
-        // Transferable로 전송
-        self.postMessage(
-          { id, type: 'RESULT', payload: { ...result, indices: result.indices.buffer } },
-          [result.indices.buffer]
-        );
-        return;
-        
-      case 'FILTER':
-        result = await processor.filter(payload.filters);
-        self.postMessage(
-          { id, type: 'RESULT', payload: { ...result, indices: result.indices.buffer } },
-          [result.indices.buffer]
-        );
-        return;
-        
-      case 'QUERY':
-        result = await processor.query(payload);
-        self.postMessage(
-          { id, type: 'RESULT', payload: { ...result, indices: result.indices.buffer } },
-          [result.indices.buffer]
-        );
-        return;
-        
-      case 'AGGREGATE':
-        result = await processor.aggregate(payload);
-        break;
-        
-      default:
-        throw new Error(`Unknown message type: ${type}`);
-    }
-    
-    self.postMessage({ id, type: 'RESULT', payload: result });
-    
-  } catch (error) {
-    self.postMessage({ 
-      id, 
-      type: 'ERROR', 
-      error: error instanceof Error ? error.message : 'Unknown error' 
-    });
-  }
-};
-```
-
----
-
-### 3.8 GridCore (`core/GridCore.ts`) - 파사드
-
-모든 모듈을 통합하는 메인 클래스입니다.
+모든 모듈을 통합하는 메인 클래스입니다. **ArqueroProcessor를 직접 사용합니다.**
 
 ```typescript
 export interface GridCoreOptions {
   columns: ColumnDef[];
   data?: Row[];
+  idKey?: string;
 }
 
 export class GridCore {
   private events: EventEmitter;
   private dataStore: DataStore;
   private indexManager: IndexManager;
-  private workerBridge: WorkerBridge;
+  private processor: ArqueroProcessor;
   
-  private currentViewState: ViewState = {
+  private viewState: ViewState = {
     sorts: [],
     filters: [],
     groups: null,
@@ -736,66 +578,67 @@ export class GridCore {
     this.events = new EventEmitter();
     this.dataStore = new DataStore(this.events);
     this.indexManager = new IndexManager(this.events);
-    this.workerBridge = new WorkerBridge(this.events);
+    this.processor = new ArqueroProcessor();
+    
+    // 컬럼 설정
+    this.dataStore.setColumns(options.columns);
   }
   
-  // 초기화
+  // 초기화 (Worker 없으므로 단순화)
   async initialize(): Promise<void> {
-    await this.workerBridge.initialize();
+    // 초기 데이터가 있으면 로드
+    if (this.options.data?.length) {
+      await this.loadData(this.options.data);
+    }
   }
   
   // 데이터 로드
   async loadData(data: Row[], columns?: ColumnDef[]): Promise<void> {
     if (columns) {
-      this.dataStore.setData(data, columns);
-    } else {
-      this.dataStore.setData(data, this.dataStore.getColumns() as ColumnDef[]);
+      this.dataStore.setColumns(columns);
     }
     
+    this.dataStore.setData(data, this.dataStore.getColumns());
     this.indexManager.initialize(data.length);
     
-    // Worker에 데이터 전송
-    await this.workerBridge.send('INITIALIZE', { data });
+    // Processor에 데이터 전달 (메인 스레드에서 직접)
+    await this.processor.initialize(data);
+    
+    // 뷰 상태 리셋
+    this.viewState = { sorts: [], filters: [], groups: null };
   }
   
   // 정렬
   async sort(sorts: SortState[]): Promise<void> {
-    this.currentViewState.sorts = sorts;
-    this.events.emit('view:changed', this.currentViewState);
+    this.viewState.sorts = sorts;
+    this.events.emit('view:changed', { viewState: this.viewState });
     
-    const result = await this.workerBridge.send<ProcessorResult>('QUERY', {
+    // 메인 스레드에서 직접 처리
+    const result = await this.processor.query({
       sorts,
-      filters: this.currentViewState.filters,
+      filters: this.viewState.filters,
     });
     
-    this.indexManager.applyProcessorResult({
-      ...result,
-      indices: new Uint32Array(result.indices),
-    });
+    this.indexManager.applyProcessorResult(result);
   }
   
   // 필터
   async filter(filters: FilterState[]): Promise<void> {
-    this.currentViewState.filters = filters;
-    this.events.emit('view:changed', this.currentViewState);
+    this.viewState.filters = filters;
+    this.events.emit('view:changed', { viewState: this.viewState });
     
-    const result = await this.workerBridge.send<ProcessorResult>('QUERY', {
-      sorts: this.currentViewState.sorts,
+    // 메인 스레드에서 직접 처리
+    const result = await this.processor.query({
+      sorts: this.viewState.sorts,
       filters,
     });
     
-    this.indexManager.applyProcessorResult({
-      ...result,
-      indices: new Uint32Array(result.indices),
-    });
+    this.indexManager.applyProcessorResult(result);
   }
   
   // 집계
-  async aggregate(options: {
-    groupBy: string[];
-    aggregates: { column: string; func: string }[];
-  }): Promise<AggregateResult> {
-    return this.workerBridge.send<AggregateResult>('AGGREGATE', options);
+  async aggregate(options: AggregateQueryOptions): Promise<AggregateResult[]> {
+    return this.processor.aggregate(options);
   }
   
   // 가상화용 데이터 접근
@@ -804,14 +647,14 @@ export class GridCore {
     return this.dataStore.getRowsByIndices(indices);
   }
   
-  // 이벤트 구독 (React/Vue에서 사용)
+  // 이벤트 구독
   on<T>(type: GridEventType, handler: GridEventHandler<T>): () => void {
     return this.events.on(type, handler);
   }
   
   // 상태 접근
   getViewState(): Readonly<ViewState> {
-    return this.currentViewState;
+    return this.viewState;
   }
   
   getVisibleRowCount(): number {
@@ -824,24 +667,92 @@ export class GridCore {
   
   // 정리
   destroy(): void {
-    this.workerBridge.destroy();
-    this.events.removeAllListeners();
+    this.processor.destroy();
+    this.indexManager.destroy();
+    this.events.destroy();
   }
 }
 ```
 
 ---
 
-## 4. 프레임워크 래퍼 사용 예시 (참고용)
+## 4. 성능 전략
+
+### 4.1 데이터 규모별 처리 방식
+
+| 규모 | 처리 방식 | 예상 시간 |
+|------|----------|----------|
+| 1만 건 이하 | 메인 스레드 | ~10ms |
+| 1-10만 건 | 메인 스레드 + 인덱싱 | ~50-100ms |
+| 10-50만 건 | 메인 스레드 + 최적화 | ~100-300ms |
+| 50만+ 건 | **서버 사이드 권장** | - |
+
+### 4.2 최적화 기법
+
+#### 인덱싱
+
+```typescript
+// 정렬된 인덱스 캐싱으로 반복 정렬 최적화
+class ArqueroProcessor {
+  private sortCache = new Map<string, Uint32Array>();
+  
+  async sort(sorts: SortState[]) {
+    const cacheKey = JSON.stringify(sorts);
+    if (this.sortCache.has(cacheKey)) {
+      return this.sortCache.get(cacheKey);
+    }
+    // 계산 후 캐싱
+  }
+}
+```
+
+#### 디바운싱
+
+```typescript
+// 빠른 필터 입력 시 마지막 값만 처리
+const debouncedFilter = debounce((value) => {
+  grid.filter([{ columnKey: 'name', operator: 'contains', value }]);
+}, 150);
+```
+
+#### 가상화
+
+```typescript
+// 10만 건 있어도 화면에 보이는 50줄만 렌더링
+const visibleRows = grid.getRowsInRange(startRow, endRow);
+```
+
+---
+
+## 5. Worker를 제거한 이유
+
+### 상용 그리드 분석 결과
+
+| 라이브러리 | Worker | 서버 사이드 |
+|-----------|--------|------------|
+| AG Grid | ❌ | ✅ |
+| Handsontable | ❌ | ✅ |
+| DevExtreme | ❌ | ✅ |
+| Kendo UI | ❌ | ✅ |
+
+### 핵심 이유
+
+1. **데이터 전송 비용 > 연산 비용**: postMessage 직렬화가 UI 블로킹 유발
+2. **가상화로 충분**: 10만 건도 화면에 보이는 50줄만 렌더링
+3. **대용량은 서버가 답**: 50만+ 건은 DB 인덱스 활용이 효율적
+
+자세한 내용은 [009-remove-worker-architecture.md](../decisions/009-remove-worker-architecture.md) 참조.
+
+---
+
+## 6. 프레임워크 래퍼 사용 예시 (참고용)
 
 ### React에서 사용
 
 ```tsx
-// 나중에 @grid/react 패키지로 제공
 function useGrid(options: GridCoreOptions) {
   const gridRef = useRef<GridCore | null>(null);
   const [visibleRows, setVisibleRows] = useState<Row[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
   
   useEffect(() => {
     const grid = new GridCore(options);
@@ -852,33 +763,26 @@ function useGrid(options: GridCoreOptions) {
     });
     
     // 이벤트 구독
-    const unsubIndices = grid.on('indices:updated', () => {
+    const unsub = grid.on('indices:updated', () => {
       setVisibleRows(grid.getRowsInRange(0, 50));
     });
     
-    const unsubProcessing = grid.on('processing:start', () => {
-      setIsProcessing(true);
-    });
-    
     return () => {
-      unsubIndices();
-      unsubProcessing();
+      unsub();
       grid.destroy();
     };
   }, []);
   
-  return { grid: gridRef.current, visibleRows, isProcessing };
+  return { grid: gridRef.current, visibleRows };
 }
 ```
 
 ### Vue에서 사용
 
 ```typescript
-// 나중에 @grid/vue 패키지로 제공
 export function useGrid(options: GridCoreOptions) {
   const grid = shallowRef<GridCore | null>(null);
   const visibleRows = ref<Row[]>([]);
-  const isProcessing = ref(false);
   
   onMounted(async () => {
     grid.value = new GridCore(options);
@@ -893,61 +797,22 @@ export function useGrid(options: GridCoreOptions) {
     grid.value?.destroy();
   });
   
-  return { grid, visibleRows, isProcessing };
+  return { grid, visibleRows };
 }
 ```
 
 ---
 
-## 5. 빌드 설정
+## 7. 구현 순서
 
-### package.json 주요 설정
-
-```json
-{
-  "name": "@puresheet/core",
-  "version": "0.1.0",
-  "type": "module",
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs",
-      "types": "./dist/index.d.ts"
-    }
-  },
-  "files": ["dist"],
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build && tsc --emitDeclarationOnly",
-    "test": "vitest"
-  },
-  "dependencies": {
-    "arquero": "^5.x"
-  },
-  "devDependencies": {
-    "typescript": "^5.x",
-    "vite": "^5.x",
-    "vitest": "^1.x"
-  }
-}
-```
-
----
-
-## 6. 구현 순서
-
-| 단계 | 모듈 | 설명 |
+| 단계 | 모듈 | 상태 |
 |------|------|------|
-| 1 | 프로젝트 설정 | package.json, tsconfig.json, vite.config.ts |
-| 2 | types/ | 모든 타입 정의 |
-| 3 | EventEmitter | 이벤트 시스템 |
-| 4 | DataStore | 원본 데이터 관리 |
-| 5 | IndexManager | 인덱스 배열 관리 |
-| 6 | ArqueroProcessor | Arquero 기반 데이터 가공 |
-| 7 | worker.ts | Worker 엔트리포인트 |
-| 8 | WorkerBridge | Worker 통신 |
-| 9 | GridCore | 파사드 클래스 |
-| 10 | 테스트 | 각 모듈 단위 테스트 |
+| 1 | 프로젝트 설정 | ✅ 완료 |
+| 2 | types/ | ✅ 완료 |
+| 3 | EventEmitter | ✅ 완료 |
+| 4 | DataStore | ✅ 완료 |
+| 5 | IndexManager | ✅ 완료 |
+| 6 | ArqueroProcessor | ✅ 완료 |
+| 7 | GridCore | ✅ 완료 |
+| 8 | UI Layer | ✅ 완료 |
+| 9 | Worker 제거 | 🔜 진행 중 |
