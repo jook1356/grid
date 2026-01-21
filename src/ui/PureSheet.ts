@@ -783,17 +783,36 @@ export class PureSheet {
     // DataStore에서 원본 데이터 조회
     const sourceData = this.gridCore.getDataStore().getSourceData() as RowData[];
 
-    // GridCore의 IndexManager에서 보이는 인덱스 조회
-    // (필터/정렬이 이미 적용된 상태)
-    const visibleIndices = this.gridCore.getIndexManager().getVisibleIndices();
+    // 현재 viewState의 필터/정렬 상태 확인
+    const viewState = this.gridCore.getViewState();
+    const hasFilterOrSort = viewState.filters.length > 0 || viewState.sorts.length > 0;
 
-    // 보이는 인덱스의 데이터만 추출 (필터/정렬 결과 반영)
-    const filteredData = Array.from(visibleIndices).map(i => sourceData[i]);
+    let filteredData: RowData[];
+
+    if (hasFilterOrSort) {
+      // 필터/정렬이 있으면 프로세서를 통해 올바른 인덱스를 다시 계산
+      // (이전 applyPivot()에서 IndexManager가 피벗 결과 길이로 변경되었을 수 있음)
+      const processor = this.gridCore.getProcessor();
+      const result = await processor.query({
+        filters: viewState.filters,
+        sorts: viewState.sorts,
+      });
+      
+      // 결과 인덱스로 데이터 추출
+      filteredData = Array.from(result.indices).map(i => sourceData[i]).filter((row): row is RowData => row !== undefined);
+    } else {
+      // 필터/정렬이 없으면 전체 원본 데이터 사용
+      filteredData = [...sourceData];
+    }
 
     // 필터링된 데이터로 피벗 연산 수행
-    // (filters/sorts는 전달하지 않음 - 이미 GridCore에서 처리됨)
+    // sorts를 PivotConfig에 전달하여 피벗 결과의 행 순서에 반영
     await this.pivotProcessor.initialize(filteredData);
-    this.pivotResult = await this.pivotProcessor.pivot(this.pivotConfig);
+    const pivotConfigWithSorts = {
+      ...this.pivotConfig,
+      sorts: viewState.sorts,
+    };
+    this.pivotResult = await this.pivotProcessor.pivot(pivotConfigWithSorts);
 
     // 피벗 헤더로 교체 (HeaderRenderer → PivotHeaderRenderer)
     this.gridRenderer.switchToPivotHeader(this.pivotResult);

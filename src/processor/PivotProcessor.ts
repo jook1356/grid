@@ -78,8 +78,8 @@ export class PivotProcessor extends ArqueroProcessor {
     // 피벗 연산 (필터/정렬된 테이블 사용)
     // ==========================================================================
 
-    // 3단계: 유니크 값 추출 (columnFields별)
-    const uniqueValues = this.extractUniqueValues(table, config.columnFields);
+    // 3단계: 유니크 값 추출 (columnFields별, 정렬 방향 반영)
+    const uniqueValues = this.extractUniqueValues(table, config.columnFields, config.sorts);
 
     // 4단계: 집계 연산
     const aggregatedData = this.aggregateData(table, config);
@@ -144,11 +144,16 @@ export class PivotProcessor extends ArqueroProcessor {
   // ============================================================================
 
   /**
-   * columnFields별 유니크 값 추출 (정렬됨)
+   * columnFields별 유니크 값 추출 (정렬 방향 반영)
+   * 
+   * @param table - 대상 테이블
+   * @param columnFields - 컬럼 필드 배열
+   * @param sorts - 정렬 조건 배열 (컬럼 헤더 순서 결정에 사용)
    */
   private extractUniqueValues(
     table: Table,
-    columnFields: string[]
+    columnFields: string[],
+    sorts?: SortState[]
   ): Record<string, CellValue[]> {
     const result: Record<string, CellValue[]> = {};
 
@@ -157,12 +162,23 @@ export class PivotProcessor extends ArqueroProcessor {
       const uniqueTable = table.select(field).dedupe();
       const values = uniqueTable.array(field) as CellValue[];
 
-      // 정렬 (문자열/숫자 모두 지원)
+      // 해당 필드에 대한 정렬 조건 찾기
+      const sortConfig = sorts?.find(s => s.columnKey === field);
+      const direction = sortConfig?.direction ?? 'asc';
+
+      // 정렬 (문자열/숫자 모두 지원, 정렬 방향 반영)
       values.sort((a, b) => {
-        if (a === null || a === undefined) return 1;
-        if (b === null || b === undefined) return -1;
-        if (typeof a === 'number' && typeof b === 'number') return a - b;
-        return String(a).localeCompare(String(b));
+        if (a === null || a === undefined) return direction === 'asc' ? 1 : -1;
+        if (b === null || b === undefined) return direction === 'asc' ? -1 : 1;
+        
+        let comparison = 0;
+        if (typeof a === 'number' && typeof b === 'number') {
+          comparison = a - b;
+        } else {
+          comparison = String(a).localeCompare(String(b));
+        }
+        
+        return direction === 'desc' ? -comparison : comparison;
       });
 
       result[field] = values;
@@ -424,21 +440,56 @@ export class PivotProcessor extends ArqueroProcessor {
       result.push(pivotRow);
     }
 
-    // rowFields 기준으로 정렬
-    result.sort((a, b) => {
-      for (const field of rowFields) {
-        const aVal = a.rowHeaders[field];
-        const bVal = b.rowHeaders[field];
-        if (aVal === bVal) continue;
-        if (aVal === null || aVal === undefined) return 1;
-        if (bVal === null || bVal === undefined) return -1;
-        if (typeof aVal === 'number' && typeof bVal === 'number') {
-          return aVal - bVal;
+    // 정렬 적용
+    // config.sorts가 있으면 해당 조건으로, 없으면 rowFields 기준 기본 정렬
+    if (config.sorts && config.sorts.length > 0) {
+      result.sort((a, b) => {
+        for (const sort of config.sorts!) {
+          const { columnKey, direction } = sort;
+          
+          // rowHeaders에서 값 찾기
+          let aVal = a.rowHeaders[columnKey];
+          let bVal = b.rowHeaders[columnKey];
+          
+          // rowHeaders에 없으면 values에서 찾기 (집계 값 기준 정렬)
+          if (aVal === undefined) {
+            // values에서 해당 컬럼키가 포함된 값들의 합계로 비교
+            aVal = this.sumValuesForColumn(a.values, columnKey, config.valueFields);
+            bVal = this.sumValuesForColumn(b.values, columnKey, config.valueFields);
+          }
+          
+          if (aVal === bVal) continue;
+          if (aVal === null || aVal === undefined) return direction === 'asc' ? 1 : -1;
+          if (bVal === null || bVal === undefined) return direction === 'asc' ? -1 : 1;
+          
+          let comparison = 0;
+          if (typeof aVal === 'number' && typeof bVal === 'number') {
+            comparison = aVal - bVal;
+          } else {
+            comparison = String(aVal).localeCompare(String(bVal));
+          }
+          
+          return direction === 'desc' ? -comparison : comparison;
         }
-        return String(aVal).localeCompare(String(bVal));
-      }
-      return 0;
-    });
+        return 0;
+      });
+    } else {
+      // 기본 정렬: rowFields 기준 오름차순
+      result.sort((a, b) => {
+        for (const field of rowFields) {
+          const aVal = a.rowHeaders[field];
+          const bVal = b.rowHeaders[field];
+          if (aVal === bVal) continue;
+          if (aVal === null || aVal === undefined) return 1;
+          if (bVal === null || bVal === undefined) return -1;
+          if (typeof aVal === 'number' && typeof bVal === 'number') {
+            return aVal - bVal;
+          }
+          return String(aVal).localeCompare(String(bVal));
+        }
+        return 0;
+      });
+    }
 
     return result;
   }
@@ -495,6 +546,41 @@ export class PivotProcessor extends ArqueroProcessor {
     }
 
     return result;
+  }
+
+  // ============================================================================
+  // 정렬 헬퍼
+  // ============================================================================
+
+  /**
+   * 피벗 결과에서 특정 값 필드의 합계 계산 (정렬용)
+   * 
+   * 예: sales로 정렬 시, 모든 월의 sales 합계를 계산하여 비교
+   */
+  private sumValuesForColumn(
+    values: Record<string, CellValue>,
+    columnKey: string,
+    valueFields: PivotValueField[]
+  ): number {
+    let sum = 0;
+    
+    // 해당 valueField가 존재하는지 확인
+    const valueField = valueFields.find(vf => vf.field === columnKey);
+    if (!valueField) {
+      return 0;
+    }
+    
+    // values 객체에서 해당 valueField를 포함하는 모든 키의 값을 합산
+    // 예: '1월_sales', '2월_sales', ... 모두 합산
+    for (const [key, value] of Object.entries(values)) {
+      if (key.endsWith('_' + columnKey) || key === columnKey) {
+        if (typeof value === 'number') {
+          sum += value;
+        }
+      }
+    }
+    
+    return sum;
   }
 
   // ============================================================================

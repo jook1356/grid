@@ -588,6 +588,15 @@ export class GridCore {
   }
 
   /**
+   * 프로세서 인스턴스 가져오기
+   * 
+   * 피벗 모드에서 필터/정렬된 인덱스를 직접 계산할 때 사용합니다.
+   */
+  getProcessor(): ArqueroProcessor {
+    return this.processor;
+  }
+
+  /**
    * 전체 행 수
    */
   getTotalRowCount(): number {
