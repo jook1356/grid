@@ -435,10 +435,10 @@ export class Row {
     const centerContainer = this.getOrCreateCellContainer(container, 'ps-cells-center');
     const rightContainer = this.getOrCreateCellContainer(container, 'ps-cells-right');
 
-    // 각 영역별 셀 렌더링 (center만 indent 적용)
-    this.renderCells(leftContainer, columnGroups.left, columnDefs, false);
-    this.renderCells(centerContainer, columnGroups.center, columnDefs, true);
-    this.renderCells(rightContainer, columnGroups.right, columnDefs, false);
+    // 각 영역별 셀 렌더링
+    this.renderCells(leftContainer, columnGroups.left, columnDefs);
+    this.renderCells(centerContainer, columnGroups.center, columnDefs);
+    this.renderCells(rightContainer, columnGroups.right, columnDefs);
   }
 
   /**
@@ -460,8 +460,7 @@ export class Row {
   private renderCells(
     container: HTMLElement,
     columns: ColumnState[],
-    columnDefs: Map<string, ColumnDef>,
-    isCenter: boolean = false
+    columnDefs: Map<string, ColumnDef>
   ): void {
     // 그룹 헤더 콘텐츠가 남아있으면 제거 (ps-group-toggle 등)
     const hasNonCellContent = container.firstChild && 
@@ -470,15 +469,9 @@ export class Row {
       container.innerHTML = '';
     }
 
-    // 스타일 초기화
+    // 스타일 초기화 (그룹 헤더에서 재사용 시 남아있는 인라인 스타일 제거)
     container.style.display = '';
-    
-    // 중앙 컨테이너에 그룹 들여쓰기 적용 (CSS 변수 사용)
-    if (isCenter) {
-      container.style.paddingLeft = 'var(--ps-group-indent, 0px)';
-    } else {
-      container.style.paddingLeft = '';
-    }
+    container.style.paddingLeft = '';
 
     // 필요한 셀 수 맞추기
     while (container.children.length > columns.length) {
