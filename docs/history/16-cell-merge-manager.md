@@ -218,6 +218,46 @@ row 6-9: hidden
 - `applyDynamicAnchor()`: 실제 앵커가 viewport 밖이면 보이는 첫 번째 행을 가상 앵커로 변환
 - 가상 앵커의 `rowSpan`은 남은 병합 범위만큼 재계산
 
+## 피벗 그리드 자동 병합
+
+피벗 모드에서 row 헤더에 계층적 병합이 자동으로 적용됩니다.
+
+### 적용 시점
+
+`PureSheet.applyPivot()` 메서드에서 피벗 결과가 생성된 후:
+
+```typescript
+// rowHeaderColumns 키 추출 (예: ['product', 'region'])
+const rowHeaderKeys = this.pivotResult.rowHeaderColumns.map(col => col.key);
+
+// HierarchicalMergeManager 자동 설정
+if (rowHeaderKeys.length > 0) {
+  const mergeManager = new HierarchicalMergeManager(rowHeaderKeys);
+  this.setMergeManager(mergeManager);
+}
+```
+
+### 예시
+
+```
+[rowFields: ['product', 'region']]
+
+Before (병합 없음):          After (계층적 병합):
++----------+--------+       +----------+--------+
+| 노트북   | 서울   |       | 노트북   | 서울   | ← product 앵커
++----------+--------+       |          +--------+
+| 노트북   | 부산   |  →    |          | 부산   |
++----------+--------+       +----------+--------+
+| 스마트폰 | 서울   |       | 스마트폰 | 서울   | ← product 앵커
++----------+--------+       |          +--------+
+| 스마트폰 | 부산   |       |          | 부산   |
++----------+--------+       +----------+--------+
+```
+
+### 피벗 해제 시
+
+`restoreFromPivot()` 메서드에서 MergeManager를 자동으로 해제합니다.
+
 ## 다음 단계 예고
 
 - 컬럼 방향 병합 지원 (colSpan)

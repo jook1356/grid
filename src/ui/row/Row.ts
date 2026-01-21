@@ -436,10 +436,15 @@ export class Row {
     const centerContainer = this.getOrCreateCellContainer(container, 'ps-cells-center');
     const rightContainer = this.getOrCreateCellContainer(container, 'ps-cells-right');
 
-    // 각 영역별 셀 렌더링 (merge 정보 포함)
-    this.renderCells(leftContainer, columnGroups.left, columnDefs, rowIndex, rowHeight, getMergeInfo);
-    this.renderCells(centerContainer, columnGroups.center, columnDefs, rowIndex, rowHeight, getMergeInfo);
-    this.renderCells(rightContainer, columnGroups.right, columnDefs, rowIndex, rowHeight, getMergeInfo);
+    // 각 영역별 셀 렌더링 (merge 정보 포함) - 병합 앵커 여부 반환
+    const hasLeftAnchor = this.renderCells(leftContainer, columnGroups.left, columnDefs, rowIndex, rowHeight, getMergeInfo);
+    const hasCenterAnchor = this.renderCells(centerContainer, columnGroups.center, columnDefs, rowIndex, rowHeight, getMergeInfo);
+    const hasRightAnchor = this.renderCells(rightContainer, columnGroups.right, columnDefs, rowIndex, rowHeight, getMergeInfo);
+
+    // 병합 앵커가 있는 row에 클래스 추가 (z-index 처리용)
+    // DOM 쿼리 없이 렌더링 결과로 판단
+    const hasMergeAnchor = hasLeftAnchor || hasCenterAnchor || hasRightAnchor;
+    container.classList.toggle('ps-row-has-merge-anchor', hasMergeAnchor);
   }
 
   /**
@@ -461,6 +466,8 @@ export class Row {
    * merge 정보가 있는 경우:
    * - isAnchor가 true인 셀: 표시하고 높이 확장 (rowSpan * rowHeight)
    * - isAnchor가 false인 셀: visibility: hidden으로 숨김
+   *
+   * @returns 이 컨테이너에 병합 앵커 셀이 있는지 여부
    */
   private renderCells(
     container: HTMLElement,
@@ -469,7 +476,10 @@ export class Row {
     rowIndex?: number,
     rowHeight?: number,
     getMergeInfo?: MergeInfoGetter
-  ): void {
+  ): boolean {
+    // 병합 앵커 셀 존재 여부 추적
+    let hasMergeAnchor = false;
+
     // 그룹 헤더 콘텐츠가 남아있으면 제거 (ps-group-toggle 등)
     const hasNonCellContent = container.firstChild && 
       !(container.firstChild as HTMLElement).classList?.contains('ps-cell');
@@ -532,6 +542,7 @@ export class Row {
           cell.classList.add('ps-cell-merged-anchor');
           cell.classList.remove('ps-cell-merged-hidden');
           cell.dataset['rowSpan'] = String(mergeInfo.rowSpan);
+          hasMergeAnchor = true;  // 병합 앵커 발견
         } else {
           // 병합 없음 또는 단일 행
           cell.style.visibility = '';
@@ -552,6 +563,8 @@ export class Row {
       cell.textContent = displayValue;
       cell.title = displayValue; // 툴팁
     }
+
+    return hasMergeAnchor;
   }
 
   /**

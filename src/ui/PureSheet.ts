@@ -20,6 +20,7 @@ import type { RowConfig, AggregateConfig } from './row/types';
 import { configToInternalOptions, getGridMode, getPivotConfig, type InternalOptions } from './utils/configAdapter';
 import { PivotProcessor } from '../processor/PivotProcessor';
 import type { MergeManager } from './merge/MergeManager';
+import { HierarchicalMergeManager } from './merge/MergeManager';
 
 /**
  * PureSheet 이벤트 타입
@@ -740,6 +741,7 @@ export class PureSheet {
    * 2. PivotProcessor로 피벗 연산 수행
    * 3. GridRenderer의 헤더를 PivotHeaderRenderer로 교체
    * 4. 피벗 결과를 뷰 데이터로 설정 (setViewData)
+   * 5. rowHeaderColumns에 계층적 병합 자동 적용
    */
   private async applyPivot(): Promise<void> {
     if (!this.pivotConfig) return;
@@ -773,6 +775,14 @@ export class PureSheet {
     this.gridCore.getDataStore().setViewData(flattenedData, allColumns);
     this.gridCore.getIndexManager().initialize(flattenedData.length);
 
+    // rowHeaderColumns에 계층적 병합 자동 적용
+    // 피벗의 행 헤더는 계층 구조를 가지므로 HierarchicalMergeManager 사용
+    const rowHeaderKeys = this.pivotResult.rowHeaderColumns.map(col => col.key);
+    if (rowHeaderKeys.length > 0) {
+      const mergeManager = new HierarchicalMergeManager(rowHeaderKeys);
+      this.setMergeManager(mergeManager);
+    }
+
     // UI 새로고침
     this.gridRenderer.refresh();
   }
@@ -782,9 +792,13 @@ export class PureSheet {
    * 
    * 1. PivotHeaderRenderer를 제거하고 HeaderRenderer로 복원
    * 2. DataStore의 원본 데이터로 복원
+   * 3. 피벗용 MergeManager 해제
    */
   private restoreFromPivot(): void {
     this.pivotResult = null;
+
+    // 피벗용 MergeManager 해제
+    this.setMergeManager(null);
 
     // 일반 헤더로 복원 (PivotHeaderRenderer → HeaderRenderer)
     this.gridRenderer.switchToFlatHeader();

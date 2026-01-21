@@ -788,6 +788,20 @@
  * - ps-cell-merged-hidden: 병합 범위에서 숨겨진 셀
  */
 
+/* 병합 앵커가 있는 row - 다른 row 위에 표시 */
+.ps-row.ps-row-has-merge-anchor {
+  z-index: 1;
+}
+
+/* 병합 앵커가 있는 row의 고정 컬럼 영역 - 더 높은 z-index */
+.ps-row.ps-row-has-merge-anchor .ps-cells-left {
+  z-index: 3;
+}
+
+.ps-row.ps-row-has-merge-anchor .ps-cells-right {
+  z-index: 3;
+}
+
 /* 병합 앵커 셀: 확장된 높이로 병합 영역 차지 */
 .ps-cell.ps-cell-merged-anchor {
   /* 높이는 JS에서 동적으로 설정 (rowSpan * rowHeight) */
@@ -799,7 +813,7 @@
   align-items: center;
   /* 배경이 아래 행까지 보이도록 */
   background: var(--ps-bg-color);
-  /* 병합 영역의 경계를 명확히 (아래 행 위에 표시) */
+  /* 병합 영역의 경계를 명확히 */
   z-index: 1;
   position: relative;
   /* overflow 방지 */
