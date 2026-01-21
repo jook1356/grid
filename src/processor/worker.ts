@@ -19,7 +19,6 @@
  */
 
 import { ArqueroProcessor } from './ArqueroProcessor';
-import type { PivotOptions } from './ArqueroProcessor';
 import type {
   WorkerRequest,
   WorkerResponse,
@@ -95,15 +94,6 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       case 'AGGREGATE': {
         const aggregateOptions = payload as AggregateQueryOptions;
         result = await processor.aggregate(aggregateOptions);
-        break;
-      }
-
-      // ========================================
-      // 피봇
-      // ========================================
-      case 'PIVOT': {
-        const pivotOptions = payload as PivotOptions;
-        result = await processor.pivot(pivotOptions);
         break;
       }
 

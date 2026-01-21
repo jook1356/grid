@@ -26,7 +26,6 @@ import type {
   WorkerResponse,
   WorkerRequestType,
   Row,
-  ColumnDef,
   SortState,
   FilterState,
   QueryOptions,
@@ -34,29 +33,6 @@ import type {
   ProcessorResult,
   AggregateResult,
 } from '../types';
-
-/**
- * 피봇 옵션 (WorkerBridge용)
- */
-export interface PivotOptions {
-  rowFields: string[];
-  columnFields: string[];
-  valueFields: {
-    field: string;
-    aggregate: 'sum' | 'avg' | 'min' | 'max' | 'count' | 'first' | 'last';
-    label?: string;
-  }[];
-  filters?: FilterState[];
-}
-
-/**
- * 피봇 결과
- */
-export interface PivotResult {
-  rows: Row[];
-  columns: ColumnDef[];
-  generatedValueColumnKeys: string[];
-}
 
 /**
  * 대기 중인 요청 정보
@@ -311,28 +287,6 @@ export class WorkerBridge {
    */
   async aggregate(options: AggregateQueryOptions): Promise<AggregateResult[]> {
     return this.send<AggregateResult[]>('AGGREGATE', options);
-  }
-
-  /**
-   * 피봇
-   *
-   * 데이터를 피봇하여 행↔열 변환을 수행합니다.
-   * 새로운 Row[]와 ColumnDef[]를 반환합니다.
-   *
-   * @param options - 피봇 옵션
-   * @returns 피봇 결과 (rows, columns, generatedValueColumnKeys)
-   *
-   * @example
-   * const result = await bridge.pivot({
-   *   rowFields: ['department'],
-   *   columnFields: ['year', 'quarter'],
-   *   valueFields: [{ field: 'sales', aggregate: 'sum' }]
-   * });
-   * // result.rows: 피봇된 행 데이터
-   * // result.columns: 동적 생성된 컬럼 정의
-   */
-  async pivot(options: PivotOptions): Promise<PivotResult> {
-    return this.send<PivotResult>('PIVOT', options);
   }
 
   /**
