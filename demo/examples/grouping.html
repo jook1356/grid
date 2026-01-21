@@ -172,7 +172,7 @@ grid.<span class="function">collapseAllGroups</span>();</pre>
     // 모든 그룹 펼치기
     window.expandAll = function() {
       if (!renderer) return;
-      const bodyRenderer = renderer.getBodyRenderer();
+      const bodyRenderer = renderer;
       if (bodyRenderer) {
         bodyRenderer.expandAllGroups();
         updateStatus('모든 그룹 펼침');
@@ -182,7 +182,7 @@ grid.<span class="function">collapseAllGroups</span>();</pre>
     // 모든 그룹 접기
     window.collapseAll = function() {
       if (!renderer) return;
-      const bodyRenderer = renderer.getBodyRenderer();
+      const bodyRenderer = renderer;
       if (bodyRenderer) {
         bodyRenderer.collapseAllGroups();
         updateStatus('모든 그룹 접음');
