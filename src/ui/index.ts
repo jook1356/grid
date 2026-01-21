@@ -47,6 +47,20 @@ export type {
   VirtualRowInfo,
 } from './row';
 
+// Merge 모듈 (셀 병합)
+export {
+  MergeManager,
+  ContentMergeManager,
+  HierarchicalMergeManager,
+  CustomMergeManager,
+} from './merge';
+export type {
+  MergedRange,
+  CellMergeInfo,
+  MergeManagerConfig,
+  CustomMergeFunction,
+} from './merge';
+
 // Config 유틸리티
 export {
   fieldToColumn,

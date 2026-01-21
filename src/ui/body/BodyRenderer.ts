@@ -13,12 +13,13 @@ import type { GridCore } from '../../core/GridCore';
 import type { Row as RowData, ColumnDef } from '../../types';
 import type { VirtualRow, GroupHeaderRow, DataRow, GroupingConfig, RowTemplate } from '../../types/grouping.types';
 import type { ColumnState, ColumnGroups, CellPosition } from '../types';
-import type { RowRenderContext } from '../row/types';
+import type { RowRenderContext, MergeInfoGetter } from '../row/types';
 import { VirtualScroller } from '../VirtualScroller';
 import { RowPool } from './RowPool';
 import { GroupManager } from '../grouping/GroupManager';
 import { MultiRowRenderer } from '../multirow/MultiRowRenderer';
 import { Row } from '../row/Row';
+import type { MergeManager, CellMergeInfo } from '../merge/MergeManager';
 
 /**
  * 고정 행 설정
@@ -28,6 +29,14 @@ export interface PinnedRowsConfig {
   top?: Row[];
   /** 하단 고정 행 */
   bottom?: Row[];
+}
+
+/**
+ * MergeManager 설정
+ */
+export interface MergeManagerOptions {
+  /** MergeManager 인스턴스 */
+  mergeManager?: MergeManager;
 }
 
 /**
@@ -48,6 +57,8 @@ export interface BodyRendererOptions {
   rowTemplate?: RowTemplate;
   /** 고정 행 설정 (선택) */
   pinnedRows?: PinnedRowsConfig;
+  /** MergeManager 인스턴스 (선택) */
+  mergeManager?: MergeManager;
   /** 외부 세로 스크롤 프록시 (선택) - GridRenderer에서 전달 */
   scrollProxyY?: HTMLElement;
   /** 외부 가로 스크롤 프록시 (선택) - GridRenderer에서 전달 */
@@ -148,6 +159,12 @@ export class BodyRenderer {
   // 이벤트 핸들러 바인딩 (제거용)
   private boundHandleMouseMove: (e: MouseEvent) => void;
   private boundHandleMouseUp: (e: MouseEvent) => void;
+
+  // 셀 병합 관리자
+  private mergeManager: MergeManager | null = null;
+
+  // 병합 정보 캐시 (렌더링 최적화)
+  private mergeInfoCache: Map<string, CellMergeInfo> = new Map();
 
   constructor(container: HTMLElement, options: BodyRendererOptions) {
     this.container = container;
@@ -265,6 +282,11 @@ export class BodyRenderer {
       }
     }
 
+    // MergeManager 초기화
+    if (options.mergeManager) {
+      this.setMergeManager(options.mergeManager);
+    }
+
     // 초기 행 수 설정
     this.updateVirtualRows();
 
@@ -313,6 +335,15 @@ export class BodyRenderer {
    * 고정된 집계 행(subtotal, grandtotal)은 데이터 기반으로 자동 재계산됩니다.
    */
   refresh(): void {
+    // 데이터 변경 시 병합 캐시 초기화
+    this.clearMergeCache();
+
+    // MergeManager에 최신 컬럼 정의 전달
+    if (this.mergeManager) {
+      const columns = this.gridCore.getColumns();
+      this.mergeManager.setColumns(columns);
+    }
+
     this.updateVirtualRows();
     this.renderVisibleRows();
     this.renderPinnedRows(); // 고정 행도 다시 렌더링 (집계 재계산)
@@ -534,6 +565,141 @@ export class BodyRenderer {
     this.virtualScroller.setRenderRowHeight(height);
   }
 
+  // ===========================================================================
+  // 셀 병합 API (Merge Manager)
+  // ===========================================================================
+
+  /**
+   * MergeManager 설정
+   *
+   * @param manager - MergeManager 인스턴스 (null이면 병합 해제)
+   */
+  setMergeManager(manager: MergeManager | null): void {
+    this.mergeManager = manager;
+
+    // MergeManager에 컬럼 정의 전달
+    if (manager) {
+      const columns = this.gridCore.getColumns();
+      manager.setColumns(columns);
+    }
+
+    // 캐시 초기화
+    this.clearMergeCache();
+
+    // 다시 렌더링
+    this.refresh();
+  }
+
+  /**
+   * MergeManager 반환
+   */
+  getMergeManager(): MergeManager | null {
+    return this.mergeManager;
+  }
+
+  /**
+   * 병합 캐시 초기화
+   *
+   * 데이터가 변경되거나 스크롤 시 호출됩니다.
+   */
+  clearMergeCache(): void {
+    this.mergeInfoCache.clear();
+  }
+
+  /**
+   * 셀 병합 정보 조회 콜백 생성
+   *
+   * Row 렌더링 시 전달되는 getMergeInfo 콜백을 생성합니다.
+   * 내부적으로 캐시를 사용하여 성능을 최적화합니다.
+   *
+   * **동적 앵커 로직**:
+   * 실제 앵커(range.startRow)가 viewport 밖에 있으면,
+   * 현재 보이는 범위 내 첫 번째 행을 "가상 앵커"로 만들어 표시합니다.
+   * 이로써 병합 앵커가 스크롤 아웃되어도 병합 영역이 올바르게 표시됩니다.
+   */
+  private createMergeInfoGetter(visibleStartIndex: number): MergeInfoGetter | undefined {
+    if (!this.mergeManager) {
+      return undefined;
+    }
+
+    const data = this.gridCore.getAllData();
+
+    return (rowIndex: number, columnKey: string): CellMergeInfo => {
+      // 캐시 키 (visible range 포함 - 스크롤 시 캐시 무효화됨)
+      const cacheKey = `${rowIndex}:${columnKey}:${visibleStartIndex}`;
+
+      // 캐시에서 조회
+      const cached = this.mergeInfoCache.get(cacheKey);
+      if (cached) {
+        return cached;
+      }
+
+      // MergeManager에서 원본 병합 정보 조회
+      const originalInfo = this.mergeManager!.getCellMergeInfo(rowIndex, columnKey, data);
+
+      // 동적 앵커 로직 적용
+      const info = this.applyDynamicAnchor(originalInfo, rowIndex, visibleStartIndex);
+
+      // 캐시에 저장
+      this.mergeInfoCache.set(cacheKey, info);
+
+      return info;
+    };
+  }
+
+  /**
+   * 동적 앵커 로직 적용
+   *
+   * 실제 앵커가 viewport 밖에 있으면, 보이는 범위 내 첫 번째 행을 가상 앵커로 변환합니다.
+   */
+  private applyDynamicAnchor(
+    info: CellMergeInfo,
+    rowIndex: number,
+    visibleStartIndex: number
+  ): CellMergeInfo {
+    const { range } = info;
+
+    // 병합이 없으면 그대로 반환
+    if (!range) {
+      return info;
+    }
+
+    // 실제 앵커가 보이는 범위 내에 있으면 원본 반환
+    if (range.startRow >= visibleStartIndex) {
+      return info;
+    }
+
+    // 현재 행이 병합 범위 내에 있는지 확인
+    if (rowIndex < range.startRow || rowIndex > range.endRow) {
+      return info;
+    }
+
+    // 실제 앵커가 viewport 밖 (위쪽) - 동적 앵커 필요
+    // 현재 행이 "보이는 범위 내 첫 번째 병합 행"인지 확인
+    const firstVisibleMergedRow = Math.max(range.startRow, visibleStartIndex);
+
+    if (rowIndex === firstVisibleMergedRow) {
+      // 가상 앵커로 변환
+      // rowSpan은 남은 병합 범위만큼 (endRow - 현재행 + 1)
+      const remainingRowSpan = range.endRow - rowIndex + 1;
+
+      return {
+        range,
+        isAnchor: true,  // 가상 앵커
+        rowSpan: remainingRowSpan,
+        colSpan: info.colSpan,
+      };
+    } else {
+      // 가상 앵커 아래의 행들 → hidden
+      return {
+        range,
+        isAnchor: false,
+        rowSpan: 1,
+        colSpan: 1,
+      };
+    }
+  }
+
   /**
    * 선택 상태 업데이트 (명시적 행 선택 - ID 기준)
    * 주의: 이 메서드 단독으로는 UI를 업데이트하지 않습니다.
@@ -663,6 +829,12 @@ export class BodyRenderer {
       return;
     }
 
+    // 스크롤 시 병합 캐시 초기화 (새로운 범위의 데이터)
+    this.clearMergeCache();
+
+    // 병합 정보 조회 콜백 생성 (동적 앵커를 위해 visibleStartIndex 전달)
+    const getMergeInfo = this.createMergeInfoGetter(state.startIndex);
+
     // 렌더링 컨텍스트 생성
     const baseContext: Omit<RowRenderContext, 'rowIndex' | 'dataIndex'> = {
       columns: this.columns,
@@ -670,6 +842,7 @@ export class BodyRenderer {
       columnDefs: this.columnDefs,
       rowHeight: this.rowHeight,
       gridCore: this.gridCore,
+      getMergeInfo,
     };
 
     // 일반 모드

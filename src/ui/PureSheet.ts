@@ -19,6 +19,7 @@ import { Row } from './row/Row';
 import type { RowConfig, AggregateConfig } from './row/types';
 import { configToInternalOptions, getGridMode, getPivotConfig, type InternalOptions } from './utils/configAdapter';
 import { PivotProcessor } from '../processor/PivotProcessor';
+import type { MergeManager } from './merge/MergeManager';
 
 /**
  * PureSheet 이벤트 타입
@@ -308,6 +309,45 @@ export class PureSheet {
    */
   clearGrouping(): void {
     this.setGrouping(null);
+  }
+
+  // ===========================================================================
+  // 셀 병합 API (Merge Manager)
+  // ===========================================================================
+
+  /**
+   * MergeManager 설정
+   *
+   * 셀 병합 로직을 정의하는 MergeManager를 설정합니다.
+   * 기본 제공 구현체:
+   * - ContentMergeManager: 같은 값을 가진 연속된 셀 병합
+   * - HierarchicalMergeManager: 계층적 병합 (상위 컬럼 기준)
+   * - CustomMergeManager: 사용자 정의 병합 함수
+   *
+   * @param manager - MergeManager 인스턴스 (null이면 병합 해제)
+   *
+   * @example
+   * ```ts
+   * import { ContentMergeManager } from 'puresheet';
+   *
+   * // 'department' 컬럼에서 같은 값 병합
+   * grid.setMergeManager(new ContentMergeManager(['department']));
+   *
+   * // 병합 해제
+   * grid.setMergeManager(null);
+   * ```
+   */
+  setMergeManager(manager: MergeManager | null): void {
+    const bodyRenderer = this.gridRenderer.getBodyRenderer();
+    bodyRenderer?.setMergeManager(manager);
+  }
+
+  /**
+   * MergeManager 반환
+   */
+  getMergeManager(): MergeManager | null {
+    const bodyRenderer = this.gridRenderer.getBodyRenderer();
+    return bodyRenderer?.getMergeManager() ?? null;
   }
 
   /**

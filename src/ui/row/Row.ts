@@ -23,6 +23,7 @@ import type {
   GroupInfo,
   AggregateConfig,
   RowRenderContext,
+  MergeInfoGetter,
 } from './types';
 
 // Row ID 생성용 카운터
@@ -428,17 +429,17 @@ export class Row {
    * 데이터 행 렌더링
    */
   private renderData(container: HTMLElement, context: RowRenderContext): void {
-    const { columnGroups, columnDefs } = context;
+    const { columnGroups, columnDefs, rowIndex, rowHeight, getMergeInfo } = context;
 
     // 셀 컨테이너 가져오기 또는 생성
     const leftContainer = this.getOrCreateCellContainer(container, 'ps-cells-left');
     const centerContainer = this.getOrCreateCellContainer(container, 'ps-cells-center');
     const rightContainer = this.getOrCreateCellContainer(container, 'ps-cells-right');
 
-    // 각 영역별 셀 렌더링
-    this.renderCells(leftContainer, columnGroups.left, columnDefs);
-    this.renderCells(centerContainer, columnGroups.center, columnDefs);
-    this.renderCells(rightContainer, columnGroups.right, columnDefs);
+    // 각 영역별 셀 렌더링 (merge 정보 포함)
+    this.renderCells(leftContainer, columnGroups.left, columnDefs, rowIndex, rowHeight, getMergeInfo);
+    this.renderCells(centerContainer, columnGroups.center, columnDefs, rowIndex, rowHeight, getMergeInfo);
+    this.renderCells(rightContainer, columnGroups.right, columnDefs, rowIndex, rowHeight, getMergeInfo);
   }
 
   /**
@@ -456,11 +457,18 @@ export class Row {
 
   /**
    * 셀 렌더링
+   *
+   * merge 정보가 있는 경우:
+   * - isAnchor가 true인 셀: 표시하고 높이 확장 (rowSpan * rowHeight)
+   * - isAnchor가 false인 셀: visibility: hidden으로 숨김
    */
   private renderCells(
     container: HTMLElement,
     columns: ColumnState[],
-    columnDefs: Map<string, ColumnDef>
+    columnDefs: Map<string, ColumnDef>,
+    rowIndex?: number,
+    rowHeight?: number,
+    getMergeInfo?: MergeInfoGetter
   ): void {
     // 그룹 헤더 콘텐츠가 남아있으면 제거 (ps-group-toggle 등)
     const hasNonCellContent = container.firstChild && 
@@ -498,6 +506,46 @@ export class Row {
 
       // 데이터 속성
       cell.dataset['columnKey'] = column.key;
+
+      // ========================================
+      // 셀 병합 처리
+      // ========================================
+      if (getMergeInfo && rowIndex !== undefined && rowHeight !== undefined) {
+        const mergeInfo = getMergeInfo(rowIndex, column.key);
+
+        if (mergeInfo.range && !mergeInfo.isAnchor) {
+          // 병합된 셀 (앵커 아님) → 숨김
+          cell.style.visibility = 'hidden';
+          cell.style.height = '';
+          cell.classList.add('ps-cell-merged-hidden');
+          cell.classList.remove('ps-cell-merged-anchor');
+          cell.textContent = '';
+          cell.title = '';
+          continue;
+        }
+
+        if (mergeInfo.range && mergeInfo.isAnchor && mergeInfo.rowSpan > 1) {
+          // 병합 앵커 셀 → 높이 확장
+          const mergedHeight = mergeInfo.rowSpan * rowHeight;
+          cell.style.visibility = '';  // 명시적 초기화 (재사용 시 hidden 제거)
+          cell.style.height = `${mergedHeight}px`;
+          cell.classList.add('ps-cell-merged-anchor');
+          cell.classList.remove('ps-cell-merged-hidden');
+          cell.dataset['rowSpan'] = String(mergeInfo.rowSpan);
+        } else {
+          // 병합 없음 또는 단일 행
+          cell.style.visibility = '';
+          cell.style.height = '';
+          cell.classList.remove('ps-cell-merged-anchor', 'ps-cell-merged-hidden');
+          delete cell.dataset['rowSpan'];
+        }
+      } else {
+        // merge 정보 없음 → 일반 셀
+        cell.style.visibility = '';
+        cell.style.height = '';
+        cell.classList.remove('ps-cell-merged-anchor', 'ps-cell-merged-hidden');
+        delete cell.dataset['rowSpan'];
+      }
 
       // 값 렌더링
       const displayValue = this.formatCellValue(value, colDef);
