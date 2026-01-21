@@ -9,10 +9,8 @@
 
 import type { GridCore } from '../core/GridCore';
 import type { ColumnState, PureSheetOptions, SortState } from './types';
-import type { PivotHeaderData } from './header/PivotHeaderRenderer';
 import { BodyRenderer } from './body/BodyRenderer';
 import { HeaderRenderer } from './header/HeaderRenderer';
-import { PivotHeaderRenderer } from './header/PivotHeaderRenderer';
 
 // CSS 스타일 삽입 여부 추적
 let styleInjected = false;
@@ -71,11 +69,7 @@ export class GridRenderer {
 
   // 모듈
   private headerRenderer: HeaderRenderer | null = null;
-  private pivotHeaderRenderer: PivotHeaderRenderer | null = null;
   private bodyRenderer: BodyRenderer | null = null;
-
-  // 피봇 모드
-  private pivotMode: boolean = false;
 
   // 콜백
   private onRowClick?: GridRendererOptions['onRowClick'];
@@ -256,94 +250,12 @@ export class GridRenderer {
     this.bodyRenderer?.setGroupingConfig(config);
   }
 
-  // ===========================================================================
-  // 피봇 모드
-  // ===========================================================================
-
-  /**
-   * 피봇 모드 활성화
-   *
-   * 계층적 컬럼 헤더를 렌더링하기 위해 PivotHeaderRenderer로 전환합니다.
-   *
-   * @param data - 피봇 헤더 데이터
-   */
-  enablePivotMode(data: PivotHeaderData): void {
-    if (!this.headerElement) return;
-
-    this.pivotMode = true;
-
-    // 기존 HeaderRenderer 정리
-    this.headerRenderer?.destroy();
-    this.headerRenderer = null;
-
-    // 컬럼 너비 맵 생성
-    const columnWidths = new Map<string, number>();
-    for (const state of this.columnStates) {
-      columnWidths.set(state.key, state.width);
-    }
-
-    // PivotHeaderRenderer 생성
-    this.pivotHeaderRenderer = new PivotHeaderRenderer(this.headerElement, {
-      data,
-      headerHeight: this.options.headerHeight ?? 40,
-      columnWidths,
-      defaultColumnWidth: 100,
-      rowFieldWidth: 120,
-    });
-
-    // 헤더 높이 업데이트
-    const totalHeight = this.pivotHeaderRenderer.getTotalHeight();
-    this.headerElement.style.height = `${totalHeight}px`;
-    this.headerElement.style.minHeight = `${totalHeight}px`;
-  }
-
-  /**
-   * 피봇 모드 비활성화
-   *
-   * 일반 HeaderRenderer로 복귀합니다.
-   */
-  disablePivotMode(): void {
-    if (!this.headerElement) return;
-
-    this.pivotMode = false;
-
-    // PivotHeaderRenderer 정리
-    this.pivotHeaderRenderer?.destroy();
-    this.pivotHeaderRenderer = null;
-
-    // 일반 HeaderRenderer 복구
-    this.headerRenderer = new HeaderRenderer(this.headerElement, {
-      gridCore: this.gridCore,
-      columns: this.columnStates,
-      headerHeight: this.options.headerHeight ?? 40,
-      resizable: this.options.resizableColumns !== false,
-      reorderable: this.options.reorderableColumns ?? false,
-      rowTemplate: this.options.rowTemplate,
-      onSortChange: this.handleSortChange.bind(this),
-      onColumnResize: this.handleColumnResize.bind(this),
-      onColumnReorder: this.handleColumnReorder.bind(this),
-    });
-
-    // 헤더 높이 복구
-    const headerHeight = this.options.headerHeight ?? 40;
-    this.headerElement.style.height = `${headerHeight}px`;
-    this.headerElement.style.minHeight = `${headerHeight}px`;
-  }
-
-  /**
-   * 피봇 모드 여부 확인
-   */
-  isPivotMode(): boolean {
-    return this.pivotMode;
-  }
-
   /**
    * 리소스 해제
    */
   destroy(): void {
     this.resizeObserver?.disconnect();
     this.headerRenderer?.destroy();
-    this.pivotHeaderRenderer?.destroy();
     this.bodyRenderer?.destroy();
 
     if (this.gridContainer) {

@@ -67,11 +67,3 @@ export type {
   CellMeta,
   MergeRange,
 } from './grouping.types';
-
-// 피봇 타입
-export type {
-  PivotColumnMeta,
-  PivotConfig,
-  PivotValueField,
-  PivotResult,
-} from './pivot.types';

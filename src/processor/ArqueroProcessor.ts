@@ -32,7 +32,6 @@ import type {
   QueryOptions,
   AggregateQueryOptions,
   AggregateResult,
-  PivotColumnMeta,
 } from '../types';
 
 /**
@@ -59,16 +58,10 @@ export interface PivotOptions {
 export interface PivotResult {
   /** 피봇된 행 데이터 */
   rows: Row[];
-  /** 생성된 컬럼 정의 (행 필드 컬럼 + 동적 생성 컬럼) */
+  /** 생성된 컬럼 정의 */
   columns: ColumnDef[];
-  /** 동적 생성된 컬럼의 메타데이터 (헤더 렌더링용) */
-  pivotColumnMeta: PivotColumnMeta[];
-  /** 행 필드 키 배열 */
-  rowFields: string[];
-  /** 열 필드 키 배열 */
-  columnFields: string[];
-  /** 값 필드가 여러 개인지 여부 */
-  hasMultipleValueFields: boolean;
+  /** 동적 생성된 값 컬럼 키 목록 */
+  generatedValueColumnKeys: string[];
 }
 
 /**
@@ -583,28 +576,10 @@ export class ArqueroProcessor implements IDataProcessor {
       valueFields
     );
 
-    // 피봇 컬럼 메타데이터 생성 (단순 배열 방식)
-    const pivotColumnMeta: PivotColumnMeta[] = [];
-    for (const pivotKey of sortedPivotKeys) {
-      const pivotValues = pivotKey ? pivotKey.split('_') : [];
-      for (const vf of valueFields) {
-        const columnKey = pivotKey ? `${pivotKey}_${vf.field}` : vf.field;
-        pivotColumnMeta.push({
-          columnKey,
-          pivotValues,
-          valueField: vf.field,
-          valueFieldLabel: vf.label,
-        });
-      }
-    }
-
     return {
       rows,
       columns,
-      pivotColumnMeta,
-      rowFields,
-      columnFields,
-      hasMultipleValueFields: valueFields.length > 1,
+      generatedValueColumnKeys,
     };
   }
 

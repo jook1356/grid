@@ -127,19 +127,7 @@ export interface PivotResult {
   /** 동적 생성된 컬럼 정의 */
   columns: ColumnDef[];
   
-  /** 동적 생성된 컬럼의 메타데이터 (헤더 렌더링용) */
-  pivotColumnMeta: import('../types').PivotColumnMeta[];
-  
-  /** 행 필드 키 배열 */
-  rowFields: string[];
-  
-  /** 열 필드 키 배열 */
-  columnFields: string[];
-  
-  /** 값 필드가 여러 개인지 여부 */
-  hasMultipleValueFields: boolean;
-  
-  /** 생성된 컬럼 그룹 (선택) - 레거시 호환용 */
+  /** 생성된 컬럼 그룹 (선택) */
   columnGroups?: ColumnGroup[];
 }
 

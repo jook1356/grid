@@ -26,6 +26,7 @@ import type {
   WorkerResponse,
   WorkerRequestType,
   Row,
+  ColumnDef,
   SortState,
   FilterState,
   QueryOptions,
@@ -33,8 +34,29 @@ import type {
   ProcessorResult,
   AggregateResult,
 } from '../types';
-// PivotResult는 ArqueroProcessor에서 직접 정의한 것을 사용
-import type { PivotResult, PivotOptions } from './ArqueroProcessor';
+
+/**
+ * 피봇 옵션 (WorkerBridge용)
+ */
+export interface PivotOptions {
+  rowFields: string[];
+  columnFields: string[];
+  valueFields: {
+    field: string;
+    aggregate: 'sum' | 'avg' | 'min' | 'max' | 'count' | 'first' | 'last';
+    label?: string;
+  }[];
+  filters?: FilterState[];
+}
+
+/**
+ * 피봇 결과
+ */
+export interface PivotResult {
+  rows: Row[];
+  columns: ColumnDef[];
+  generatedValueColumnKeys: string[];
+}
 
 /**
  * 대기 중인 요청 정보

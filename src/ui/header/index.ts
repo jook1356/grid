@@ -6,7 +6,5 @@ export { HeaderRenderer } from './HeaderRenderer';
 export type { HeaderRendererOptions } from './HeaderRenderer';
 export { HeaderCell } from './HeaderCell';
 export type { HeaderCellOptions, CellPlacement } from './HeaderCell';
-export { PivotHeaderRenderer } from './PivotHeaderRenderer';
-export type { PivotHeaderRendererOptions, PivotHeaderData } from './PivotHeaderRenderer';
 // SortState는 ui/types에서 가져와서 re-export
 export type { SortState } from '../types';
