@@ -90,6 +90,48 @@
       </div>
     </div>
     
+    <!-- 필터/정렬 툴바 -->
+    <div class="toolbar" style="border-top: none; padding-top: 0;">
+      <div class="toolbar-group">
+        <label>🔍 필터:</label>
+        <select id="filterColumnSelect">
+          <option value="">필터 없음</option>
+          <option value="product">제품</option>
+          <option value="region">지역</option>
+          <option value="quarter">분기</option>
+        </select>
+        <select id="filterValueSelect" onchange="applyFilter()" disabled>
+          <option value="">값 선택</option>
+        </select>
+        <button onclick="clearFilter()" class="secondary" style="padding: 4px 8px;">✕</button>
+      </div>
+      
+      <div class="toolbar-divider"></div>
+      
+      <div class="toolbar-group">
+        <label>↕️ 정렬:</label>
+        <select id="sortColumnSelect" onchange="applySort()">
+          <option value="">정렬 없음</option>
+          <option value="product">제품</option>
+          <option value="region">지역</option>
+          <option value="month">월</option>
+          <option value="quarter">분기</option>
+          <option value="sales">판매량</option>
+          <option value="profit">수익</option>
+        </select>
+        <select id="sortDirectionSelect" onchange="applySort()">
+          <option value="asc">오름차순 ↑</option>
+          <option value="desc">내림차순 ↓</option>
+        </select>
+      </div>
+      
+      <div class="toolbar-divider"></div>
+      
+      <div class="toolbar-group" id="filterSortStatus" style="color: #666; font-size: 12px;">
+        필터/정렬 없음
+      </div>
+    </div>
+    
     <div id="grid" style="height: 500px;"></div>
     
     <div class="status-bar" id="status">
@@ -99,35 +141,48 @@
   
   <!-- 코드 예제 -->
   <div class="code-example">
-    <h3>API 사용법 (Pivot 모드)</h3>
+    <h3>API 사용법 (Pivot 모드 + 필터/정렬)</h3>
     <pre><span class="comment">// 피벗 모드로 PureSheet 생성</span>
 <span class="keyword">const</span> pivotGrid = <span class="keyword">new</span> <span class="function">PureSheet</span>(container, {
   mode: <span class="string">'pivot'</span>,
-  
   data: salesData,
-  
-  <span class="comment">// 필드 정의</span>
-  fields: [
-    { key: <span class="string">'month'</span>, header: <span class="string">'월'</span>, dataType: <span class="string">'string'</span> },
-    { key: <span class="string">'product'</span>, header: <span class="string">'제품'</span>, dataType: <span class="string">'string'</span> },
-    { key: <span class="string">'sales'</span>, header: <span class="string">'판매량'</span>, dataType: <span class="string">'number'</span>, aggregate: <span class="string">'sum'</span> },
-    { key: <span class="string">'profit'</span>, header: <span class="string">'수익'</span>, dataType: <span class="string">'number'</span>, aggregate: <span class="string">'sum'</span> },
-  ],
-  
-  <span class="comment">// 피벗 축 설정</span>
-  rowFields: [<span class="string">'product'</span>],           <span class="comment">// 행 축</span>
-  columnFields: [<span class="string">'month'</span>],          <span class="comment">// 열 축 (피벗되는 필드)</span>
-  valueFields: [<span class="string">'sales'</span>, <span class="string">'profit'</span>], <span class="comment">// 값 필드</span>
-  
-  theme: <span class="string">'light'</span>,
+  fields: [...],
+  rowFields: [<span class="string">'product'</span>],
+  columnFields: [<span class="string">'month'</span>],
+  valueFields: [<span class="string">'sales'</span>],
 });
 
-<span class="comment">// 동적으로 피벗 설정 변경</span>
-pivotGrid.<span class="function">setPivotConfig</span>({
-  rowFields: [<span class="string">'region'</span>],
-  columnFields: [<span class="string">'quarter'</span>],
-  valueFields: [<span class="string">'sales'</span>],
-});</pre>
+<span class="comment">// ==========================================</span>
+<span class="comment">// 필터 적용 (피벗 전에 데이터 필터링)</span>
+<span class="comment">// ==========================================</span>
+<span class="keyword">await</span> pivotGrid.<span class="function">filter</span>([
+  { columnKey: <span class="string">'region'</span>, operator: <span class="string">'eq'</span>, value: <span class="string">'서울'</span> }
+]);
+
+<span class="comment">// 여러 조건 필터링 (AND)</span>
+<span class="keyword">await</span> pivotGrid.<span class="function">filter</span>([
+  { columnKey: <span class="string">'region'</span>, operator: <span class="string">'eq'</span>, value: <span class="string">'서울'</span> },
+  { columnKey: <span class="string">'sales'</span>, operator: <span class="string">'gte'</span>, value: <span class="number">100</span> }
+]);
+
+<span class="comment">// ==========================================</span>
+<span class="comment">// 정렬 적용 (피벗 결과의 행 순서에 영향)</span>
+<span class="comment">// ==========================================</span>
+<span class="keyword">await</span> pivotGrid.<span class="function">sort</span>([
+  { columnKey: <span class="string">'sales'</span>, direction: <span class="string">'desc'</span> }
+]);
+
+<span class="comment">// 다중 정렬</span>
+<span class="keyword">await</span> pivotGrid.<span class="function">sort</span>([
+  { columnKey: <span class="string">'product'</span>, direction: <span class="string">'asc'</span> },
+  { columnKey: <span class="string">'sales'</span>, direction: <span class="string">'desc'</span> }
+]);
+
+<span class="comment">// ==========================================</span>
+<span class="comment">// 데이터 처리 순서: 필터 → 정렬 → 피벗</span>
+<span class="comment">// ==========================================</span>
+<span class="comment">// 필터와 정렬은 피벗 연산 전에 적용됩니다.</span>
+<span class="comment">// 필터링된 데이터만 피벗 결과에 포함됩니다.</span></pre>
   </div>
   
   <!-- 데이터 정보 -->
@@ -343,7 +398,105 @@ pivotGrid.<span class="function">setPivotConfig</span>({
       document.getElementById('rowFieldSelect').value = 'product';
       document.getElementById('columnFieldSelect').value = 'month';
       document.getElementById('valueFieldSelect').value = 'sales';
+      await clearFilter();
+      document.getElementById('sortColumnSelect').value = '';
+      await applySort();
       await updatePivot();
+    };
+    
+    // 현재 필터/정렬 상태
+    let currentFilter = null;
+    let currentSort = null;
+    
+    // 필터/정렬 상태 표시 업데이트
+    function updateFilterSortStatus() {
+      const parts = [];
+      if (currentFilter) {
+        parts.push(`필터: ${currentFilter.columnKey}="${currentFilter.value}"`);
+      }
+      if (currentSort) {
+        parts.push(`정렬: ${currentSort.columnKey} ${currentSort.direction === 'asc' ? '↑' : '↓'}`);
+      }
+      document.getElementById('filterSortStatus').textContent = 
+        parts.length > 0 ? parts.join(' | ') : '필터/정렬 없음';
+    }
+    
+    // 필터 컬럼 변경 시 값 목록 업데이트
+    document.getElementById('filterColumnSelect').addEventListener('change', function() {
+      const column = this.value;
+      const valueSelect = document.getElementById('filterValueSelect');
+      
+      if (!column) {
+        valueSelect.innerHTML = '<option value="">값 선택</option>';
+        valueSelect.disabled = true;
+        clearFilter();
+        return;
+      }
+      
+      // 해당 컬럼의 유니크 값 추출
+      const uniqueValues = [...new Set(sampleData.map(row => row[column]))].sort();
+      
+      valueSelect.innerHTML = '<option value="">전체</option>' + 
+        uniqueValues.map(v => `<option value="${v}">${v}</option>`).join('');
+      valueSelect.disabled = false;
+    });
+    
+    // 필터 적용
+    window.applyFilter = async function() {
+      if (!sheet) return;
+      
+      const column = document.getElementById('filterColumnSelect').value;
+      const value = document.getElementById('filterValueSelect').value;
+      
+      const startTime = performance.now();
+      
+      if (!column || !value) {
+        currentFilter = null;
+        await sheet.filter([]);
+      } else {
+        currentFilter = { columnKey: column, operator: 'eq', value };
+        await sheet.filter([currentFilter]);
+      }
+      
+      const duration = performance.now() - startTime;
+      updateFilterSortStatus();
+      updateStatus(`필터 적용 완료 (${duration.toFixed(0)}ms) - ${sheet.getVisibleRowCount()}개 피벗 행`);
+    };
+    
+    // 필터 해제
+    window.clearFilter = async function() {
+      document.getElementById('filterColumnSelect').value = '';
+      document.getElementById('filterValueSelect').innerHTML = '<option value="">값 선택</option>';
+      document.getElementById('filterValueSelect').disabled = true;
+      
+      if (sheet) {
+        currentFilter = null;
+        await sheet.filter([]);
+        updateFilterSortStatus();
+        updateStatus(`필터 해제 - ${sheet.getVisibleRowCount()}개 피벗 행`);
+      }
+    };
+    
+    // 정렬 적용
+    window.applySort = async function() {
+      if (!sheet) return;
+      
+      const column = document.getElementById('sortColumnSelect').value;
+      const direction = document.getElementById('sortDirectionSelect').value;
+      
+      const startTime = performance.now();
+      
+      if (!column) {
+        currentSort = null;
+        await sheet.sort([]);
+      } else {
+        currentSort = { columnKey: column, direction };
+        await sheet.sort([currentSort]);
+      }
+      
+      const duration = performance.now() - startTime;
+      updateFilterSortStatus();
+      updateStatus(`정렬 적용 완료 (${duration.toFixed(0)}ms) - ${sheet.getVisibleRowCount()}개 피벗 행`);
     };
     
     // 초기화

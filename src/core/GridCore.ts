@@ -453,9 +453,22 @@ export class GridCore {
 
   /**
    * 전체 데이터 가져오기 (읽기 전용)
+   * 
+   * 필터/정렬이 적용되지 않은 전체 데이터를 반환합니다.
    */
   getAllData(): readonly Row[] {
     return this.dataStore.getData();
+  }
+
+  /**
+   * 보이는 데이터 가져오기 (필터/정렬 적용 후)
+   * 
+   * IndexManager의 visibleIndices를 기반으로 필터/정렬된 데이터를 반환합니다.
+   */
+  getVisibleData(): Row[] {
+    const allData = this.dataStore.getData();
+    const visibleIndices = this.indexManager.getVisibleIndices();
+    return Array.from(visibleIndices).map(i => allData[i]).filter((row): row is Row => row !== undefined);
   }
 
   /**

@@ -495,7 +495,7 @@ export class BodyRenderer {
    * 모든 그룹 접기
    */
   collapseAllGroups(): void {
-    const data = this.gridCore.getAllData();
+    const data = this.gridCore.getVisibleData();
     this.groupManager.collapseAll(data);
     this.refresh();
   }
@@ -610,7 +610,8 @@ export class BodyRenderer {
       return undefined;
     }
 
-    const data = this.gridCore.getAllData();
+    // 필터/정렬이 적용된 데이터 사용
+    const data = this.gridCore.getVisibleData();
     const manager = this.mergeManager;
 
     return (rowIndex: number, columnKey: string): CellMergeInfo => {
@@ -767,9 +768,12 @@ export class BodyRenderer {
 
   /**
    * VirtualRows 업데이트
+   * 
+   * 필터/정렬이 적용된 데이터를 기반으로 VirtualRows를 생성합니다.
    */
   private updateVirtualRows(): void {
-    const data = this.gridCore.getAllData();
+    // 필터/정렬이 적용된 데이터 사용
+    const data = this.gridCore.getVisibleData();
     this.virtualRows = this.groupManager.flattenWithGroups(data);
 
     // Multi-Row 모드에서는 총 행 수가 달라짐

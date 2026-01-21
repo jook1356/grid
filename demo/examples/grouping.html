@@ -65,6 +65,41 @@
       </div>
     </div>
     
+    <!-- 필터/정렬 툴바 -->
+    <div class="toolbar" style="border-top: none; padding-top: 0;">
+      <div class="toolbar-group">
+        <label>🔍 필터:</label>
+        <select id="filterColumnSelect">
+          <option value="">필터 없음</option>
+          <option value="department">부서</option>
+          <option value="status">상태</option>
+        </select>
+        <select id="filterValueSelect" onchange="applyFilter()" disabled>
+          <option value="">값 선택</option>
+        </select>
+        <button onclick="clearFilter()" class="secondary" style="padding: 4px 8px;">✕</button>
+      </div>
+      
+      <div class="toolbar-divider"></div>
+      
+      <div class="toolbar-group">
+        <label>↕️ 정렬:</label>
+        <select id="sortColumnSelect" onchange="applySort()">
+          <option value="">정렬 없음</option>
+          <option value="id">ID</option>
+          <option value="name">이름</option>
+          <option value="department">부서</option>
+          <option value="status">상태</option>
+          <option value="salary">급여</option>
+          <option value="joinDate">입사일</option>
+        </select>
+        <select id="sortDirectionSelect" onchange="applySort()">
+          <option value="asc">오름차순 ↑</option>
+          <option value="desc">내림차순 ↓</option>
+        </select>
+      </div>
+    </div>
+    
     <div id="grid"></div>
     
     <div class="status-bar" id="status">
@@ -74,7 +109,7 @@
   
   <!-- 코드 예제 -->
   <div class="code-example">
-    <h3>API 사용법 (새 Config API)</h3>
+    <h3>API 사용법 (그룹화 + 필터/정렬)</h3>
     <pre><span class="comment">// 새로운 Config API로 PureSheet 생성</span>
 <span class="keyword">const</span> grid = <span class="keyword">new</span> <span class="function">PureSheet</span>(container, {
   mode: <span class="string">'flat'</span>,
@@ -83,18 +118,41 @@
     { key: <span class="string">'salary'</span>, header: <span class="string">'급여'</span>, dataType: <span class="string">'number'</span>, aggregate: <span class="string">'sum'</span> },
   ],
   data: myData,
-  columns: [<span class="string">'department'</span>, <span class="string">'salary'</span>],
   group: {
     columns: [<span class="string">'department'</span>],
-    subtotals: [<span class="string">'salary'</span>],  <span class="comment">// fields의 aggregate 함수 사용</span>
+    subtotals: [<span class="string">'salary'</span>],
   },
 });
 
-<span class="comment">// 그룹화 동적 변경</span>
-grid.<span class="function">setGrouping</span>({ columns: [<span class="string">'status'</span>], subtotals: [<span class="string">'salary'</span>] });
+<span class="comment">// ==========================================</span>
+<span class="comment">// 필터 적용</span>
+<span class="comment">// ==========================================</span>
+<span class="keyword">await</span> grid.<span class="function">filter</span>([
+  { columnKey: <span class="string">'department'</span>, operator: <span class="string">'eq'</span>, value: <span class="string">'Engineering'</span> }
+]);
 
-<span class="comment">// 그룹 접기/펼치기</span>
-grid.<span class="function">toggleGroup</span>(<span class="string">'department:Engineering'</span>);
+<span class="comment">// 필터 연산자: eq, neq, gt, gte, lt, lte, contains, startsWith, endsWith, between</span>
+<span class="keyword">await</span> grid.<span class="function">filter</span>([
+  { columnKey: <span class="string">'salary'</span>, operator: <span class="string">'gte'</span>, value: <span class="number">60000</span> }
+]);
+
+<span class="comment">// ==========================================</span>
+<span class="comment">// 정렬 적용</span>
+<span class="comment">// ==========================================</span>
+<span class="keyword">await</span> grid.<span class="function">sort</span>([
+  { columnKey: <span class="string">'salary'</span>, direction: <span class="string">'desc'</span> }
+]);
+
+<span class="comment">// 다중 정렬</span>
+<span class="keyword">await</span> grid.<span class="function">sort</span>([
+  { columnKey: <span class="string">'department'</span>, direction: <span class="string">'asc'</span> },
+  { columnKey: <span class="string">'salary'</span>, direction: <span class="string">'desc'</span> }
+]);
+
+<span class="comment">// ==========================================</span>
+<span class="comment">// 그룹화 (필터/정렬 적용 후)</span>
+<span class="comment">// ==========================================</span>
+grid.<span class="function">setGrouping</span>({ columns: [<span class="string">'department'</span>], subtotals: [<span class="string">'salary'</span>] });
 grid.<span class="function">expandAllGroups</span>();
 grid.<span class="function">collapseAllGroups</span>();</pre>
   </div>
@@ -188,6 +246,77 @@ grid.<span class="function">collapseAllGroups</span>();</pre>
         bodyRenderer.collapseAllGroups();
         updateStatus('모든 그룹 접음');
       }
+    };
+    
+    // 필터 컬럼 변경 시 값 목록 업데이트
+    document.getElementById('filterColumnSelect').addEventListener('change', function() {
+      const column = this.value;
+      const valueSelect = document.getElementById('filterValueSelect');
+      
+      if (!column) {
+        valueSelect.innerHTML = '<option value="">값 선택</option>';
+        valueSelect.disabled = true;
+        clearFilter();
+        return;
+      }
+      
+      // 해당 컬럼의 유니크 값 추출
+      const uniqueValues = [...new Set(sampleData.map(row => row[column]))].sort();
+      
+      valueSelect.innerHTML = '<option value="">전체</option>' + 
+        uniqueValues.map(v => `<option value="${v}">${v}</option>`).join('');
+      valueSelect.disabled = false;
+    });
+    
+    // 필터 적용
+    window.applyFilter = async function() {
+      if (!renderer) return;
+      
+      const column = document.getElementById('filterColumnSelect').value;
+      const value = document.getElementById('filterValueSelect').value;
+      
+      if (!column || !value) {
+        await renderer.filter([]);
+        updateStatus('필터 해제됨');
+      } else {
+        await renderer.filter([{ columnKey: column, operator: 'eq', value }]);
+        updateStatus(`필터 적용: ${column} = "${value}"`);
+      }
+      
+      // 그룹화가 설정되어 있으면 다시 적용
+      applyGrouping();
+    };
+    
+    // 필터 해제
+    window.clearFilter = async function() {
+      document.getElementById('filterColumnSelect').value = '';
+      document.getElementById('filterValueSelect').innerHTML = '<option value="">값 선택</option>';
+      document.getElementById('filterValueSelect').disabled = true;
+      
+      if (renderer) {
+        await renderer.filter([]);
+        updateStatus('필터 해제됨');
+        applyGrouping();
+      }
+    };
+    
+    // 정렬 적용
+    window.applySort = async function() {
+      if (!renderer) return;
+      
+      const column = document.getElementById('sortColumnSelect').value;
+      const direction = document.getElementById('sortDirectionSelect').value;
+      
+      if (!column) {
+        await renderer.sort([]);
+        updateStatus('정렬 해제됨');
+      } else {
+        await renderer.sort([{ columnKey: column, direction }]);
+        updateStatus(`정렬 적용: ${column} ${direction === 'asc' ? '오름차순' : '내림차순'}`);
+      }
+      
+      // 그룹화가 설정되어 있으면 다시 적용
+      applyGrouping();
     };
     
     // 초기화
