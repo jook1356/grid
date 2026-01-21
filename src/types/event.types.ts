@@ -98,7 +98,7 @@ export interface GridEventPayloads {
   // 뷰 상태 이벤트 페이로드
   'view:changed': {
     viewState: ViewState;
-    changedProperty: 'sorts' | 'filters' | 'groups' | 'pivot';
+    changedProperty: 'sorts' | 'filters' | 'groups';
   };
 
   // 인덱스 이벤트 페이로드

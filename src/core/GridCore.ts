@@ -46,7 +46,6 @@ import { DataStore } from './DataStore';
 import { IndexManager } from './IndexManager';
 import { WorkerBridge } from '../processor/WorkerBridge';
 import { ViewDataManager } from './ViewDataManager';
-import type { PivotConfig, PivotResult } from './ViewConfig';
 
 // =============================================================================
 // 타입 정의
@@ -420,104 +419,6 @@ export class GridCore {
     this.ensureDataLoaded();
 
     return this.workerBridge.aggregate(options);
-  }
-
-  // ===========================================================================
-  // 피봇
-  // ===========================================================================
-
-  /**
-   * 피봇 모드 설정
-   *
-   * 데이터를 피봇하여 행↔열 변환을 수행합니다.
-   * rowFields는 자동으로 좌측 고정 컬럼이 됩니다.
-   *
-   * @param config - 피봇 설정
-   * @returns 피봇 결과
-   *
-   * @example
-   * const result = await grid.setPivotConfig({
-   *   rowFields: ['department'],
-   *   columnFields: ['year', 'quarter'],
-   *   valueFields: [{ field: 'sales', aggregate: 'sum' }]
-   * });
-   *
-   * // result.rows: 피봇된 데이터
-   * // result.columns: 동적 생성된 컬럼 (rowFields + 동적 값 컬럼)
-   */
-  async setPivotConfig(config: PivotConfig): Promise<PivotResult> {
-    this.ensureInitialized();
-    this.ensureDataLoaded();
-
-    // 현재 필터 적용
-    const pivotOptions = {
-      rowFields: config.rowFields,
-      columnFields: config.columnFields,
-      valueFields: config.valueFields.map(vf => ({
-        field: vf.field,
-        aggregate: vf.aggregate,
-        label: vf.label,
-      })),
-      filters: this.viewState.filters,
-    };
-
-    // Worker에서 피봇 실행
-    const result = await this.workerBridge.pivot(pivotOptions);
-
-    // ViewDataManager에 피봇 모드 설정 (자동 컬럼 고정 포함)
-    this.viewDataManager.setPivotMode(config, result);
-
-    // 이벤트 발행
-    this.events.emit('view:changed', {
-      viewState: this.viewState,
-      changedProperty: 'pivot',
-    });
-
-    return result;
-  }
-
-  /**
-   * 피봇 모드 해제 (일반 모드로 복귀)
-   *
-   * @example
-   * grid.clearPivot();
-   */
-  clearPivot(): void {
-    this.viewDataManager.setNormalMode();
-
-    // 이벤트 발행
-    this.events.emit('view:changed', {
-      viewState: this.viewState,
-      changedProperty: 'pivot',
-    });
-  }
-
-  /**
-   * 피봇 모드 여부 확인
-   */
-  isPivotMode(): boolean {
-    return this.viewDataManager.isPivotMode();
-  }
-
-  /**
-   * 현재 피봇 설정 가져오기
-   */
-  getPivotConfig(): PivotConfig | null {
-    return this.viewDataManager.getCurrentPivotConfig();
-  }
-
-  /**
-   * 피봇된 데이터 가져오기 (피봇 모드에서만 유효)
-   */
-  getPivotedData(): Row[] | null {
-    return this.viewDataManager.getPivotedData();
-  }
-
-  /**
-   * 피봇된 컬럼 정의 가져오기 (피봇 모드에서만 유효)
-   */
-  getPivotedColumns(): ColumnDef[] | null {
-    return this.viewDataManager.getPivotedColumns();
   }
 
   // ===========================================================================

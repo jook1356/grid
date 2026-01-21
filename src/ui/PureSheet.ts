@@ -8,7 +8,6 @@
 import { GridCore } from '../core/GridCore';
 import type { ColumnDef, Row as RowData, SortState, FilterState } from '../types';
 import type { GroupingConfig } from '../types/grouping.types';
-import type { PivotConfig, PivotResult } from '../core/ViewConfig';
 import type { PureSheetOptions, CellPosition, ColumnState, SelectionState } from './types';
 import { GridRenderer } from './GridRenderer';
 import { SelectionManager } from './interaction/SelectionManager';
@@ -35,7 +34,6 @@ export type PureSheetEventType =
   | 'column:pin'
   | 'sort:changed'
   | 'filter:changed'
-  | 'pivot:changed'
   | 'scroll';
 
 /**
@@ -122,14 +120,9 @@ export class PureSheet {
     // 이벤트 연결
     this.setupEventListeners();
 
-    // 초기 데이터 로드 및 피봇 설정
+    // 초기 데이터 로드
     if (this.options.data) {
-      void this.loadData(this.options.data).then(() => {
-        // 피봇 설정이 있으면 적용
-        if (this.options.pivotConfig) {
-          void this.setPivotConfig(this.options.pivotConfig);
-        }
-      });
+      void this.loadData(this.options.data);
     }
   }
 
@@ -222,76 +215,6 @@ export class PureSheet {
     await this.gridCore.filter(filters);
     this.gridRenderer.refresh();
     this.emitEvent('filter:changed', { filters });
-  }
-
-  // ===========================================================================
-  // 피봇 API
-  // ===========================================================================
-
-  /**
-   * 피봇 모드 설정
-   *
-   * 데이터를 피봇하여 행↔열 변환을 수행합니다.
-   * rowFields는 자동으로 좌측 고정 컬럼이 됩니다.
-   *
-   * @param config - 피봇 설정
-   * @returns 피봇 결과 (새로운 rows, columns)
-   *
-   * @example
-   * const result = await sheet.setPivotConfig({
-   *   rowFields: ['department'],
-   *   columnFields: ['year', 'quarter'],
-   *   valueFields: [{ field: 'sales', aggregate: 'sum' }]
-   * });
-   */
-  async setPivotConfig(config: PivotConfig): Promise<PivotResult> {
-    // GridCore 초기화 완료 대기
-    await this.initPromise;
-
-    // 피봇 실행
-    const result = await this.gridCore.setPivotConfig(config);
-
-    // 피봇된 컬럼으로 GridRenderer 업데이트
-    this.gridRenderer.updateColumns(
-      result.columns.map((col, index) => ({
-        key: col.key,
-        width: col.width ?? 100,
-        pinned: config.rowFields.includes(col.key) ? 'left' as const : 'none' as const,
-        visible: true,
-        order: index,
-      }))
-    );
-
-    // 피봇된 데이터로 그리드 새로고침
-    await this.gridCore.loadData(result.rows, result.columns);
-    this.gridRenderer.refresh();
-
-    return result;
-  }
-
-  /**
-   * 피봇 모드 해제 (일반 모드로 복귀)
-   *
-   * @example
-   * sheet.clearPivot();
-   */
-  clearPivot(): void {
-    this.gridCore.clearPivot();
-    this.gridRenderer.refresh();
-  }
-
-  /**
-   * 피봇 모드 여부 확인
-   */
-  isPivotMode(): boolean {
-    return this.gridCore.isPivotMode();
-  }
-
-  /**
-   * 현재 피봇 설정 가져오기
-   */
-  getPivotConfig(): PivotConfig | null {
-    return this.gridCore.getPivotConfig();
   }
 
   /**

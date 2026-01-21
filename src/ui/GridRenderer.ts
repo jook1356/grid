@@ -182,15 +182,6 @@ export class GridRenderer {
   }
 
   /**
-   * 전체 컬럼 상태 업데이트 (피봇 등 전체 컬럼 변경 시 사용)
-   */
-  updateColumns(newColumnStates: ColumnState[]): void {
-    this.columnStates = newColumnStates;
-    this.headerRenderer?.updateColumns(this.columnStates);
-    this.bodyRenderer?.updateColumns(this.columnStates);
-  }
-
-  /**
    * 정렬 상태 업데이트
    */
   updateSortState(sortStates: SortState[]): void {
