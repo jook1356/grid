@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>피벗 그리드 (Pivot Grid) - PureSheet Demo</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+  <link rel="stylesheet" href="../../src/ui/style/default.css">
+</head>
+<body>
+  <!-- 네비게이션 -->
+  <nav class="demo-nav">
+    <a href="../index.html">🏠 홈</a>
+    <a href="pinning.html">📌 행/컬럼 고정</a>
+    <a href="multi-row.html">📑 Multi-Row</a>
+    <a href="grouping.html">📂 행 그룹화</a>
+    <a href="selection-modes.html">🎯 선택 모드</a>
+    <a href="pivot.html" class="active">📊 피벗</a>
+  </nav>
+  
+  <!-- 헤더 -->
+  <div class="demo-header">
+    <h1>📊 피벗 그리드 (Pivot Grid)</h1>
+    <span class="badge badge-implemented">구현됨</span>
+  </div>
+  
+  <!-- 설명 -->
+  <div class="demo-description">
+    <p>
+      <strong>피벗 그리드</strong>는 데이터를 행 차원과 열 차원으로 교차 집계하여 보여주는 컴포넌트입니다.
+      아래 예제에서는 제품별(행)로 월별(열) 판매량과 수익을 집계합니다.
+      다중 레벨 컬럼 헤더가 자동으로 생성됩니다.
+    </p>
+  </div>
+  
+  <div class="demo-container">
+    <div class="toolbar">
+      <div class="toolbar-group">
+        <label>행 축:</label>
+        <select id="rowFieldSelect" onchange="updatePivot()">
+          <option value="product" selected>제품</option>
+          <option value="region">지역</option>
+          <option value="product,region">제품 → 지역</option>
+        </select>
+      </div>
+      
+      <div class="toolbar-divider"></div>
+      
+      <div class="toolbar-group">
+        <label>열 축:</label>
+        <select id="columnFieldSelect" onchange="updatePivot()">
+          <option value="month" selected>월</option>
+          <option value="quarter">분기</option>
+          <option value="quarter,month">분기 → 월</option>
+        </select>
+      </div>
+      
+      <div class="toolbar-divider"></div>
+      
+      <div class="toolbar-group">
+        <label>값:</label>
+        <select id="valueFieldSelect" onchange="updatePivot()">
+          <option value="sales" selected>판매량</option>
+          <option value="profit">수익</option>
+          <option value="sales,profit">판매량 + 수익</option>
+        </select>
+      </div>
+      
+      <div class="toolbar-divider"></div>
+      
+      <div class="toolbar-group">
+        <button onclick="resetPivot()">🔄 초기화</button>
+      </div>
+    </div>
+    
+    <div id="grid" style="height: 500px;"></div>
+    
+    <div class="status-bar" id="status">
+      준비됨 - 피벗 설정을 변경해보세요
+    </div>
+  </div>
+  
+  <!-- 코드 예제 -->
+  <div class="code-example">
+    <h3>API 사용법 (Pivot 모드)</h3>
+    <pre><span class="comment">// 피벗 모드로 PureSheet 생성</span>
+<span class="keyword">const</span> pivotGrid = <span class="keyword">new</span> <span class="function">PureSheet</span>(container, {
+  mode: <span class="string">'pivot'</span>,
+  
+  data: salesData,
+  
+  <span class="comment">// 필드 정의</span>
+  fields: [
+    { key: <span class="string">'month'</span>, header: <span class="string">'월'</span>, dataType: <span class="string">'string'</span> },
+    { key: <span class="string">'product'</span>, header: <span class="string">'제품'</span>, dataType: <span class="string">'string'</span> },
+    { key: <span class="string">'sales'</span>, header: <span class="string">'판매량'</span>, dataType: <span class="string">'number'</span>, aggregate: <span class="string">'sum'</span> },
+    { key: <span class="string">'profit'</span>, header: <span class="string">'수익'</span>, dataType: <span class="string">'number'</span>, aggregate: <span class="string">'sum'</span> },
+  ],
+  
+  <span class="comment">// 피벗 축 설정</span>
+  rowFields: [<span class="string">'product'</span>],           <span class="comment">// 행 축</span>
+  columnFields: [<span class="string">'month'</span>],          <span class="comment">// 열 축 (피벗되는 필드)</span>
+  valueFields: [<span class="string">'sales'</span>, <span class="string">'profit'</span>], <span class="comment">// 값 필드</span>
+  
+  theme: <span class="string">'light'</span>,
+});
+
+<span class="comment">// 동적으로 피벗 설정 변경</span>
+pivotGrid.<span class="function">setPivotConfig</span>({
+  rowFields: [<span class="string">'region'</span>],
+  columnFields: [<span class="string">'quarter'</span>],
+  valueFields: [<span class="string">'sales'</span>],
+});</pre>
+  </div>
+  
+  <!-- 데이터 정보 -->
+  <div class="info-panel">
+    <h3>📋 샘플 데이터 구조</h3>
+    <div class="data-preview">
+      <table>
+        <thead>
+          <tr>
+            <th>month</th>
+            <th>quarter</th>
+            <th>product</th>
+            <th>region</th>
+            <th>sales</th>
+            <th>profit</th>
+          </tr>
+        </thead>
+        <tbody id="dataPreview">
+          <!-- 동적으로 채워짐 -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+  
+  <script type="module">
+    import { PureSheet } from '../../src/index.ts';
+    
+    let sheet = null;
+    
+    // 샘플 데이터 생성
+    const months = ['1월', '2월', '3월', '4월', '5월', '6월'];
+    const quarters = ['Q1', 'Q1', 'Q1', 'Q2', 'Q2', 'Q2'];
+    const products = ['노트북', '스마트폰', '태블릿', '모니터', '키보드'];
+    const regions = ['서울', '부산', '대구', '인천'];
+    
+    const sampleData = [];
+    let id = 1;
+    
+    for (const product of products) {
+      for (const region of regions) {
+        for (let i = 0; i < months.length; i++) {
+          const baseSales = Math.floor(Math.random() * 100) + 50;
+          const baseProfit = Math.floor(baseSales * (Math.random() * 0.3 + 0.1));
+          
+          sampleData.push({
+            id: id++,
+            month: months[i],
+            quarter: quarters[i],
+            product,
+            region,
+            sales: baseSales,
+            profit: baseProfit,
+          });
+        }
+      }
+    }
+    
+    // 데이터 미리보기 표시
+    function showDataPreview() {
+      const tbody = document.getElementById('dataPreview');
+      tbody.innerHTML = sampleData.slice(0, 5).map(row => `
+        <tr>
+          <td>${row.month}</td>
+          <td>${row.quarter}</td>
+          <td>${row.product}</td>
+          <td>${row.region}</td>
+          <td>${row.sales}</td>
+          <td>${row.profit}</td>
+        </tr>
+      `).join('') + '<tr><td colspan="6">... (총 ' + sampleData.length + '행)</td></tr>';
+    }
+    
+    // 상태 업데이트
+    function updateStatus(message) {
+      document.getElementById('status').textContent = message;
+    }
+    
+    // 피벗 설정 파싱
+    function parsePivotConfig() {
+      const rowFieldSelect = document.getElementById('rowFieldSelect');
+      const columnFieldSelect = document.getElementById('columnFieldSelect');
+      const valueFieldSelect = document.getElementById('valueFieldSelect');
+      
+      return {
+        rowFields: rowFieldSelect.value.split(','),
+        columnFields: columnFieldSelect.value.split(','),
+        valueFields: valueFieldSelect.value.split(',').map(field => ({
+          field,
+          aggregate: 'sum',
+          header: field === 'sales' ? '판매량' : '수익',
+        })),
+      };
+    }
+    
+    // 피벗 그리드 초기화
+    async function initPivotGrid() {
+      const container = document.getElementById('grid');
+      
+      const fields = [
+        { key: 'month', header: '월', dataType: 'string' },
+        { key: 'quarter', header: '분기', dataType: 'string' },
+        { key: 'product', header: '제품', dataType: 'string' },
+        { key: 'region', header: '지역', dataType: 'string' },
+        { key: 'sales', header: '판매량', dataType: 'number', aggregate: 'sum' },
+        { key: 'profit', header: '수익', dataType: 'number', aggregate: 'sum' },
+      ];
+      
+      const pivotConfig = parsePivotConfig();
+      
+      sheet = new PureSheet(container, {
+        mode: 'pivot',
+        fields,
+        rowFields: pivotConfig.rowFields,
+        columnFields: pivotConfig.columnFields,
+        valueFields: pivotConfig.valueFields.map(v => v.field),
+        rowStyle: 'height: 36px;',
+        headerStyle: 'height: 40px;',
+        theme: 'light',
+      });
+      
+      // 데이터 먼저 로드 (피벗 연산 전에 데이터가 필요)
+      await sheet.loadData(sampleData);
+      
+      // 데이터 로드 후 피벗 설정 적용
+      await sheet.setPivotConfig(pivotConfig);
+      
+      updateStatus(`피벗 완료 - ${sampleData.length}개 원본 데이터 → ${sheet.getVisibleRowCount()}개 피벗 행`);
+    }
+    
+    // 피벗 업데이트
+    window.updatePivot = async function() {
+      if (!sheet) return;
+      
+      const pivotConfig = parsePivotConfig();
+      updateStatus('피벗 계산 중...');
+      
+      try {
+        await sheet.setPivotConfig(pivotConfig);
+        updateStatus(`피벗 완료 - 행: ${pivotConfig.rowFields.join(' → ')}, 열: ${pivotConfig.columnFields.join(' → ')}`);
+      } catch (error) {
+        console.error('Pivot error:', error);
+        updateStatus('피벗 오류: ' + error.message);
+      }
+    };
+    
+    // 초기화
+    window.resetPivot = async function() {
+      document.getElementById('rowFieldSelect').value = 'product';
+      document.getElementById('columnFieldSelect').value = 'month';
+      document.getElementById('valueFieldSelect').value = 'sales';
+      await updatePivot();
+    };
+    
+    // 초기화
+    showDataPreview();
+    initPivotGrid().catch(console.error);
+  </script>
+  
+  <style>
+    .info-panel {
+      margin: 20px auto;
+      max-width: 1200px;
+      padding: 15px 20px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border: 1px solid #e9ecef;
+    }
+    
+    .info-panel h3 {
+      margin: 0 0 10px 0;
+      font-size: 14px;
+      color: #495057;
+    }
+    
+    .data-preview {
+      overflow-x: auto;
+    }
+    
+    .data-preview table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    
+    .data-preview th,
+    .data-preview td {
+      padding: 6px 10px;
+      border: 1px solid #dee2e6;
+      text-align: left;
+    }
+    
+    .data-preview th {
+      background: #e9ecef;
+      font-weight: 600;
+    }
+    
+    .data-preview tr:nth-child(even) {
+      background: #f8f9fa;
+    }
+    
+    .data-preview tr:last-child td {
+      text-align: center;
+      color: #6c757d;
+      font-style: italic;
+    }
+  </style>
+</body>
+</html>
+

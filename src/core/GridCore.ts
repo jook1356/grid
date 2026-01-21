@@ -465,6 +465,31 @@ export class GridCore {
     return this.dataStore.getColumns();
   }
 
+  /**
+   * 컬럼 정의 설정
+   * 
+   * 피벗 모드 전환 등에서 컬럼을 동적으로 변경할 때 사용합니다.
+   * 
+   * @param columns - 새 컬럼 정의
+   */
+  setColumns(columns: ColumnDef[]): void {
+    this.dataStore.setColumns(columns);
+  }
+
+  /**
+   * DataStore 접근 (피벗 모드 등에서 직접 데이터 조작 시 사용)
+   */
+  getDataStore(): DataStore {
+    return this.dataStore;
+  }
+
+  /**
+   * IndexManager 접근 (피벗 모드 등에서 인덱스 재설정 시 사용)
+   */
+  getIndexManager(): IndexManager {
+    return this.indexManager;
+  }
+
   // ===========================================================================
   // CRUD 작업
   // ===========================================================================

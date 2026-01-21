@@ -1,25 +1,30 @@
 /**
- * DataStore - 원본 데이터 저장소
+ * DataStore - 원본 및 뷰 데이터 저장소
  *
- * Grid의 원본 데이터를 보관하고 관리합니다.
- * 정렬이나 필터링은 하지 않습니다 (그건 Processor의 역할).
+ * Grid의 원본 데이터와 뷰 데이터를 분리하여 보관합니다.
+ * - sourceRows: 원본 데이터 (loadData로 설정, 변경 안됨)
+ * - rows: 뷰 데이터 (피벗/필터/정렬 결과, 렌더링에 사용)
  *
  * 핵심 원칙:
- * 1. 원본 데이터는 불변 (정렬/필터로 순서 변경 X)
- * 2. 데이터 변경 시 이벤트 발행
- * 3. 인덱스로 빠른 접근 제공
+ * 1. 원본 데이터는 불변 (sourceRows)
+ * 2. 뷰 데이터는 가공 결과 (rows)
+ * 3. 데이터 변경 시 이벤트 발행
+ * 4. 인덱스로 빠른 접근 제공
  *
  * @example
  * const store = new DataStore(eventEmitter);
  *
- * // 데이터 설정
+ * // 원본 데이터 설정
  * store.setData(rows, columns);
  *
- * // 인덱스로 접근
- * const row = store.getRowByIndex(0);
+ * // 뷰 데이터 설정 (피벗 등)
+ * store.setViewData(pivotedRows, pivotColumns);
  *
- * // 범위로 접근 (가상화용)
- * const rows = store.getRowsByIndices([0, 1, 2, 3, 4]);
+ * // 원본 데이터 조회
+ * const source = store.getSourceData();
+ *
+ * // 뷰 데이터 조회 (렌더링용)
+ * const view = store.getData();
  */
 
 import type { Row, ColumnDef, RowChange } from '../types';
@@ -34,16 +39,22 @@ export interface DataStoreOptions {
 }
 
 /**
- * 원본 데이터 저장소
+ * 원본 및 뷰 데이터 저장소
  */
 export class DataStore {
-  /** 원본 데이터 배열 */
+  /** 원본 데이터 배열 (불변) */
+  private sourceRows: Row[] = [];
+
+  /** 원본 컬럼 정의 배열 */
+  private sourceColumns: ColumnDef[] = [];
+
+  /** 뷰 데이터 배열 (렌더링용, 피벗/필터/정렬 결과) */
   private rows: Row[] = [];
 
-  /** 컬럼 정의 배열 */
+  /** 뷰 컬럼 정의 배열 */
   private columns: ColumnDef[] = [];
 
-  /** ID → 인덱스 매핑 (빠른 조회용) */
+  /** ID → 인덱스 매핑 (뷰 데이터 기준, 빠른 조회용) */
   private idToIndexMap = new Map<string | number, number>();
 
   /** 행 ID 컬럼 키 */
@@ -65,9 +76,10 @@ export class DataStore {
   // ==========================================================================
 
   /**
-   * 데이터와 컬럼 설정
+   * 원본 데이터와 컬럼 설정
    *
-   * 기존 데이터를 완전히 교체합니다.
+   * 원본 데이터와 뷰 데이터 모두 설정합니다.
+   * 피벗이나 필터가 적용되지 않은 초기 상태입니다.
    *
    * @param rows - 행 데이터 배열
    * @param columns - 컬럼 정의 배열
@@ -79,6 +91,11 @@ export class DataStore {
    * );
    */
   setData(rows: Row[], columns: ColumnDef[]): void {
+    // 원본 데이터 저장
+    this.sourceRows = rows;
+    this.sourceColumns = columns;
+
+    // 뷰 데이터도 동일하게 설정 (초기 상태)
     this.rows = rows;
     this.columns = columns;
     this.rebuildIdMap();
@@ -90,7 +107,46 @@ export class DataStore {
   }
 
   /**
-   * 컬럼 정의만 설정
+   * 뷰 데이터만 설정 (피벗, 필터 결과 등)
+   *
+   * 원본 데이터는 유지하고 뷰 데이터만 변경합니다.
+   *
+   * @param rows - 뷰 행 데이터 배열
+   * @param columns - 뷰 컬럼 정의 배열
+   *
+   * @example
+   * // 피벗 결과 설정
+   * store.setViewData(pivotedRows, pivotColumns);
+   */
+  setViewData(rows: Row[], columns: ColumnDef[]): void {
+    this.rows = rows;
+    this.columns = columns;
+    this.rebuildIdMap();
+
+    this.events.emit('data:loaded', {
+      rowCount: rows.length,
+      columnCount: columns.length,
+    });
+  }
+
+  /**
+   * 뷰 데이터를 원본으로 복원
+   *
+   * 피벗이나 필터를 해제하고 원본 상태로 돌아갑니다.
+   */
+  resetToSource(): void {
+    this.rows = this.sourceRows;
+    this.columns = this.sourceColumns;
+    this.rebuildIdMap();
+
+    this.events.emit('data:loaded', {
+      rowCount: this.rows.length,
+      columnCount: this.columns.length,
+    });
+  }
+
+  /**
+   * 컬럼 정의만 설정 (뷰 컬럼)
    *
    * @param columns - 컬럼 정의 배열
    */
@@ -103,23 +159,43 @@ export class DataStore {
   // ==========================================================================
 
   /**
-   * 전체 데이터 반환 (읽기 전용)
+   * 뷰 데이터 반환 (렌더링용)
    *
-   * readonly를 사용해 외부에서 수정 방지
+   * 피벗/필터/정렬 결과가 적용된 데이터입니다.
    *
-   * @returns 원본 데이터 배열 (읽기 전용)
+   * @returns 뷰 데이터 배열 (읽기 전용)
    */
   getData(): readonly Row[] {
     return this.rows;
   }
 
   /**
-   * 컬럼 정의 반환 (읽기 전용)
+   * 원본 데이터 반환 (피벗 재계산 등에 사용)
    *
-   * @returns 컬럼 정의 배열 (읽기 전용)
+   * 원본 데이터는 loadData로 설정된 그대로 유지됩니다.
+   *
+   * @returns 원본 데이터 배열 (읽기 전용)
+   */
+  getSourceData(): readonly Row[] {
+    return this.sourceRows;
+  }
+
+  /**
+   * 뷰 컬럼 정의 반환 (렌더링용)
+   *
+   * @returns 뷰 컬럼 정의 배열 (읽기 전용)
    */
   getColumns(): readonly ColumnDef[] {
     return this.columns;
+  }
+
+  /**
+   * 원본 컬럼 정의 반환
+   *
+   * @returns 원본 컬럼 정의 배열 (읽기 전용)
+   */
+  getSourceColumns(): readonly ColumnDef[] {
+    return this.sourceColumns;
   }
 
   /**

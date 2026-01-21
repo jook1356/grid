@@ -177,10 +177,31 @@ export function getGridMode(config: PureSheetConfig): 'flat' | 'pivot' {
 
 /**
  * Pivot Config 추출 (Pivot 모드일 때만)
+ * 
+ * PivotModeConfig(사용자 설정)를 PivotConfig(내부용)로 변환합니다.
  */
-export function getPivotConfig(config: PureSheetConfig): PivotModeConfig | null {
-  if (!isFlatMode(config)) {
-    return config as PivotModeConfig;
+export function getPivotConfig(config: PureSheetConfig): import('../../types/pivot.types').PivotConfig | null {
+  if (isFlatMode(config)) {
+    return null;
   }
-  return null;
+
+  const pivotMode = config as PivotModeConfig;
+  const fields = pivotMode.fields || [];
+
+  // valueFields: string[] → PivotValueField[]
+  const valueFields = (pivotMode.valueFields || []).map((fieldKey) => {
+    const fieldDef = fields.find((f) => f.key === fieldKey);
+    return {
+      field: fieldKey,
+      aggregate: fieldDef?.aggregate || 'sum',
+      header: fieldDef?.header || fieldKey,
+      formatter: fieldDef?.formatter,
+    };
+  });
+
+  return {
+    rowFields: pivotMode.rowFields || [],
+    columnFields: pivotMode.columnFields || [],
+    valueFields,
+  };
 }

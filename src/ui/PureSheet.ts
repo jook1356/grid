@@ -19,7 +19,6 @@ import { Row } from './row/Row';
 import type { RowConfig, AggregateConfig } from './row/types';
 import { configToInternalOptions, getGridMode, getPivotConfig, type InternalOptions } from './utils/configAdapter';
 import { PivotProcessor } from '../processor/PivotProcessor';
-import { PivotHeaderRenderer } from './pivot/PivotHeaderRenderer';
 
 /**
  * PureSheet 이벤트 타입
@@ -76,7 +75,6 @@ export class PureSheet {
 
   // 피벗 관련
   private pivotProcessor: PivotProcessor | null = null;
-  private pivotHeaderRenderer: PivotHeaderRenderer | null = null;
   private pivotConfig: PivotConfig | null = null;
   private pivotResult: PivotResult | null = null;
 
@@ -103,6 +101,14 @@ export class PureSheet {
 
     // Config를 내부 옵션으로 변환
     this.options = configToInternalOptions(config);
+
+    // 피벗 모드일 때 pivotConfig 자동 설정
+    if (this.gridMode === 'pivot') {
+      const pivotConfigFromConfig = getPivotConfig(config);
+      if (pivotConfigFromConfig) {
+        this.pivotConfig = pivotConfigFromConfig;
+      }
+    }
 
     // GridCore 초기화
     this.gridCore = new GridCore({
@@ -158,13 +164,23 @@ export class PureSheet {
 
   /**
    * 데이터 로드
+   * 
+   * 피벗 모드일 때 pivotConfig가 설정되어 있으면 자동으로 피벗 적용
    */
   async loadData(data: RowData[]): Promise<void> {
     // GridCore 초기화 완료 대기
     await this.initPromise;
 
+    // DataStore에 원본 데이터 저장 (source + view 모두 설정)
     await this.gridCore.loadData(data);
-    this.gridRenderer.refresh();
+
+    // 피벗 모드이고 pivotConfig가 있으면 피벗 적용
+    if (this.gridMode === 'pivot' && this.pivotConfig) {
+      await this.applyPivot();
+    } else {
+      this.gridRenderer.refresh();
+    }
+
     this.emitEvent('data:loaded', {
       rowCount: data.length,
       columnCount: this.options.columns.length,
@@ -676,42 +692,68 @@ export class PureSheet {
 
   /**
    * 피벗 적용
+   * 
+   * DataStore.getSourceData()에서 원본 데이터를 조회하여 피벗 연산 수행.
+   * 원본 데이터는 DataStore.sourceRows에 유지되고, 피벗 결과는 뷰(viewData)로 설정.
+   * 
+   * 1. DataStore에서 원본 데이터 조회 (getSourceData)
+   * 2. PivotProcessor로 피벗 연산 수행
+   * 3. GridRenderer의 헤더를 PivotHeaderRenderer로 교체
+   * 4. 피벗 결과를 뷰 데이터로 설정 (setViewData)
    */
   private async applyPivot(): Promise<void> {
     if (!this.pivotConfig) return;
 
-    // PivotProcessor 초기화 (없으면 생성)
+    // PivotProcessor 생성 (없으면)
     if (!this.pivotProcessor) {
       this.pivotProcessor = new PivotProcessor();
     }
 
-    // 원본 데이터로 초기화
-    const data = this.gridCore.getAllData() as RowData[];
-    await this.pivotProcessor.initialize(data);
+    // DataStore에서 원본 데이터 조회 (sourceRows - 변경되지 않음)
+    const sourceData = this.gridCore.getDataStore().getSourceData() as RowData[];
 
-    // 피벗 연산 실행
+    // 원본 데이터로 Arquero 테이블 초기화 후 피벗 연산
+    await this.pivotProcessor.initialize(sourceData);
     this.pivotResult = await this.pivotProcessor.pivot(this.pivotConfig);
 
-    // TODO: PivotHeaderRenderer 생성 및 렌더링
-    // TODO: 피벗된 데이터로 BodyRenderer 업데이트
+    // 피벗 헤더로 교체 (HeaderRenderer → PivotHeaderRenderer)
+    this.gridRenderer.switchToPivotHeader(this.pivotResult);
 
-    console.log('Pivot result:', this.pivotResult);
+    // 피벗 데이터 평탄화 (PivotRow → Row 형식으로 변환)
+    const flattenedData = this.pivotResult.pivotedData.map(pivotRow => ({
+      ...pivotRow.rowHeaders,
+      ...pivotRow.values,
+      __pivotType: pivotRow.type,
+    }));
+
+    // 피벗 컬럼
+    const allColumns = [...this.pivotResult.rowHeaderColumns, ...this.pivotResult.columns];
+
+    // 뷰 데이터만 업데이트 (원본 sourceRows는 유지됨!)
+    this.gridCore.getDataStore().setViewData(flattenedData, allColumns);
+    this.gridCore.getIndexManager().initialize(flattenedData.length);
+
+    // UI 새로고침
+    this.gridRenderer.refresh();
   }
 
   /**
    * 피벗 해제 (일반 모드로 복원)
+   * 
+   * 1. PivotHeaderRenderer를 제거하고 HeaderRenderer로 복원
+   * 2. DataStore의 원본 데이터로 복원
    */
   private restoreFromPivot(): void {
-    // PivotHeaderRenderer 제거
-    if (this.pivotHeaderRenderer) {
-      this.pivotHeaderRenderer.destroy();
-      this.pivotHeaderRenderer = null;
-    }
-
     this.pivotResult = null;
 
-    // TODO: 원본 헤더 복원
-    // TODO: 원본 데이터로 BodyRenderer 업데이트
+    // 일반 헤더로 복원 (PivotHeaderRenderer → HeaderRenderer)
+    this.gridRenderer.switchToFlatHeader();
+
+    // DataStore의 원본 데이터로 복원 (sourceRows → rows)
+    this.gridCore.getDataStore().resetToSource();
+    this.gridCore.getIndexManager().initialize(
+      this.gridCore.getDataStore().getSourceData().length
+    );
   }
 
   // ===========================================================================
