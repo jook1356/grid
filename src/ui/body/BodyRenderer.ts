@@ -13,13 +13,13 @@ import type { GridCore } from '../../core/GridCore';
 import type { Row as RowData, ColumnDef } from '../../types';
 import type { VirtualRow, GroupHeaderRow, DataRow, GroupingConfig, RowTemplate } from '../../types/grouping.types';
 import type { ColumnState, ColumnGroups, CellPosition } from '../types';
-import type { RowRenderContext } from '../row/types';
+import type { RowRenderContext, MergeInfoGetter } from '../row/types';
 import { VirtualScroller } from '../VirtualScroller';
 import { RowPool } from './RowPool';
 import { GroupManager } from '../grouping/GroupManager';
 import { MultiRowRenderer } from '../multirow/MultiRowRenderer';
 import { Row } from '../row/Row';
-import { RowRenderer } from '../row/RowRenderer';
+import type { MergeManager, CellMergeInfo } from '../merge/MergeManager';
 
 /**
  * 고정 행 설정
@@ -29,6 +29,14 @@ export interface PinnedRowsConfig {
   top?: Row[];
   /** 하단 고정 행 */
   bottom?: Row[];
+}
+
+/**
+ * MergeManager 설정
+ */
+export interface MergeManagerOptions {
+  /** MergeManager 인스턴스 */
+  mergeManager?: MergeManager;
 }
 
 /**
@@ -49,6 +57,16 @@ export interface BodyRendererOptions {
   rowTemplate?: RowTemplate;
   /** 고정 행 설정 (선택) */
   pinnedRows?: PinnedRowsConfig;
+  /** MergeManager 인스턴스 (선택) */
+  mergeManager?: MergeManager;
+  /** 외부 세로 스크롤 프록시 (선택) - GridRenderer에서 전달 */
+  scrollProxyY?: HTMLElement;
+  /** 외부 가로 스크롤 프록시 (선택) - GridRenderer에서 전달 */
+  scrollProxyX?: HTMLElement;
+  /** 외부 세로 스페이서 (선택) - GridRenderer에서 전달 */
+  spacerY?: HTMLElement;
+  /** 외부 가로 스페이서 (선택) - GridRenderer에서 전달 */
+  spacerX?: HTMLElement;
   /** 행 클릭 콜백 */
   onRowClick?: (rowIndex: number, row: RowData, event: MouseEvent) => void;
   /** 셀 클릭 콜백 */
@@ -84,18 +102,22 @@ export class BodyRenderer {
   private container: HTMLElement;
   private pinnedTopContainer: HTMLElement;
   private scrollWrapper: HTMLElement;
-  private scrollProxy: HTMLElement;
+  private scrollProxyY: HTMLElement;
+  private scrollProxyX: HTMLElement;
   private viewport: HTMLElement;
-  private spacer: HTMLElement;
+  private spacerY: HTMLElement;
+  private spacerX: HTMLElement;
   private rowContainer: HTMLElement;
   private pinnedBottomContainer: HTMLElement;
+  
+  // 외부 스크롤 프록시 여부
+  private externalScrollProxy: boolean = false;
 
   // 모듈
   private virtualScroller: VirtualScroller;
   private rowPool: RowPool;
   private groupManager: GroupManager;
   private multiRowRenderer: MultiRowRenderer | null = null;
-  private rowRenderer: RowRenderer;
 
   // Multi-Row 설정
   private rowTemplate: RowTemplate | null = null;
@@ -138,6 +160,9 @@ export class BodyRenderer {
   private boundHandleMouseMove: (e: MouseEvent) => void;
   private boundHandleMouseUp: (e: MouseEvent) => void;
 
+  // 셀 병합 관리자
+  private mergeManager: MergeManager | null = null;
+
   constructor(container: HTMLElement, options: BodyRendererOptions) {
     this.container = container;
     this.gridCore = options.gridCore;
@@ -168,17 +193,33 @@ export class BodyRenderer {
     // 스크롤 영역 래퍼 (flex 레이아웃에서 나머지 공간 차지)
     this.scrollWrapper = this.createElement('div', 'ps-scroll-wrapper');
     
-    // 스크롤 영역 (래퍼 내부)
-    this.scrollProxy = this.createElement('div', 'ps-scroll-proxy');
-    this.spacer = this.createElement('div', 'ps-scroll-spacer');
-    this.scrollProxy.appendChild(this.spacer);
+    // 스크롤 프록시와 스페이서 (외부에서 전달받거나 내부 생성)
+    if (options.scrollProxyY && options.scrollProxyX && options.spacerY && options.spacerX) {
+      // 외부에서 전달받은 경우 (그리드 컨테이너 레벨에 위치)
+      this.scrollProxyY = options.scrollProxyY;
+      this.scrollProxyX = options.scrollProxyX;
+      this.spacerY = options.spacerY;
+      this.spacerX = options.spacerX;
+      this.externalScrollProxy = true;
+    } else {
+      // 내부에서 생성 (기존 방식 - fallback)
+      this.scrollProxyY = this.createElement('div', 'ps-scroll-proxy-y');
+      this.spacerY = this.createElement('div', 'ps-scroll-spacer-y');
+      this.scrollProxyY.appendChild(this.spacerY);
+      this.scrollWrapper.appendChild(this.scrollProxyY);
+      
+      this.scrollProxyX = this.createElement('div', 'ps-scroll-proxy-x');
+      this.spacerX = this.createElement('div', 'ps-scroll-spacer-x');
+      this.scrollProxyX.appendChild(this.spacerX);
+      // 가로 스크롤바는 scrollWrapper 바깥에 추가해야 하지만 fallback에서는 일단 내부에
+      this.externalScrollProxy = false;
+    }
 
     this.viewport = this.createElement('div', 'ps-viewport');
     this.rowContainer = this.createElement('div', 'ps-row-container');
     this.viewport.appendChild(this.rowContainer);
 
-    // 스크롤 래퍼에 추가
-    this.scrollWrapper.appendChild(this.scrollProxy);
+    // 스크롤 래퍼에 viewport 추가
     this.scrollWrapper.appendChild(this.viewport);
 
     // 하단 고정 영역
@@ -195,9 +236,6 @@ export class BodyRenderer {
     });
 
     this.rowPool = new RowPool(this.rowContainer, this.columns.length);
-    
-    // RowRenderer 초기화 (Row 렌더링 전담)
-    this.rowRenderer = new RowRenderer();
 
     // GroupManager 초기화
     this.groupManager = new GroupManager({
@@ -219,7 +257,7 @@ export class BodyRenderer {
     }
 
     // VirtualScroller 연결 (rowContainer도 전달하여 네이티브 스크롤 지원)
-    this.virtualScroller.attach(this.scrollProxy, this.viewport, this.spacer, this.rowContainer);
+    this.virtualScroller.attach(this.scrollProxyY, this.viewport, this.spacerY, this.rowContainer);
 
     // 이벤트 바인딩
     this.virtualScroller.on('rangeChanged', this.onRangeChanged.bind(this));
@@ -227,8 +265,9 @@ export class BodyRenderer {
     this.viewport.addEventListener('dblclick', this.handleDblClick.bind(this));
     this.viewport.addEventListener('mousedown', this.handleMouseDown.bind(this));
 
-    // 가로 스크롤 동기화 (고정 영역도 함께 스크롤)
-    this.viewport.addEventListener('scroll', this.handleHorizontalScroll.bind(this));
+    // 가로 스크롤 프록시 이벤트 바인딩
+    this.scrollProxyX.addEventListener('scroll', this.handleProxyXScroll.bind(this), { passive: true });
+    this.viewport.addEventListener('scroll', this.handleViewportScroll.bind(this), { passive: true });
 
     // 고정 행 초기화
     if (options.pinnedRows) {
@@ -240,18 +279,44 @@ export class BodyRenderer {
       }
     }
 
+    // MergeManager 초기화
+    if (options.mergeManager) {
+      this.setMergeManager(options.mergeManager);
+    }
+
     // 초기 행 수 설정
     this.updateVirtualRows();
+
+    // 가로 스페이서 너비 초기화
+    this.updateHorizontalSpacerWidth();
 
     // 고정 행 렌더링
     this.renderPinnedRows();
   }
 
   /**
-   * 가로 스크롤 동기화 핸들러
+   * 가로 프록시 스크롤바 스크롤 핸들러
    */
-  private handleHorizontalScroll(): void {
+  private handleProxyXScroll(): void {
+    const scrollLeft = this.scrollProxyX.scrollLeft;
+    // viewport와 고정 영역 동기화
+    if (Math.abs(this.viewport.scrollLeft - scrollLeft) > 1) {
+      this.viewport.scrollLeft = scrollLeft;
+    }
+    this.pinnedTopContainer.scrollLeft = scrollLeft;
+    this.pinnedBottomContainer.scrollLeft = scrollLeft;
+  }
+
+  /**
+   * Viewport 스크롤 핸들러 (가로 스크롤 프록시와 동기화)
+   */
+  private handleViewportScroll(): void {
     const scrollLeft = this.viewport.scrollLeft;
+    // 프록시 스크롤바와 동기화
+    if (Math.abs(this.scrollProxyX.scrollLeft - scrollLeft) > 1) {
+      this.scrollProxyX.scrollLeft = scrollLeft;
+    }
+    // 고정 영역 동기화
     this.pinnedTopContainer.scrollLeft = scrollLeft;
     this.pinnedBottomContainer.scrollLeft = scrollLeft;
   }
@@ -267,6 +332,14 @@ export class BodyRenderer {
    * 고정된 집계 행(subtotal, grandtotal)은 데이터 기반으로 자동 재계산됩니다.
    */
   refresh(): void {
+    // MergeManager에 최신 컬럼 정의 전달 및 캐시 무효화
+    if (this.mergeManager) {
+      const columns = this.gridCore.getColumns();
+      this.mergeManager.setColumns(columns);
+      // 데이터 변경 시 MergeManager 캐시 무효화
+      this.mergeManager.invalidateCache();
+    }
+
     this.updateVirtualRows();
     this.renderVisibleRows();
     this.renderPinnedRows(); // 고정 행도 다시 렌더링 (집계 재계산)
@@ -345,8 +418,30 @@ export class BodyRenderer {
   updateColumns(columns: ColumnState[]): void {
     this.columns = columns;
     this.rowPool.updateColumnCount(columns.length);
+    this.updateHorizontalSpacerWidth();
     this.renderVisibleRows();
     this.renderPinnedRows(); // 고정 행도 다시 렌더링
+  }
+
+  /**
+   * 가로 스페이서 너비 업데이트 (컬럼 총 너비)
+   */
+  updateHorizontalSpacerWidth(): void {
+    const totalWidth = this.columns
+      .filter(col => col.visible)
+      .reduce((sum, col) => sum + col.width, 0);
+    this.spacerX.style.width = `${totalWidth}px`;
+  }
+
+  /**
+   * 특정 컬럼 너비 업데이트 (리사이즈 시 호출)
+   */
+  updateColumnWidth(columnKey: string, width: number): void {
+    const col = this.columns.find(c => c.key === columnKey);
+    if (col) {
+      col.width = width;
+      this.updateHorizontalSpacerWidth();
+    }
   }
 
   /**
@@ -464,6 +559,120 @@ export class BodyRenderer {
    */
   setRenderRowHeight(height: number): void {
     this.virtualScroller.setRenderRowHeight(height);
+  }
+
+  // ===========================================================================
+  // 셀 병합 API (Merge Manager)
+  // ===========================================================================
+
+  /**
+   * MergeManager 설정
+   *
+   * @param manager - MergeManager 인스턴스 (null이면 병합 해제)
+   */
+  setMergeManager(manager: MergeManager | null): void {
+    this.mergeManager = manager;
+
+    // MergeManager에 컬럼 정의 전달
+    if (manager) {
+      const columns = this.gridCore.getColumns();
+      manager.setColumns(columns);
+    }
+
+    // 다시 렌더링
+    this.refresh();
+  }
+
+  /**
+   * MergeManager 반환
+   */
+  getMergeManager(): MergeManager | null {
+    return this.mergeManager;
+  }
+
+  /**
+   * 셀 병합 정보 조회 콜백 생성
+   *
+   * Row 렌더링 시 전달되는 getMergeInfo 콜백을 생성합니다.
+   * MergeManager의 사전 계산된 캐시를 활용하여 O(1)로 조회합니다.
+   *
+   * **동적 앵커 로직**:
+   * 실제 앵커(range.startRow)가 viewport 밖에 있으면,
+   * 현재 보이는 범위 내 첫 번째 행을 "가상 앵커"로 만들어 표시합니다.
+   * 이로써 병합 앵커가 스크롤 아웃되어도 병합 영역이 올바르게 표시됩니다.
+   *
+   * **성능 최적화**:
+   * - MergeManager의 사전 계산 (O(n) 한 번) + 캐시 (O(1) 조회)
+   * - 동적 앵커 변환은 간단한 조건문이므로 캐시 없이도 빠름
+   */
+  private createMergeInfoGetter(visibleStartIndex: number): MergeInfoGetter | undefined {
+    if (!this.mergeManager) {
+      return undefined;
+    }
+
+    const data = this.gridCore.getAllData();
+    const manager = this.mergeManager;
+
+    return (rowIndex: number, columnKey: string): CellMergeInfo => {
+      // MergeManager에서 원본 병합 정보 조회 (O(1) - 사전 계산됨)
+      const originalInfo = manager.getCellMergeInfo(rowIndex, columnKey, data);
+
+      // 동적 앵커 로직 적용 (간단한 조건문)
+      return this.applyDynamicAnchor(originalInfo, rowIndex, visibleStartIndex);
+    };
+  }
+
+  /**
+   * 동적 앵커 로직 적용
+   *
+   * 실제 앵커가 viewport 밖에 있으면, 보이는 범위 내 첫 번째 행을 가상 앵커로 변환합니다.
+   */
+  private applyDynamicAnchor(
+    info: CellMergeInfo,
+    rowIndex: number,
+    visibleStartIndex: number
+  ): CellMergeInfo {
+    const { range } = info;
+
+    // 병합이 없으면 그대로 반환
+    if (!range) {
+      return info;
+    }
+
+    // 실제 앵커가 보이는 범위 내에 있으면 원본 반환
+    if (range.startRow >= visibleStartIndex) {
+      return info;
+    }
+
+    // 현재 행이 병합 범위 내에 있는지 확인
+    if (rowIndex < range.startRow || rowIndex > range.endRow) {
+      return info;
+    }
+
+    // 실제 앵커가 viewport 밖 (위쪽) - 동적 앵커 필요
+    // 현재 행이 "보이는 범위 내 첫 번째 병합 행"인지 확인
+    const firstVisibleMergedRow = Math.max(range.startRow, visibleStartIndex);
+
+    if (rowIndex === firstVisibleMergedRow) {
+      // 가상 앵커로 변환
+      // rowSpan은 남은 병합 범위만큼 (endRow - 현재행 + 1)
+      const remainingRowSpan = range.endRow - rowIndex + 1;
+
+      return {
+        range,
+        isAnchor: true,  // 가상 앵커
+        rowSpan: remainingRowSpan,
+        colSpan: info.colSpan,
+      };
+    } else {
+      // 가상 앵커 아래의 행들 → hidden
+      return {
+        range,
+        isAnchor: false,
+        rowSpan: 1,
+        colSpan: 1,
+      };
+    }
   }
 
   /**
@@ -595,6 +804,10 @@ export class BodyRenderer {
       return;
     }
 
+    // 병합 정보 조회 콜백 생성 (동적 앵커를 위해 visibleStartIndex 전달)
+    // MergeManager가 사전 계산된 캐시를 가지므로 추가 캐시 불필요
+    const getMergeInfo = this.createMergeInfoGetter(state.startIndex);
+
     // 렌더링 컨텍스트 생성
     const baseContext: Omit<RowRenderContext, 'rowIndex' | 'dataIndex'> = {
       columns: this.columns,
@@ -602,6 +815,7 @@ export class BodyRenderer {
       columnDefs: this.columnDefs,
       rowHeight: this.rowHeight,
       gridCore: this.gridCore,
+      getMergeInfo,
     };
 
     // 일반 모드
@@ -748,8 +962,8 @@ export class BodyRenderer {
         rowIndex: i, // 고정 영역 내 인덱스
       };
 
-      // RowRenderer로 렌더링 위임
-      this.rowRenderer.render(row, rowElement, context);
+      // Row 렌더링
+      row.render(rowElement, context);
     }
 
     // 컨테이너 높이 업데이트
@@ -799,8 +1013,8 @@ export class BodyRenderer {
       rowIndex,
     };
 
-    // RowRenderer로 렌더링 위임
-    this.rowRenderer.render(row, rowElement, context);
+    // Row 클래스로 렌더링 위임
+    row.render(rowElement, context);
   }
 
 
@@ -852,8 +1066,8 @@ export class BodyRenderer {
       dataIndex: dataRow.dataIndex,
     };
 
-    // RowRenderer로 렌더링 위임
-    this.rowRenderer.render(row, rowElement, context);
+    // Row 클래스로 렌더링 위임
+    row.render(rowElement, context);
 
     // 셀 선택 상태 적용 (Row 렌더링 후)
     this.applyCellSelectionToRow(rowElement, rowIndex);

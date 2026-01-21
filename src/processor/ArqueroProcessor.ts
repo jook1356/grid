@@ -24,7 +24,6 @@ import type { Table } from 'arquero';
 import type { CellValue } from '../types';
 import type {
   Row,
-  ColumnDef,
   SortState,
   FilterState,
   IDataProcessor,
@@ -32,44 +31,7 @@ import type {
   QueryOptions,
   AggregateQueryOptions,
   AggregateResult,
-  PivotColumnMeta,
 } from '../types';
-
-/**
- * 피봇 설정 옵션
- */
-export interface PivotOptions {
-  /** 행으로 유지될 필드 */
-  rowFields: string[];
-  /** 열로 펼쳐질 필드 */
-  columnFields: string[];
-  /** 값/집계 필드 */
-  valueFields: {
-    field: string;
-    aggregate: 'sum' | 'avg' | 'min' | 'max' | 'count' | 'first' | 'last';
-    label?: string;
-  }[];
-  /** 필터 (선택) */
-  filters?: FilterState[];
-}
-
-/**
- * 피봇 결과
- */
-export interface PivotResult {
-  /** 피봇된 행 데이터 */
-  rows: Row[];
-  /** 생성된 컬럼 정의 (행 필드 컬럼 + 동적 생성 컬럼) */
-  columns: ColumnDef[];
-  /** 동적 생성된 컬럼의 메타데이터 (헤더 렌더링용) */
-  pivotColumnMeta: PivotColumnMeta[];
-  /** 행 필드 키 배열 */
-  rowFields: string[];
-  /** 열 필드 키 배열 */
-  columnFields: string[];
-  /** 값 필드가 여러 개인지 여부 */
-  hasMultipleValueFields: boolean;
-}
 
 /**
  * Arquero 기반 데이터 처리기
@@ -126,6 +88,14 @@ export class ArqueroProcessor implements IDataProcessor {
     if (!this.table) {
       throw new Error('ArqueroProcessor not initialized. Call initialize() first.');
     }
+    return this.table;
+  }
+
+  /**
+   * 내부 테이블 접근 (서브클래스용)
+   * @protected
+   */
+  protected getTable(): Table | null {
     return this.table;
   }
 
@@ -417,233 +387,6 @@ export class ArqueroProcessor implements IDataProcessor {
       default:
         return aq.op.count();
     }
-  }
-
-  // ==========================================================================
-  // 피봇
-  // ==========================================================================
-
-  /**
-   * 피봇 수행
-   *
-   * 데이터를 피봇하여 행↔열 변환을 수행합니다.
-   * fold + groupby + 수동 집계 방식으로 구현 (Arquero pivot() 대신).
-   *
-   * @param options - 피봇 옵션
-   * @returns 피봇 결과 (새로운 Row[] + ColumnDef[])
-   *
-   * @example
-   * const result = await processor.pivot({
-   *   rowFields: ['department'],
-   *   columnFields: ['year', 'quarter'],
-   *   valueFields: [{ field: 'sales', aggregate: 'sum' }]
-   * });
-   */
-  async pivot(options: PivotOptions): Promise<PivotResult> {
-    let table = this.ensureInitialized();
-
-    // 필터 먼저 적용
-    if (options.filters && options.filters.length > 0) {
-      for (const filter of options.filters) {
-        table = this.applyFilter(table, filter);
-      }
-    }
-
-    const { rowFields, columnFields, valueFields } = options;
-
-    // 원본 데이터를 객체 배열로 변환
-    const data = table.objects() as Row[];
-
-    // 피봇 키 생성 함수 (여러 컬럼 필드를 하나의 키로 합침)
-    const getPivotKey = (row: Row): string => {
-      return columnFields.map((f) => String(row[f] ?? '')).join('_');
-    };
-
-    // 행 키 생성 함수
-    const getRowKey = (row: Row): string => {
-      return rowFields.map((f) => String(row[f] ?? '')).join('\0');
-    };
-
-    // 고유한 피봇 키 값 수집 (컬럼이 될 값들)
-    const uniquePivotKeys = new Set<string>();
-    for (const row of data) {
-      uniquePivotKeys.add(getPivotKey(row));
-    }
-    const sortedPivotKeys = Array.from(uniquePivotKeys).sort();
-
-    // 동적 생성될 컬럼 키 목록
-    const generatedValueColumnKeys: string[] = [];
-    for (const pivotKey of sortedPivotKeys) {
-      for (const vf of valueFields) {
-        generatedValueColumnKeys.push(`${pivotKey}_${vf.field}`);
-      }
-    }
-
-    // 그룹별 데이터 수집
-    const groupMap = new Map<string, {
-      rowData: Record<string, unknown>;
-      values: Map<string, { sum: number; count: number; min: number; max: number; first: unknown; last: unknown }>;
-    }>();
-
-    for (const row of data) {
-      const rowKey = getRowKey(row);
-      const pivotKey = getPivotKey(row);
-
-      // 그룹 초기화
-      if (!groupMap.has(rowKey)) {
-        const rowData: Record<string, unknown> = {};
-        for (const field of rowFields) {
-          rowData[field] = row[field];
-        }
-        groupMap.set(rowKey, { rowData, values: new Map() });
-      }
-
-      const group = groupMap.get(rowKey)!;
-
-      // 각 값 필드에 대해 집계 데이터 수집
-      for (const vf of valueFields) {
-        const fullKey = `${pivotKey}_${vf.field}`;
-        const value = row[vf.field];
-
-        if (!group.values.has(fullKey)) {
-          group.values.set(fullKey, {
-            sum: 0,
-            count: 0,
-            min: Infinity,
-            max: -Infinity,
-            first: undefined,
-            last: undefined,
-          });
-        }
-
-        const agg = group.values.get(fullKey)!;
-        const numValue = typeof value === 'number' ? value : 0;
-
-        agg.sum += numValue;
-        agg.count += 1;
-        agg.min = Math.min(agg.min, numValue);
-        agg.max = Math.max(agg.max, numValue);
-        if (agg.first === undefined) agg.first = value;
-        agg.last = value;
-      }
-    }
-
-    // 피봇된 행 생성
-    const rows: Row[] = [];
-    for (const [, group] of groupMap) {
-      const pivotedRow = { ...group.rowData } as Row;
-
-      // 모든 동적 컬럼에 대해 값 설정
-      for (const colKey of generatedValueColumnKeys) {
-        const agg = group.values.get(colKey);
-
-        if (agg && agg.count > 0) {
-          // 컬럼 키에서 값 필드 추출
-          const parts = colKey.split('_');
-          const fieldName = parts[parts.length - 1];
-          const vf = valueFields.find((v) => v.field === fieldName);
-
-          switch (vf?.aggregate) {
-            case 'sum':
-              pivotedRow[colKey] = agg.sum;
-              break;
-            case 'avg':
-              pivotedRow[colKey] = agg.sum / agg.count;
-              break;
-            case 'min':
-              pivotedRow[colKey] = agg.min === Infinity ? null : agg.min;
-              break;
-            case 'max':
-              pivotedRow[colKey] = agg.max === -Infinity ? null : agg.max;
-              break;
-            case 'count':
-              pivotedRow[colKey] = agg.count;
-              break;
-            case 'first':
-              pivotedRow[colKey] = agg.first as CellValue;
-              break;
-            case 'last':
-              pivotedRow[colKey] = agg.last as CellValue;
-              break;
-            default:
-              pivotedRow[colKey] = agg.sum;
-          }
-        } else {
-          pivotedRow[colKey] = null;
-        }
-      }
-
-      rows.push(pivotedRow);
-    }
-
-    // 컬럼 정의 생성
-    const columns = this.generatePivotColumnDefs(
-      rowFields,
-      generatedValueColumnKeys,
-      valueFields
-    );
-
-    // 피봇 컬럼 메타데이터 생성 (단순 배열 방식)
-    const pivotColumnMeta: PivotColumnMeta[] = [];
-    for (const pivotKey of sortedPivotKeys) {
-      const pivotValues = pivotKey ? pivotKey.split('_') : [];
-      for (const vf of valueFields) {
-        const columnKey = pivotKey ? `${pivotKey}_${vf.field}` : vf.field;
-        pivotColumnMeta.push({
-          columnKey,
-          pivotValues,
-          valueField: vf.field,
-          valueFieldLabel: vf.label,
-        });
-      }
-    }
-
-    return {
-      rows,
-      columns,
-      pivotColumnMeta,
-      rowFields,
-      columnFields,
-      hasMultipleValueFields: valueFields.length > 1,
-    };
-  }
-
-  /**
-   * 피봇 컬럼 정의 생성
-   */
-  private generatePivotColumnDefs(
-    rowFields: string[],
-    generatedKeys: string[],
-    _valueFields: { field: string; label?: string }[]
-  ): ColumnDef[] {
-    // 행 필드 컬럼
-    const rowColumnDefs: ColumnDef[] = rowFields.map((field) => ({
-      key: field,
-      label: field,
-      type: 'string' as const,
-      width: 120,
-    }));
-
-    // 동적 생성된 값 컬럼
-    const valueColumnDefs: ColumnDef[] = generatedKeys.map((key) => ({
-      key,
-      label: this.formatPivotColumnLabel(key),
-      type: 'number' as const,
-      width: 100,
-    }));
-
-    return [...rowColumnDefs, ...valueColumnDefs];
-  }
-
-  /**
-   * 피봇 컬럼 레이블 포맷팅
-   */
-  private formatPivotColumnLabel(key: string): string {
-    // 예: "2023_Q1_sales" → "2023 Q1 Sales"
-    return key
-      .split('_')
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(' ');
   }
 
   // ==========================================================================

@@ -5,9 +5,7 @@
  * - 셀 위치, 선택 상태, 에디터 설정 등
  */
 
-import type { CellValue, ColumnDef, Row } from '../types';
-import type { GroupingConfig, RowTemplate } from '../types/grouping.types';
-import type { PivotConfig } from '../core/ViewConfig';
+import type { CellValue, Row } from '../types';
 
 // =============================================================================
 // 셀 위치
@@ -176,60 +174,13 @@ export interface VirtualScrollState {
 }
 
 // =============================================================================
-// PureSheet 옵션
+// 테마 타입
 // =============================================================================
 
 /**
  * 테마 타입
  */
 export type ThemeType = 'light' | 'dark' | 'auto';
-
-/**
- * PureSheet 초기화 옵션
- */
-export interface PureSheetOptions {
-  /** 컬럼 정의 */
-  columns: ColumnDef[];
-
-  /** 초기 데이터 */
-  data?: Row[];
-
-  /** 기본 행 높이 (px) @default 36 */
-  rowHeight?: number;
-
-  /** 헤더 높이 (px) @default 40 */
-  headerHeight?: number;
-
-  /** 선택 모드 @default 'row' */
-  selectionMode?: SelectionMode;
-
-  /** 다중 선택 허용 @default true */
-  multiSelect?: boolean;
-
-  /** 체크박스 컬럼 표시 @default false */
-  showCheckboxColumn?: boolean;
-
-  /** 편집 가능 여부 @default false */
-  editable?: boolean;
-
-  /** 컬럼 리사이즈 가능 @default true */
-  resizableColumns?: boolean;
-
-  /** 컬럼 재정렬 가능 @default true */
-  reorderableColumns?: boolean;
-
-  /** 테마 @default 'light' */
-  theme?: ThemeType;
-
-  /** 그룹화 설정 (선택) */
-  groupingConfig?: GroupingConfig;
-
-  /** Multi-Row 템플릿 (선택) */
-  rowTemplate?: RowTemplate;
-
-  /** 피봇 설정 (선택) */
-  pivotConfig?: PivotConfig;
-}
 
 // =============================================================================
 // 렌더링 관련

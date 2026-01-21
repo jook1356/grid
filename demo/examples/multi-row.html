@@ -70,8 +70,9 @@
     <a href="pinning.html">📌 행/컬럼 고정</a>
     <a href="multi-row.html" class="active">📑 Multi-Row</a>
     <a href="grouping.html">📂 행 그룹화</a>
+    <a href="merge.html">🔗 셀 병합</a>
     <a href="selection-modes.html">🎯 선택 모드</a>
-    <a href="pivot.html">📊 피봇 그리드</a>
+    <a href="pivot.html">📊 피벗</a>
   </nav>
   
   <!-- 헤더 -->
@@ -153,48 +154,49 @@
   
   <!-- 코드 예제 -->
   <div class="code-example">
-    <h3>API 사용법</h3>
-    <pre><span class="keyword">const</span> renderer = <span class="keyword">new</span> <span class="function">GridRenderer</span>(container, {
-  gridCore,
-  options: {
-    columns: [...],
-    
-    <span class="comment">// Multi-Row 템플릿 정의</span>
-    rowTemplate: {
-      rowCount: <span class="number">2</span>,  <span class="comment">// 데이터 1개 = 시각적 2줄</span>
-      layout: [
-        <span class="comment">// 첫 번째 줄</span>
-        [
-          { key: <span class="string">'id'</span>, rowSpan: <span class="number">2</span> },      <span class="comment">// 2줄에 걸침</span>
-          { key: <span class="string">'name'</span> },
-          { key: <span class="string">'email'</span>, colSpan: <span class="number">2</span> },   <span class="comment">// 2칸 차지</span>
-          { key: <span class="string">'salary'</span>, rowSpan: <span class="number">2</span> },
-        ],
-        <span class="comment">// 두 번째 줄</span>
-        [
-          { key: <span class="string">'dept'</span> },
-          { key: <span class="string">'status'</span> },
-          { key: <span class="string">'joinDate'</span> },
-        ],
+    <h3>API 사용법 (새 Config API)</h3>
+    <pre><span class="keyword">const</span> pureSheet = <span class="keyword">new</span> <span class="function">PureSheet</span>(container, {
+  mode: <span class="string">'flat'</span>,
+  fields: [
+    { key: <span class="string">'id'</span>, header: <span class="string">'ID'</span>, dataType: <span class="string">'number'</span>, width: <span class="number">60</span> },
+    { key: <span class="string">'name'</span>, header: <span class="string">'Name'</span>, dataType: <span class="string">'string'</span>, width: <span class="number">120</span> },
+    <span class="comment">// ... 기타 필드</span>
+  ],
+  data: myData,
+  columns: [<span class="string">'id'</span>, <span class="string">'name'</span>, <span class="string">'email'</span>, <span class="string">'dept'</span>, <span class="string">'status'</span>, <span class="string">'salary'</span>, <span class="string">'joinDate'</span>],
+  
+  <span class="comment">// Multi-Row 템플릿 정의</span>
+  rowTemplate: {
+    rowCount: <span class="number">2</span>,  <span class="comment">// 데이터 1개 = 시각적 2줄</span>
+    layout: [
+      [
+        { key: <span class="string">'id'</span>, rowSpan: <span class="number">2</span> },      <span class="comment">// 2줄에 걸침</span>
+        { key: <span class="string">'name'</span> },
+        { key: <span class="string">'email'</span>, colSpan: <span class="number">2</span> },   <span class="comment">// 2칸 차지</span>
+        { key: <span class="string">'salary'</span>, rowSpan: <span class="number">2</span> },
       ],
-    },
+      [
+        { key: <span class="string">'dept'</span> },
+        { key: <span class="string">'status'</span> },
+        { key: <span class="string">'joinDate'</span> },
+      ],
+    ],
   },
 });</pre>
   </div>
   
   <script type="module">
-    import { GridCore } from '../../src/core/GridCore.ts';
-    import { GridRenderer } from '../../src/ui/GridRenderer.ts';
+    import { PureSheet } from '../../src/index.ts';
     
-    // 컬럼 정의
-    const columns = [
-      { key: 'id', header: 'ID', width: 60 },
-      { key: 'name', header: 'Name', width: 120 },
-      { key: 'email', header: 'Email', width: 200 },
-      { key: 'dept', header: 'Dept', width: 100 },
-      { key: 'status', header: 'Status', width: 80 },
-      { key: 'salary', header: 'Salary', width: 100 },
-      { key: 'joinDate', header: 'Join Date', width: 100 },
+    // 새 Config API: fields 사용
+    const fields = [
+      { key: 'id', header: 'ID', dataType: 'number', width: 60 },
+      { key: 'name', header: 'Name', dataType: 'string', width: 120 },
+      { key: 'email', header: 'Email', dataType: 'string', width: 200 },
+      { key: 'dept', header: 'Dept', dataType: 'string', width: 100 },
+      { key: 'status', header: 'Status', dataType: 'string', width: 80 },
+      { key: 'salary', header: 'Salary', dataType: 'string', width: 100 },
+      { key: 'joinDate', header: 'Join Date', dataType: 'string', width: 100 },
     ];
     
     // 레이아웃 정의
@@ -274,60 +276,53 @@
       joinDate: `202${Math.floor(i % 5)}-${String((i % 12) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}`
     }));
     
-    // GridCore 초기화
-    const gridCore = new GridCore({ columns });
-    await gridCore.initialize();
-    await gridCore.loadData(sampleData);
-    
-    // GridRenderer 초기화 (레이아웃 1 기본)
+    // PureSheet 초기화
     let renderer = null;
     const gridContainer = document.getElementById('grid');
     
-    function createRenderer(rowTemplate) {
+    async function createRenderer(rowTemplate) {
       // 기존 렌더러 제거
       if (renderer) {
         renderer.destroy();
       }
       
-      // 새 렌더러 생성
-      renderer = new GridRenderer(gridContainer, {
-        gridCore,
-        options: {
-          columns,
-          rowHeight: 36,
-          rowTemplate: rowTemplate || undefined,
-        },
+      // 새 PureSheet 생성 (새 Config API)
+      renderer = new PureSheet(gridContainer, {
+        mode: 'flat',
+        fields,
+        data: sampleData,
+        columns: ['id', 'name', 'email', 'dept', 'status', 'salary', 'joinDate'],
+        rowHeight: 36,
+        rowTemplate: rowTemplate || undefined,
       });
-      
-      renderer.refresh();
     }
     
     // 레이아웃 1 적용
-    window.applyLayout1 = function() {
-      createRenderer(layout1);
+    window.applyLayout1 = async function() {
+      await createRenderer(layout1);
       document.getElementById('layoutInfo').innerHTML = 
         '현재 레이아웃: <code>레이아웃 1 (2줄)</code> - ID와 Salary가 rowSpan=2, Email이 colSpan=2';
       document.getElementById('status').textContent = '레이아웃 1 적용됨 (2줄 레이아웃)';
     };
     
     // 레이아웃 2 적용
-    window.applyLayout2 = function() {
-      createRenderer(layout2);
+    window.applyLayout2 = async function() {
+      await createRenderer(layout2);
       document.getElementById('layoutInfo').innerHTML = 
         '현재 레이아웃: <code>레이아웃 2 (3줄)</code> - ID가 rowSpan=3, 각 줄에 colSpan 적용';
       document.getElementById('status').textContent = '레이아웃 2 적용됨 (3줄 레이아웃)';
     };
     
     // 일반 레이아웃 적용
-    window.applyNormalLayout = function() {
-      createRenderer(null);
+    window.applyNormalLayout = async function() {
+      await createRenderer(null);
       document.getElementById('layoutInfo').innerHTML = 
         '현재 레이아웃: <code>단일 행 (기본)</code> - 일반 그리드 레이아웃';
       document.getElementById('status').textContent = '단일 행 레이아웃 적용됨';
     };
     
     // 초기 렌더링
-    createRenderer(layout1);
+    await createRenderer(layout1);
   </script>
 </body>
 </html>

@@ -1,0 +1,513 @@
+/**
+ * PivotProcessor - 피벗 연산 전용 프로세서
+ *
+ * ArqueroProcessor를 확장하여 피벗 연산을 수행합니다.
+ * 메인 스레드에서 실행됩니다 (Worker 사용 안함).
+ *
+ * 주요 기능:
+ * 1. 데이터 집계 (Arquero groupBy + rollup)
+ * 2. 컬럼 헤더 트리 빌드 + colspan 계산
+ * 3. 행 병합 정보 계산 (same-value 기반)
+ * 4. 피벗 데이터 구조 변환
+ *
+ * @example
+ * const processor = new PivotProcessor();
+ * await processor.initialize(data);
+ *
+ * const result = await processor.pivot({
+ *   rowFields: ['product'],
+ *   columnFields: ['month'],
+ *   valueFields: [{ field: 'sales', aggregate: 'sum' }],
+ * });
+ */
+
+import * as aq from 'arquero';
+import type { Table } from 'arquero';
+import { ArqueroProcessor } from './ArqueroProcessor';
+import type { ColumnDef, CellValue, Row } from '../types';
+import type {
+  PivotConfig,
+  PivotResult,
+  PivotHeaderNode,
+  PivotRow,
+  RowMergeInfo,
+  PivotValueField,
+} from '../types/pivot.types';
+import { createPivotColumnKey } from '../types/pivot.types';
+
+/**
+ * 피벗 연산 전용 프로세서
+ */
+export class PivotProcessor extends ArqueroProcessor {
+  // ============================================================================
+  // 메인 피벗 연산
+  // ============================================================================
+
+  /**
+   * 피벗 연산 수행
+   *
+   * @param config - 피벗 설정
+   * @returns 피벗 결과 (헤더 트리, 데이터, 컬럼 정의 등)
+   */
+  async pivot(config: PivotConfig): Promise<PivotResult> {
+    const table = this.getTable();
+    if (!table) {
+      throw new Error('PivotProcessor not initialized. Call initialize() first.');
+    }
+
+    // 1. 유니크 값 추출 (columnFields별)
+    const uniqueValues = this.extractUniqueValues(table, config.columnFields);
+
+    // 2. 집계 연산
+    const aggregatedData = this.aggregateData(table, config);
+
+    // 3. 컬럼 헤더 트리 빌드
+    const columnHeaderTree = this.buildHeaderTree(uniqueValues, config);
+
+    // 4. 피벗 데이터 구조 변환
+    const pivotedData = this.transformToPivotStructure(aggregatedData, config, uniqueValues);
+
+    // 5. 행 병합 정보 계산
+    const rowMergeInfo = this.calculateRowMergeInfo(pivotedData, config.rowFields);
+
+    // 6. 컬럼 정의 생성
+    const { columns, rowHeaderColumns } = this.generateColumnDefs(columnHeaderTree, config);
+
+    // 7. 헤더 레벨 수 계산
+    const headerLevelCount = this.calculateHeaderLevelCount(config);
+
+    return {
+      columnHeaderTree,
+      headerLevelCount,
+      rowMergeInfo,
+      pivotedData,
+      columns,
+      rowHeaderColumns,
+      meta: {
+        totalRows: pivotedData.length,
+        totalColumns: columns.length,
+        uniqueValues: Object.fromEntries(
+          Object.entries(uniqueValues).map(([k, v]) => [k, v.length])
+        ),
+      },
+    };
+  }
+
+  // ============================================================================
+  // 유니크 값 추출
+  // ============================================================================
+
+  /**
+   * columnFields별 유니크 값 추출 (정렬됨)
+   */
+  private extractUniqueValues(
+    table: Table,
+    columnFields: string[]
+  ): Record<string, CellValue[]> {
+    const result: Record<string, CellValue[]> = {};
+
+    for (const field of columnFields) {
+      // Arquero의 distinct()를 사용하여 유니크 값 추출
+      const uniqueTable = table.select(field).dedupe();
+      const values = uniqueTable.array(field) as CellValue[];
+
+      // 정렬 (문자열/숫자 모두 지원)
+      values.sort((a, b) => {
+        if (a === null || a === undefined) return 1;
+        if (b === null || b === undefined) return -1;
+        if (typeof a === 'number' && typeof b === 'number') return a - b;
+        return String(a).localeCompare(String(b));
+      });
+
+      result[field] = values;
+    }
+
+    return result;
+  }
+
+  // ============================================================================
+  // 집계 연산
+  // ============================================================================
+
+  /**
+   * 데이터 집계 (rowFields + columnFields로 그룹화)
+   */
+  private aggregateData(
+    table: Table,
+    config: PivotConfig
+  ): Record<string, unknown>[] {
+    const groupByFields = [...config.rowFields, ...config.columnFields];
+
+    // 집계 스펙 생성
+    const rollupSpec: Record<string, unknown> = {};
+    for (const valueField of config.valueFields) {
+      rollupSpec[valueField.field] = this.getAggregateOp(
+        valueField.aggregate,
+        valueField.field
+      );
+    }
+
+    // 그룹화 + 집계
+    let aggregated: Table;
+    if (groupByFields.length > 0) {
+      aggregated = table.groupby(...groupByFields).rollup(rollupSpec);
+    } else {
+      // 그룹화 없이 전체 집계
+      aggregated = table.rollup(rollupSpec);
+    }
+
+    return aggregated.objects() as Record<string, unknown>[];
+  }
+
+  /**
+   * Arquero 집계 연산자 반환
+   */
+  private getAggregateOp(func: string, columnKey: string): unknown {
+    switch (func) {
+      case 'sum':
+        return aq.op.sum(columnKey);
+      case 'avg':
+        return aq.op.mean(columnKey);
+      case 'min':
+        return aq.op.min(columnKey);
+      case 'max':
+        return aq.op.max(columnKey);
+      case 'count':
+        return aq.op.count();
+      case 'first':
+        return aq.op.first(columnKey);
+      case 'last':
+        return aq.op.last(columnKey);
+      default:
+        return aq.op.sum(columnKey);
+    }
+  }
+
+  // ============================================================================
+  // 헤더 트리 빌드
+  // ============================================================================
+
+  /**
+   * 컬럼 헤더 트리 빌드
+   *
+   * @param uniqueValues - columnFields별 유니크 값
+   * @param config - 피벗 설정
+   * @returns 루트 노드
+   */
+  private buildHeaderTree(
+    uniqueValues: Record<string, CellValue[]>,
+    config: PivotConfig
+  ): PivotHeaderNode {
+    const { columnFields, valueFields } = config;
+
+    // 루트 노드 생성
+    const root: PivotHeaderNode = {
+      value: '__root__',
+      label: '',
+      level: -1,
+      colspan: 0,
+      children: [],
+      isLeaf: false,
+      path: [],
+    };
+
+    // 재귀적으로 트리 빌드
+    this.buildTreeRecursive(root, columnFields, uniqueValues, valueFields, 0, []);
+
+    // colspan 계산 (리프에서 루트로)
+    this.calculateColspan(root);
+
+    return root;
+  }
+
+  /**
+   * 트리 재귀 빌드
+   */
+  private buildTreeRecursive(
+    parent: PivotHeaderNode,
+    columnFields: string[],
+    uniqueValues: Record<string, CellValue[]>,
+    valueFields: PivotValueField[],
+    level: number,
+    path: string[]
+  ): void {
+    // columnFields를 모두 처리했으면 valueFields 레벨
+    if (level >= columnFields.length) {
+      // valueFields가 1개면 리프 레벨 생략
+      if (valueFields.length === 1) {
+        parent.columnKey = createPivotColumnKey(path, valueFields[0]!.field);
+        parent.isLeaf = true;
+        return;
+      }
+
+      // valueFields가 여러 개면 리프 레벨 추가
+      for (const valueField of valueFields) {
+        const leafNode: PivotHeaderNode = {
+          value: valueField.field,
+          label: valueField.header || valueField.field,
+          level,
+          colspan: 1,
+          children: [],
+          isLeaf: true,
+          columnKey: createPivotColumnKey(path, valueField.field),
+          path: [...path, valueField.field],
+        };
+        parent.children.push(leafNode);
+      }
+      return;
+    }
+
+    // 현재 레벨의 columnField
+    const currentField = columnFields[level];
+    if (!currentField) return;
+
+    const values = uniqueValues[currentField] || [];
+
+    for (const value of values) {
+      const strValue = String(value ?? '');
+      const node: PivotHeaderNode = {
+        value: strValue,
+        label: strValue,
+        level,
+        colspan: 0, // 나중에 계산
+        children: [],
+        isLeaf: false,
+        path: [...path, strValue],
+      };
+
+      parent.children.push(node);
+
+      // 다음 레벨로 재귀
+      this.buildTreeRecursive(
+        node,
+        columnFields,
+        uniqueValues,
+        valueFields,
+        level + 1,
+        [...path, strValue]
+      );
+    }
+  }
+
+  /**
+   * colspan 계산 (리프에서 루트로)
+   */
+  private calculateColspan(node: PivotHeaderNode): number {
+    if (node.isLeaf || node.children.length === 0) {
+      node.colspan = 1;
+      return 1;
+    }
+
+    let totalColspan = 0;
+    for (const child of node.children) {
+      totalColspan += this.calculateColspan(child);
+    }
+    node.colspan = totalColspan;
+    return totalColspan;
+  }
+
+  /**
+   * 헤더 레벨 수 계산
+   */
+  private calculateHeaderLevelCount(config: PivotConfig): number {
+    // columnFields 개수 + (valueFields가 2개 이상이면 1 추가)
+    return config.columnFields.length + (config.valueFields.length > 1 ? 1 : 0);
+  }
+
+  // ============================================================================
+  // 피벗 데이터 변환
+  // ============================================================================
+
+  /**
+   * 집계 데이터를 피벗 구조로 변환
+   */
+  private transformToPivotStructure(
+    aggregatedData: Record<string, unknown>[],
+    config: PivotConfig,
+    uniqueValues: Record<string, CellValue[]>
+  ): PivotRow[] {
+    const { rowFields, columnFields, valueFields } = config;
+
+    // rowFields 조합별로 데이터 그룹화
+    const rowGroups = new Map<string, Record<string, CellValue>>();
+
+    for (const row of aggregatedData) {
+      // 행 키 생성 (rowFields 값 조합)
+      const rowKey = rowFields.map((f) => String(row[f] ?? '')).join('|');
+
+      // 컬럼 키 생성 (columnFields 값 조합)
+      const columnPath = columnFields.map((f) => String(row[f] ?? ''));
+
+      // 행 데이터 가져오기 또는 생성
+      let pivotRow = rowGroups.get(rowKey);
+      if (!pivotRow) {
+        pivotRow = {};
+        // rowHeaders 복사
+        for (const f of rowFields) {
+          pivotRow[f] = row[f] as CellValue;
+        }
+        rowGroups.set(rowKey, pivotRow);
+      }
+
+      // 각 valueField의 값을 피벗 컬럼에 할당
+      for (const valueField of valueFields) {
+        const colKey = createPivotColumnKey(columnPath, valueField.field);
+        pivotRow[colKey] = row[valueField.field] as CellValue;
+      }
+    }
+
+    // Map을 배열로 변환
+    const result: PivotRow[] = [];
+
+    for (const [, rowData] of rowGroups) {
+      const pivotRow: PivotRow = {
+        rowHeaders: {},
+        values: {},
+        type: 'data',
+      };
+
+      // rowHeaders와 values 분리
+      for (const [key, value] of Object.entries(rowData)) {
+        if (rowFields.includes(key)) {
+          pivotRow.rowHeaders[key] = value;
+        } else {
+          pivotRow.values[key] = value;
+        }
+      }
+
+      result.push(pivotRow);
+    }
+
+    // rowFields 기준으로 정렬
+    result.sort((a, b) => {
+      for (const field of rowFields) {
+        const aVal = a.rowHeaders[field];
+        const bVal = b.rowHeaders[field];
+        if (aVal === bVal) continue;
+        if (aVal === null || aVal === undefined) return 1;
+        if (bVal === null || bVal === undefined) return -1;
+        if (typeof aVal === 'number' && typeof bVal === 'number') {
+          return aVal - bVal;
+        }
+        return String(aVal).localeCompare(String(bVal));
+      }
+      return 0;
+    });
+
+    return result;
+  }
+
+  // ============================================================================
+  // 행 병합 정보 계산
+  // ============================================================================
+
+  /**
+   * 행 병합 정보 계산 (same-value 기반)
+   */
+  private calculateRowMergeInfo(
+    data: PivotRow[],
+    rowFields: string[]
+  ): Record<string, RowMergeInfo[]> {
+    const result: Record<string, RowMergeInfo[]> = {};
+
+    for (const field of rowFields) {
+      const merges: RowMergeInfo[] = [];
+      let spanStart = 0;
+      let currentValue: CellValue = undefined;
+
+      for (let i = 0; i < data.length; i++) {
+        const row = data[i];
+        if (!row) continue;
+
+        const value = row.rowHeaders[field];
+
+        if (i === 0) {
+          currentValue = value;
+          spanStart = 0;
+        } else if (value !== currentValue) {
+          // 이전 병합 구간 저장
+          if (i > spanStart) {
+            merges.push({
+              startIndex: spanStart,
+              span: i - spanStart,
+            });
+          }
+          currentValue = value;
+          spanStart = i;
+        }
+      }
+
+      // 마지막 구간 저장
+      if (data.length > spanStart) {
+        merges.push({
+          startIndex: spanStart,
+          span: data.length - spanStart,
+        });
+      }
+
+      result[field] = merges;
+    }
+
+    return result;
+  }
+
+  // ============================================================================
+  // 컬럼 정의 생성
+  // ============================================================================
+
+  /**
+   * 컬럼 정의 생성
+   */
+  private generateColumnDefs(
+    headerTree: PivotHeaderNode,
+    config: PivotConfig
+  ): { columns: ColumnDef[]; rowHeaderColumns: ColumnDef[] } {
+    // 행 헤더 컬럼 (rowFields 기준)
+    const rowHeaderColumns: ColumnDef[] = config.rowFields.map((field) => ({
+      key: field,
+      header: field, // TODO: FieldDef에서 가져오기
+      width: 150,
+      pinned: 'left' as const,
+      mergeStrategy: 'same-value' as const,
+    }));
+
+    // 피벗 데이터 컬럼 (리프 노드 기준)
+    const columns: ColumnDef[] = [];
+    this.collectLeafColumns(headerTree, columns, config);
+
+    return { columns, rowHeaderColumns };
+  }
+
+  /**
+   * 리프 노드에서 컬럼 정의 수집
+   */
+  private collectLeafColumns(
+    node: PivotHeaderNode,
+    columns: ColumnDef[],
+    config: PivotConfig
+  ): void {
+    if (node.isLeaf && node.columnKey) {
+      // 해당 valueField 찾기
+      const valueField = config.valueFields.find(
+        (vf) =>
+          node.columnKey?.endsWith('_' + vf.field) ||
+          node.columnKey === vf.field
+      );
+
+      columns.push({
+        key: node.columnKey,
+        header: node.label,
+        width: 100,
+        type: 'number',
+        formatter: valueField?.formatter,
+      });
+      return;
+    }
+
+    for (const child of node.children) {
+      this.collectLeafColumns(child, columns, config);
+    }
+  }
+
+}
+

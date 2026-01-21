@@ -110,8 +110,9 @@
     <a href="pinning.html">📌 행/컬럼 고정</a>
     <a href="multi-row.html">📑 Multi-Row</a>
     <a href="grouping.html">📂 행 그룹화</a>
+    <a href="merge.html">🔗 셀 병합</a>
     <a href="selection-modes.html" class="active">🎯 선택 모드</a>
-    <a href="pivot.html">📊 피봇 그리드</a>
+    <a href="pivot.html">📊 피벗</a>
   </nav>
   
   <!-- 헤더 -->
@@ -276,18 +277,22 @@
         sheet.destroy();
       }
       
-      const columns = [
-        { key: 'id', header: 'ID', width: 60 },
-        { key: 'name', header: 'Name', width: 150 },
-        { key: 'email', header: 'Email', width: 220 },
-        { key: 'department', header: 'Department', width: 120 },
-        { key: 'status', header: 'Status', width: 100 },
-        { key: 'salary', header: 'Salary', width: 100, formatter: (v) => '$' + v.toLocaleString() },
-        { key: 'joinDate', header: 'Join Date', width: 120 },
+      // 새 Config API: fields 사용
+      const fields = [
+        { key: 'id', header: 'ID', dataType: 'number', width: 60 },
+        { key: 'name', header: 'Name', dataType: 'string', width: 150 },
+        { key: 'email', header: 'Email', dataType: 'string', width: 220 },
+        { key: 'department', header: 'Department', dataType: 'string', width: 120 },
+        { key: 'status', header: 'Status', dataType: 'string', width: 100 },
+        { key: 'salary', header: 'Salary', dataType: 'number', width: 100, formatter: (v) => '$' + v.toLocaleString() },
+        { key: 'joinDate', header: 'Join Date', dataType: 'string', width: 120 },
       ];
       
+      // 새 Config API로 PureSheet 생성
       sheet = new PureSheet(container, {
-        columns,
+        mode: 'flat',
+        fields,
+        columns: ['id', 'name', 'email', 'department', 'status', 'salary', 'joinDate'],
         rowHeight: 36,
         headerHeight: 40,
         selectionMode: mode,

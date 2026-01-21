@@ -10,6 +10,7 @@
 import type { ColumnDef, CellValue } from '../../types';
 import type { ColumnState, ColumnGroups } from '../types';
 import type { GridCore } from '../../core/GridCore';
+import type { CellMergeInfo } from '../merge/MergeManager';
 
 // =============================================================================
 // Row Variant (행 변형)
@@ -98,6 +99,11 @@ export interface AggregateConfig {
 // =============================================================================
 
 /**
+ * 셀 병합 정보 조회 함수 타입
+ */
+export type MergeInfoGetter = (rowIndex: number, columnKey: string) => CellMergeInfo;
+
+/**
  * 행 렌더링 컨텍스트
  *
  * Row.render() 호출 시 전달되는 컨텍스트 정보입니다.
@@ -123,6 +129,14 @@ export interface RowRenderContext {
 
   /** 데이터 인덱스 (non-structural만, 원본 데이터 기준) */
   dataIndex?: number;
+
+  /**
+   * 셀 병합 정보 조회 함수 (선택)
+   *
+   * MergeManager가 설정된 경우 BodyRenderer에서 제공합니다.
+   * 호출 시 해당 셀의 병합 정보를 반환합니다.
+   */
+  getMergeInfo?: MergeInfoGetter;
 }
 
 // =============================================================================

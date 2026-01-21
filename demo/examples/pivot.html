@@ -3,134 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>피봇 그리드 (Pivot Grid) - PureSheet Demo</title>
+  <title>피벗 그리드 (Pivot Grid) - PureSheet Demo</title>
   <link rel="stylesheet" href="../shared/styles.css">
   <link rel="stylesheet" href="../../src/ui/style/default.css">
-  <style>
-    /* 피봇 설정 패널 */
-    .pivot-config-panel {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 16px;
-      padding: 16px;
-      background: #f9f9f9;
-      border-bottom: 1px solid var(--demo-border);
-    }
-    
-    .config-section {
-      background: white;
-      border-radius: 8px;
-      padding: 12px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    }
-    
-    .config-section h4 {
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: var(--demo-text-secondary);
-      margin-bottom: 8px;
-    }
-    
-    .config-section .hint {
-      font-size: 11px;
-      color: #888;
-      margin-bottom: 8px;
-    }
-    
-    /* 체크박스 그룹 */
-    .checkbox-group {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    
-    .checkbox-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 13px;
-      cursor: pointer;
-    }
-    
-    .checkbox-item input {
-      width: 16px;
-      height: 16px;
-    }
-    
-    /* 값 필드 설정 */
-    .value-field-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px;
-      background: #f5f5f5;
-      border-radius: 6px;
-      margin-bottom: 6px;
-    }
-    
-    .value-field-item select {
-      flex: 1;
-      padding: 6px 8px;
-      border: 1px solid var(--demo-border);
-      border-radius: 4px;
-      font-size: 12px;
-    }
-    
-    .value-field-item .remove-btn {
-      padding: 4px 8px;
-      background: #f44336;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-    }
-    
-    .add-field-btn {
-      width: 100%;
-      padding: 8px;
-      background: #e8f5e9;
-      color: #2e7d32;
-      border: 1px dashed #4caf50;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 13px;
-    }
-    
-    /* 피봇 결과 미리보기 */
-    .pivot-preview {
-      padding: 12px 16px;
-      background: #e8f5e9;
-      border-bottom: 1px solid #c8e6c9;
-      font-size: 13px;
-      color: #2e7d32;
-      display: none;
-      align-items: center;
-      gap: 8px;
-    }
-    
-    .pivot-preview.visible {
-      display: flex;
-    }
-    
-    .pivot-preview.error {
-      background: #ffebee;
-      border-color: #ffcdd2;
-      color: #c62828;
-    }
-    
-    /* 모드 인디케이터 */
-    .mode-indicator {
-      font-size: 13px;
-      color: #666;
-    }
-    
-    .mode-indicator.pivot {
-      color: #1976d2;
-      font-weight: 600;
-    }
-  </style>
 </head>
 <body>
   <!-- 네비게이션 -->
@@ -139,445 +14,390 @@
     <a href="pinning.html">📌 행/컬럼 고정</a>
     <a href="multi-row.html">📑 Multi-Row</a>
     <a href="grouping.html">📂 행 그룹화</a>
+    <a href="merge.html">🔗 셀 병합</a>
     <a href="selection-modes.html">🎯 선택 모드</a>
-    <a href="pivot.html" class="active">📊 피봇 그리드</a>
+    <a href="pivot.html" class="active">📊 피벗</a>
   </nav>
   
   <!-- 헤더 -->
   <div class="demo-header">
-    <h1>📊 피봇 그리드 (Pivot Grid)</h1>
-    <span class="badge badge-preview">미리보기</span>
+    <h1>📊 피벗 그리드 (Pivot Grid)</h1>
+    <span class="badge badge-implemented">구현됨</span>
   </div>
   
   <!-- 설명 -->
   <div class="demo-description">
     <p>
-      <strong>피봇 그리드</strong>는 데이터를 행과 열 기준으로 재구성하여 다차원 분석을 제공합니다.
-      행 필드를 기준으로 그룹화하고, 열 필드 값을 동적 컬럼으로 펼쳐서 값 필드를 집계합니다.
-      Excel의 피봇 테이블과 유사한 기능입니다.
+      <strong>피벗 그리드</strong>는 데이터를 행 차원과 열 차원으로 교차 집계하여 보여주는 컴포넌트입니다.
+      아래 예제에서는 제품별(행)로 월별(열) 판매량과 수익을 집계합니다.
+      다중 레벨 컬럼 헤더가 자동으로 생성됩니다.
     </p>
   </div>
   
   <div class="demo-container">
-    <!-- 피봇 설정 패널 -->
-    <div class="pivot-config-panel">
-      <!-- 행 필드 -->
-      <div class="config-section">
-        <h4>📋 행 필드 (Row Fields)</h4>
-        <p class="hint">그룹화 기준이 되는 필드</p>
-        <div class="checkbox-group" id="rowFieldsContainer"></div>
-      </div>
-      
-      <!-- 열 필드 -->
-      <div class="config-section">
-        <h4>📊 열 필드 (Column Fields)</h4>
-        <p class="hint">동적 컬럼으로 펼쳐질 필드</p>
-        <div class="checkbox-group" id="columnFieldsContainer"></div>
-      </div>
-      
-      <!-- 값 필드 -->
-      <div class="config-section">
-        <h4>💰 값 필드 (Value Fields)</h4>
-        <p class="hint">집계할 숫자 필드와 함수</p>
-        <div id="valueFieldsContainer"></div>
-      </div>
-    </div>
-    
-    <!-- 툴바 -->
     <div class="toolbar">
       <div class="toolbar-group">
-        <button id="applyPivotBtn">🔄 피봇 적용</button>
-        <button id="resetBtn" class="secondary">↩️ 일반 모드</button>
-      </div>
-      
-      <div class="toolbar-divider"></div>
-      
-      <div class="toolbar-group">
-        <label>데이터 크기:</label>
-        <select id="dataSizeSelect">
-          <option value="100">100행</option>
-          <option value="500" selected>500행</option>
-          <option value="1000">1,000행</option>
-          <option value="5000">5,000행</option>
+        <label>데이터 수:</label>
+        <select id="dataCountSelect" onchange="regenerateData()">
+          <option value="120">120건</option>
+          <option value="1000">1,000건</option>
+          <option value="10000">1만건</option>
+          <option value="100000" selected>10만건</option>
+          <option value="500000">50만건</option>
+          <option value="1000000">100만건</option>
+          <option value="2000000">200만건</option>
+          <option value="5000000">500만건</option>
         </select>
       </div>
       
       <div class="toolbar-divider"></div>
       
       <div class="toolbar-group">
-        <span id="modeIndicator" class="mode-indicator">📋 일반 모드</span>
+        <label>행 축:</label>
+        <select id="rowFieldSelect" onchange="updatePivot()">
+          <option value="product" selected>제품</option>
+          <option value="region">지역</option>
+          <option value="product,region">제품 → 지역</option>
+        </select>
+      </div>
+      
+      <div class="toolbar-divider"></div>
+      
+      <div class="toolbar-group">
+        <label>열 축:</label>
+        <select id="columnFieldSelect" onchange="updatePivot()">
+          <option value="month" selected>월</option>
+          <option value="quarter">분기</option>
+          <option value="quarter,month">분기 → 월</option>
+        </select>
+      </div>
+      
+      <div class="toolbar-divider"></div>
+      
+      <div class="toolbar-group">
+        <label>값:</label>
+        <select id="valueFieldSelect" onchange="updatePivot()">
+          <option value="sales" selected>판매량</option>
+          <option value="profit">수익</option>
+          <option value="sales,profit">판매량 + 수익</option>
+        </select>
+      </div>
+      
+      <div class="toolbar-divider"></div>
+      
+      <div class="toolbar-group">
+        <button onclick="resetPivot()">🔄 초기화</button>
       </div>
     </div>
     
-    <!-- 피봇 결과 미리보기 -->
-    <div class="pivot-preview" id="pivotPreview">
-      <span>✅</span>
-      <span id="pivotPreviewText"></span>
+    <div id="grid" style="height: 500px;"></div>
+    
+    <div class="status-bar" id="status">
+      초기화 중...
     </div>
-    
-    <!-- 그리드 -->
-    <div id="grid"></div>
-    
-    <!-- 상태바 -->
-    <div class="status-bar" id="status">준비됨</div>
-  </div>
-  
-  <!-- 현재 피봇 설정 -->
-  <div class="info-panel">
-    <h3>📊 현재 피봇 설정</h3>
-    <pre id="pivotConfigDisplay">{}</pre>
   </div>
   
   <!-- 코드 예제 -->
   <div class="code-example">
-    <h3>API 사용법</h3>
-    <pre><span class="comment">// PureSheet 인스턴스 생성</span>
-<span class="keyword">const</span> sheet = <span class="keyword">new</span> <span class="function">PureSheet</span>(container, {
-  <span class="property">columns</span>: columns,
+    <h3>API 사용법 (Pivot 모드)</h3>
+    <pre><span class="comment">// 피벗 모드로 PureSheet 생성</span>
+<span class="keyword">const</span> pivotGrid = <span class="keyword">new</span> <span class="function">PureSheet</span>(container, {
+  mode: <span class="string">'pivot'</span>,
+  
+  data: salesData,
+  
+  <span class="comment">// 필드 정의</span>
+  fields: [
+    { key: <span class="string">'month'</span>, header: <span class="string">'월'</span>, dataType: <span class="string">'string'</span> },
+    { key: <span class="string">'product'</span>, header: <span class="string">'제품'</span>, dataType: <span class="string">'string'</span> },
+    { key: <span class="string">'sales'</span>, header: <span class="string">'판매량'</span>, dataType: <span class="string">'number'</span>, aggregate: <span class="string">'sum'</span> },
+    { key: <span class="string">'profit'</span>, header: <span class="string">'수익'</span>, dataType: <span class="string">'number'</span>, aggregate: <span class="string">'sum'</span> },
+  ],
+  
+  <span class="comment">// 피벗 축 설정</span>
+  rowFields: [<span class="string">'product'</span>],           <span class="comment">// 행 축</span>
+  columnFields: [<span class="string">'month'</span>],          <span class="comment">// 열 축 (피벗되는 필드)</span>
+  valueFields: [<span class="string">'sales'</span>, <span class="string">'profit'</span>], <span class="comment">// 값 필드</span>
+  
+  theme: <span class="string">'light'</span>,
 });
 
-<span class="comment">// 데이터 로드</span>
-<span class="keyword">await</span> sheet.<span class="function">loadData</span>(data);
-
-<span class="comment">// 피봇 설정 적용</span>
-<span class="keyword">const</span> result = <span class="keyword">await</span> sheet.<span class="function">setPivotConfig</span>({
-  <span class="property">rowFields</span>: [<span class="string">'department'</span>],
-  <span class="property">columnFields</span>: [<span class="string">'year'</span>],
-  <span class="property">valueFields</span>: [
-    { <span class="property">field</span>: <span class="string">'sales'</span>, <span class="property">aggregate</span>: <span class="string">'sum'</span> }
-  ]
-});
-
-<span class="comment">// 피봇 모드 확인</span>
-sheet.<span class="function">isPivotMode</span>();  <span class="comment">// true</span>
-
-<span class="comment">// 일반 모드로 복귀</span>
-sheet.<span class="function">clearPivot</span>();
-<span class="keyword">await</span> sheet.<span class="function">loadData</span>(originalData);</pre>
+<span class="comment">// 동적으로 피벗 설정 변경</span>
+pivotGrid.<span class="function">setPivotConfig</span>({
+  rowFields: [<span class="string">'region'</span>],
+  columnFields: [<span class="string">'quarter'</span>],
+  valueFields: [<span class="string">'sales'</span>],
+});</pre>
+  </div>
+  
+  <!-- 데이터 정보 -->
+  <div class="info-panel">
+    <h3>📋 샘플 데이터 구조</h3>
+    <div class="data-preview">
+      <table>
+        <thead>
+          <tr>
+            <th>month</th>
+            <th>quarter</th>
+            <th>product</th>
+            <th>region</th>
+            <th>sales</th>
+            <th>profit</th>
+          </tr>
+        </thead>
+        <tbody id="dataPreview">
+          <!-- 동적으로 채워짐 -->
+        </tbody>
+      </table>
+    </div>
   </div>
   
   <script type="module">
-    // PureSheet import
-    const { PureSheet } = await import('../../src/index.ts');
+    import { PureSheet } from '../../src/index.ts';
     
-    // ========================================
-    // 상태 변수
-    // ========================================
     let sheet = null;
-    let rawData = [];
+    let sampleData = [];
     
-    // 피봇 설정
-    let pivotConfig = {
-      rowFields: [],
-      columnFields: [],
-      valueFields: [{ field: 'sales', aggregate: 'sum' }],
-    };
+    // 기본 데이터 배열
+    const months = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
+    const quarters = ['Q1', 'Q1', 'Q1', 'Q2', 'Q2', 'Q2', 'Q3', 'Q3', 'Q3', 'Q4', 'Q4', 'Q4'];
+    const products = ['노트북', '스마트폰', '태블릿', '모니터', '키보드', '마우스', '헤드폰', '스피커', '웹캠', '프린터'];
+    const regions = ['서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종'];
     
-    // 필드 정의
-    const categoricalFields = [
-      { key: 'department', label: '부서' },
-      { key: 'team', label: '팀' },
-      { key: 'region', label: '지역' },
-      { key: 'year', label: '연도' },
-      { key: 'quarter', label: '분기' },
-    ];
-    
-    const numericFields = [
-      { key: 'sales', label: '매출' },
-      { key: 'cost', label: '비용' },
-      { key: 'profit', label: '이익' },
-      { key: 'quantity', label: '수량' },
-    ];
-    
-    const aggregateFunctions = [
-      { value: 'sum', label: '합계' },
-      { value: 'avg', label: '평균' },
-      { value: 'min', label: '최소' },
-      { value: 'max', label: '최대' },
-      { value: 'count', label: '개수' },
-    ];
-    
-    // 컬럼 정의
-    const columns = [
-      { key: 'id', label: 'ID', type: 'number', width: 60 },
-      { key: 'department', label: '부서', type: 'string', width: 100 },
-      { key: 'team', label: '팀', type: 'string', width: 80 },
-      { key: 'region', label: '지역', type: 'string', width: 80 },
-      { key: 'year', label: '연도', type: 'string', width: 80 },
-      { key: 'quarter', label: '분기', type: 'string', width: 80 },
-      { key: 'sales', label: '매출', type: 'number', width: 100 },
-      { key: 'cost', label: '비용', type: 'number', width: 100 },
-      { key: 'profit', label: '이익', type: 'number', width: 100 },
-      { key: 'quantity', label: '수량', type: 'number', width: 80 },
-    ];
-    
-    // ========================================
-    // 데이터 생성
-    // ========================================
-    function generateSampleData(count) {
-      const departments = ['Engineering', 'Marketing', 'Sales', 'HR', 'Finance'];
-      const teams = ['A팀', 'B팀', 'C팀'];
-      const regions = ['서울', '부산', '대구', '인천'];
-      const years = ['2022', '2023', '2024'];
-      const quarters = ['Q1', 'Q2', 'Q3', 'Q4'];
+    // 데이터 생성 함수
+    function generateData(targetCount) {
+      const startTime = performance.now();
+      updateStatus(`데이터 생성 중... (목표: ${targetCount.toLocaleString()}건)`);
       
-      return Array.from({ length: count }, (_, i) => ({
-        id: i + 1,
-        department: departments[i % departments.length],
-        team: teams[i % teams.length],
-        region: regions[i % regions.length],
-        year: years[i % years.length],
-        quarter: quarters[i % quarters.length],
-        sales: Math.floor(Math.random() * 100000) + 10000,
-        cost: Math.floor(Math.random() * 50000) + 5000,
-        profit: Math.floor(Math.random() * 50000),
-        quantity: Math.floor(Math.random() * 1000) + 100,
-      }));
+      const data = [];
+      let id = 1;
+      
+      // 기본 조합 수: products × regions × months = 10 × 8 × 12 = 960
+      const baseComboCount = products.length * regions.length * months.length;
+      
+      // 필요한 반복 수 계산
+      const iterations = Math.ceil(targetCount / baseComboCount);
+      
+      for (let iter = 0; iter < iterations && data.length < targetCount; iter++) {
+        for (const product of products) {
+          if (data.length >= targetCount) break;
+          for (const region of regions) {
+            if (data.length >= targetCount) break;
+            for (let i = 0; i < months.length; i++) {
+              if (data.length >= targetCount) break;
+              
+              const baseSales = Math.floor(Math.random() * 100) + 50;
+              const baseProfit = Math.floor(baseSales * (Math.random() * 0.3 + 0.1));
+              
+              data.push({
+                id: id++,
+                month: months[i],
+                quarter: quarters[i],
+                product,
+                region,
+                sales: baseSales,
+                profit: baseProfit,
+              });
+            }
+          }
+        }
+      }
+      
+      const duration = performance.now() - startTime;
+      console.log(`데이터 생성 완료: ${data.length.toLocaleString()}건 (${duration.toFixed(0)}ms)`);
+      
+      return data;
     }
     
-    // ========================================
-    // UI 헬퍼
-    // ========================================
+    // 데이터 미리보기 표시
+    function showDataPreview() {
+      const tbody = document.getElementById('dataPreview');
+      tbody.innerHTML = sampleData.slice(0, 5).map(row => `
+        <tr>
+          <td>${row.month}</td>
+          <td>${row.quarter}</td>
+          <td>${row.product}</td>
+          <td>${row.region}</td>
+          <td>${row.sales}</td>
+          <td>${row.profit}</td>
+        </tr>
+      `).join('') + '<tr><td colspan="6">... (총 ' + sampleData.length.toLocaleString() + '행)</td></tr>';
+    }
+    
+    // 상태 업데이트
     function updateStatus(message) {
       document.getElementById('status').textContent = message;
     }
     
-    function updateModeIndicator(isPivot) {
-      const indicator = document.getElementById('modeIndicator');
-      if (isPivot) {
-        indicator.textContent = '📊 피봇 모드';
-        indicator.className = 'mode-indicator pivot';
-      } else {
-        indicator.textContent = '📋 일반 모드';
-        indicator.className = 'mode-indicator';
-      }
+    // 피벗 설정 파싱
+    function parsePivotConfig() {
+      const rowFieldSelect = document.getElementById('rowFieldSelect');
+      const columnFieldSelect = document.getElementById('columnFieldSelect');
+      const valueFieldSelect = document.getElementById('valueFieldSelect');
+      
+      return {
+        rowFields: rowFieldSelect.value.split(','),
+        columnFields: columnFieldSelect.value.split(','),
+        valueFields: valueFieldSelect.value.split(',').map(field => ({
+          field,
+          aggregate: 'sum',
+          header: field === 'sales' ? '판매량' : '수익',
+        })),
+      };
     }
     
-    function updateConfigDisplay() {
-      document.getElementById('pivotConfigDisplay').textContent = 
-        JSON.stringify(pivotConfig, null, 2);
-    }
-    
-    function showPivotPreview(result, duration) {
-      const preview = document.getElementById('pivotPreview');
-      const text = document.getElementById('pivotPreviewText');
-      
-      preview.classList.add('visible');
-      preview.classList.remove('error');
-      
-      const dynamicColCount = result.columns.length - pivotConfig.rowFields.length;
-      text.textContent = `피봇 완료: ${result.rows.length}행 × ${result.columns.length}컬럼 (동적 컬럼 ${dynamicColCount}개, ${duration}ms)`;
-    }
-    
-    function showPivotError(message) {
-      const preview = document.getElementById('pivotPreview');
-      const text = document.getElementById('pivotPreviewText');
-      
-      preview.classList.add('visible', 'error');
-      text.textContent = `오류: ${message}`;
-    }
-    
-    function hidePivotPreview() {
-      document.getElementById('pivotPreview').classList.remove('visible');
-    }
-    
-    // ========================================
-    // UI 초기화
-    // ========================================
-    function initializeConfigUI() {
-      // 행 필드 체크박스
-      const rowContainer = document.getElementById('rowFieldsContainer');
-      rowContainer.innerHTML = categoricalFields.map(f => `
-        <label class="checkbox-item">
-          <input type="checkbox" value="${f.key}" data-type="row">
-          ${f.label}
-        </label>
-      `).join('');
-      
-      // 열 필드 체크박스
-      const colContainer = document.getElementById('columnFieldsContainer');
-      colContainer.innerHTML = categoricalFields.map(f => `
-        <label class="checkbox-item">
-          <input type="checkbox" value="${f.key}" data-type="column">
-          ${f.label}
-        </label>
-      `).join('');
-      
-      // 값 필드 UI
-      updateValueFieldsUI();
-      
-      // 이벤트 리스너
-      rowContainer.addEventListener('change', handleRowFieldChange);
-      colContainer.addEventListener('change', handleColumnFieldChange);
-    }
-    
-    function updateValueFieldsUI() {
-      const container = document.getElementById('valueFieldsContainer');
-      
-      let html = pivotConfig.valueFields.map((vf, idx) => `
-        <div class="value-field-item">
-          <select data-idx="${idx}" data-prop="field">
-            ${numericFields.map(f => 
-              `<option value="${f.key}" ${vf.field === f.key ? 'selected' : ''}>${f.label}</option>`
-            ).join('')}
-          </select>
-          <select data-idx="${idx}" data-prop="aggregate">
-            ${aggregateFunctions.map(a => 
-              `<option value="${a.value}" ${vf.aggregate === a.value ? 'selected' : ''}>${a.label}</option>`
-            ).join('')}
-          </select>
-          <button class="remove-btn" data-idx="${idx}">✕</button>
-        </div>
-      `).join('');
-      
-      html += `<button class="add-field-btn" id="addValueFieldBtn">+ 값 필드 추가</button>`;
-      
-      container.innerHTML = html;
-      
-      // 이벤트 리스너
-      container.querySelectorAll('select').forEach(select => {
-        select.addEventListener('change', handleValueFieldChange);
-      });
-      
-      container.querySelectorAll('.remove-btn').forEach(btn => {
-        btn.addEventListener('click', handleRemoveValueField);
-      });
-      
-      document.getElementById('addValueFieldBtn').addEventListener('click', handleAddValueField);
-    }
-    
-    // ========================================
-    // 이벤트 핸들러
-    // ========================================
-    function handleRowFieldChange(e) {
-      const checkboxes = document.querySelectorAll('#rowFieldsContainer input:checked');
-      pivotConfig.rowFields = Array.from(checkboxes).map(cb => cb.value);
-      updateConfigDisplay();
-    }
-    
-    function handleColumnFieldChange(e) {
-      const checkboxes = document.querySelectorAll('#columnFieldsContainer input:checked');
-      pivotConfig.columnFields = Array.from(checkboxes).map(cb => cb.value);
-      updateConfigDisplay();
-    }
-    
-    function handleValueFieldChange(e) {
-      const idx = parseInt(e.target.dataset.idx);
-      const prop = e.target.dataset.prop;
-      pivotConfig.valueFields[idx][prop] = e.target.value;
-      updateConfigDisplay();
-    }
-    
-    function handleAddValueField() {
-      pivotConfig.valueFields.push({ field: 'sales', aggregate: 'sum' });
-      updateValueFieldsUI();
-      updateConfigDisplay();
-    }
-    
-    function handleRemoveValueField(e) {
-      if (pivotConfig.valueFields.length > 1) {
-        const idx = parseInt(e.target.dataset.idx);
-        pivotConfig.valueFields.splice(idx, 1);
-        updateValueFieldsUI();
-        updateConfigDisplay();
-      }
-    }
-    
-    // ========================================
-    // 피봇 API
-    // ========================================
-    async function applyPivot() {
-      if (pivotConfig.rowFields.length === 0) {
-        updateStatus('❌ 행 필드를 1개 이상 선택하세요');
-        return;
-      }
-      
-      if (pivotConfig.columnFields.length === 0) {
-        updateStatus('❌ 열 필드를 1개 이상 선택하세요');
-        return;
-      }
-      
-      updateStatus('⏳ 피봇 계산 중...');
-      
-      try {
-        const startTime = performance.now();
-        
-        // PureSheet API 호출
-        const result = await sheet.setPivotConfig(pivotConfig);
-        
-        const duration = (performance.now() - startTime).toFixed(2);
-        
-        updateModeIndicator(true);
-        showPivotPreview(result, duration);
-        updateStatus(`✅ 피봇 완료 - ${result.rows.length}행, ${result.columns.length}컬럼 (${duration}ms)`);
-        
-      } catch (error) {
-        console.error('Pivot error:', error);
-        updateStatus(`❌ 피봇 실패: ${error.message}`);
-        showPivotError(error.message);
-      }
-    }
-    
-    async function resetToNormal() {
-      // 피봇 해제
-      sheet.clearPivot();
-      
-      // 원본 데이터 다시 로드
-      await sheet.loadData(rawData);
-      
-      updateModeIndicator(false);
-      hidePivotPreview();
-      updateStatus(`📋 일반 모드 - ${rawData.length}행 표시`);
-    }
-    
-    async function regenerateData() {
-      const size = parseInt(document.getElementById('dataSizeSelect').value);
-      rawData = generateSampleData(size);
-      
-      if (sheet.isPivotMode()) {
-        await sheet.loadData(rawData);
-        await applyPivot();
-      } else {
-        await sheet.loadData(rawData);
-      }
-      
-      updateStatus(`📊 ${size.toLocaleString()}개 행 데이터 생성됨`);
-    }
-    
-    // ========================================
-    // 초기화
-    // ========================================
-    async function init() {
+    // 피벗 그리드 초기화
+    async function initPivotGrid() {
       const container = document.getElementById('grid');
       
-      // 샘플 데이터 생성
-      rawData = generateSampleData(500);
+      // 초기 데이터 생성
+      const dataCount = parseInt(document.getElementById('dataCountSelect').value);
+      sampleData = generateData(dataCount);
+      showDataPreview();
       
-      // PureSheet 인스턴스 생성
+      const fields = [
+        { key: 'month', header: '월', dataType: 'string' },
+        { key: 'quarter', header: '분기', dataType: 'string' },
+        { key: 'product', header: '제품', dataType: 'string' },
+        { key: 'region', header: '지역', dataType: 'string' },
+        { key: 'sales', header: '판매량', dataType: 'number', aggregate: 'sum' },
+        { key: 'profit', header: '수익', dataType: 'number', aggregate: 'sum' },
+      ];
+      
+      const pivotConfig = parsePivotConfig();
+      
       sheet = new PureSheet(container, {
-        columns,
-        rowHeight: 36,
-        headerHeight: 40,
-        resizableColumns: true,
+        mode: 'pivot',
+        fields,
+        rowFields: pivotConfig.rowFields,
+        columnFields: pivotConfig.columnFields,
+        valueFields: pivotConfig.valueFields.map(v => v.field),
+        rowStyle: 'height: 36px;',
+        headerStyle: 'height: 40px;',
         theme: 'light',
       });
       
-      // 데이터 로드
-      await sheet.loadData(rawData);
+      // 데이터 먼저 로드 (피벗 연산 전에 데이터가 필요)
+      await sheet.loadData(sampleData);
       
-      // UI 초기화
-      initializeConfigUI();
-      updateConfigDisplay();
+      // 데이터 로드 후 피벗 설정 적용
+      await sheet.setPivotConfig(pivotConfig);
       
-      // 이벤트 바인딩
-      document.getElementById('applyPivotBtn').addEventListener('click', applyPivot);
-      document.getElementById('resetBtn').addEventListener('click', resetToNormal);
-      document.getElementById('dataSizeSelect').addEventListener('change', regenerateData);
-      
-      updateStatus('500개 행 로드 완료 - 피봇 설정을 선택하고 "피봇 적용" 버튼을 클릭하세요');
+      updateStatus(`피벗 완료 - ${sampleData.length.toLocaleString()}개 원본 데이터 → ${sheet.getVisibleRowCount()}개 피벗 행`);
     }
     
-    init().catch(console.error);
+    // 데이터 재생성
+    window.regenerateData = async function() {
+      if (!sheet) return;
+      
+      const dataCount = parseInt(document.getElementById('dataCountSelect').value);
+      
+      // 대용량 데이터 경고
+      if (dataCount >= 1000000) {
+        updateStatus(`⚠️ ${(dataCount / 1000000).toFixed(0)}백만건 데이터 생성 중... 잠시 기다려주세요.`);
+        // UI 업데이트를 위해 짧은 지연
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      
+      const startTime = performance.now();
+      
+      sampleData = generateData(dataCount);
+      showDataPreview();
+      
+      const genTime = performance.now() - startTime;
+      updateStatus(`데이터 생성 완료 (${genTime.toFixed(0)}ms) - 피벗 계산 중...`);
+      
+      // UI 업데이트를 위해 짧은 지연
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      const pivotStart = performance.now();
+      await sheet.loadData(sampleData);
+      
+      const pivotConfig = parsePivotConfig();
+      await sheet.setPivotConfig(pivotConfig);
+      
+      const pivotTime = performance.now() - pivotStart;
+      const totalTime = performance.now() - startTime;
+      
+      updateStatus(`완료 - ${sampleData.length.toLocaleString()}건 → ${sheet.getVisibleRowCount()}행 (생성: ${genTime.toFixed(0)}ms, 피벗: ${pivotTime.toFixed(0)}ms, 총: ${totalTime.toFixed(0)}ms)`);
+    };
+    
+    // 피벗 업데이트
+    window.updatePivot = async function() {
+      if (!sheet) return;
+      
+      const pivotConfig = parsePivotConfig();
+      updateStatus('피벗 계산 중...');
+      
+      try {
+        await sheet.setPivotConfig(pivotConfig);
+        updateStatus(`피벗 완료 - 행: ${pivotConfig.rowFields.join(' → ')}, 열: ${pivotConfig.columnFields.join(' → ')}`);
+      } catch (error) {
+        console.error('Pivot error:', error);
+        updateStatus('피벗 오류: ' + error.message);
+      }
+    };
+    
+    // 초기화
+    window.resetPivot = async function() {
+      document.getElementById('rowFieldSelect').value = 'product';
+      document.getElementById('columnFieldSelect').value = 'month';
+      document.getElementById('valueFieldSelect').value = 'sales';
+      await updatePivot();
+    };
+    
+    // 초기화
+    initPivotGrid().catch(console.error);
   </script>
+  
+  <style>
+    .info-panel {
+      margin: 20px auto;
+      max-width: 1200px;
+      padding: 15px 20px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border: 1px solid #e9ecef;
+    }
+    
+    .info-panel h3 {
+      margin: 0 0 10px 0;
+      font-size: 14px;
+      color: #495057;
+    }
+    
+    .data-preview {
+      overflow-x: auto;
+    }
+    
+    .data-preview table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    
+    .data-preview th,
+    .data-preview td {
+      padding: 6px 10px;
+      border: 1px solid #dee2e6;
+      text-align: left;
+    }
+    
+    .data-preview th {
+      background: #e9ecef;
+      font-weight: 600;
+    }
+    
+    .data-preview tr:nth-child(even) {
+      background: #f8f9fa;
+    }
+    
+    .data-preview tr:last-child td {
+      text-align: center;
+      color: #6c757d;
+      font-style: italic;
+    }
+  </style>
 </body>
 </html>
+

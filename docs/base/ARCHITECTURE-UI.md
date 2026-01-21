@@ -19,24 +19,18 @@ flowchart TB
         VR[VirtualScroller]
         HR[HeaderRenderer]
         BR[BodyRenderer]
-        RR[RowRenderer]
+        ROW[Row]
         CR[CellRenderer]
         ER[EditorManager]
         SM[SelectionManager]
         CM[ColumnManager]
     end
     
-    subgraph ViewLayer [View Layer]
-        VDM[ViewDataManager]
-        ROW[Row - 순수 데이터]
-    end
-    
     subgraph CoreLayer [Core Layer]
         GC[GridCore]
         DS[DataStore]
         IM[IndexManager]
-        WB[WorkerBridge]
-        PL[DataPipeline]
+        AP[ArqueroProcessor]
     end
     
     External --> PS
@@ -45,22 +39,14 @@ flowchart TB
     GR --> VR
     GR --> HR
     GR --> BR
-    BR --> VDM
-    VDM --> ROW
-    BR --> RR
-    RR --> ROW
+    BR --> ROW
     BR --> CR
     BR --> ER
     GR --> SM
     GR --> CM
     GC --> DS
     GC --> IM
-    GC --> WB
-    GC --> VDM
-    DS --> VDM
-    IM --> VDM
-    WB --> PL
-    PL --> VDM
+    GC --> AP
 ```
 
 ### 핵심 설계 원칙
@@ -71,8 +57,7 @@ flowchart TB
 | **가상화** | 100만 행도 60fps 유지 (보이는 행만 렌더링) |
 | **모듈 분리** | 각 기능(선택, 편집, 컬럼)이 독립적인 모듈 |
 | **이벤트 기반** | GridCore의 EventEmitter와 연동하여 반응형 업데이트 |
-| **단일 접근점** | ViewDataManager를 통해 DOM 렌더링 데이터 일원화 |
-| **데이터/렌더링 분리** | Row = 순수 데이터, RowRenderer = 렌더링 |
+| **통합 Row 모델** | 단일 Row 클래스로 Body, 고정 영역 모두 처리 |
 | **행/컬럼 고정 대칭** | 컬럼 고정(left/right)과 행 고정(top/bottom) 동일 패턴 |
 
 ---
@@ -81,22 +66,6 @@ flowchart TB
 
 ```
 src/
-├── core/
-│   ├── ViewDataManager.ts        # DOM 렌더링용 단일 접근점 (NEW)
-│   └── ViewConfig.ts             # 통합 뷰 설정 (피봇/일반) (NEW)
-│
-├── model/                        # 데이터 모델 (NEW)
-│   └── Row.ts                    # 순수 데이터 객체 (렌더링 로직 없음)
-│
-├── processor/
-│   └── pipeline/                 # 데이터 변환 파이프라인 (NEW)
-│       ├── DataPipeline.ts
-│       ├── Transformer.ts
-│       ├── FilterTransformer.ts
-│       ├── SortTransformer.ts
-│       ├── PivotTransformer.ts
-│       └── MaterializeTransformer.ts
-│
 ├── ui/
 │   ├── index.ts
 │   ├── PureSheet.ts              # 최상위 파사드 (GridCore + UI 통합)
@@ -109,12 +78,13 @@ src/
 │   │   └── HeaderCell.ts         # 헤더 셀 컴포넌트
 │   │
 │   ├── body/
-│   │   ├── BodyRenderer.ts       # 바디 영역 렌더링 (ViewDataManager 사용)
+│   │   ├── BodyRenderer.ts       # 바디 영역 렌더링
 │   │   ├── RowPool.ts            # 행 DOM 요소 풀링
 │   │   └── CellRenderer.ts       # 셀 렌더링 + DOM 풀링
 │   │
-│   ├── row/
-│   │   ├── RowRenderer.ts        # Row 렌더링 전담 (Row에서 분리)
+│   ├── row/                      # Row 클래스 (신규)
+│   │   ├── Row.ts                # 통합 Row 클래스
+│   │   ├── RowRenderer.ts        # Row 렌더링 로직
 │   │   └── types.ts              # Row 관련 타입
 │   │
 │   ├── interaction/
@@ -132,91 +102,6 @@ src/
 ---
 
 ## 3. 모듈별 상세 설계
-
-### 3.0 ViewDataManager - 뷰 설정 관리자
-
-> 상세 결정 과정: [피봇 그리드 아키텍처](../decisions/008-pivot-grid-architecture.md)
-
-ViewDataManager는 **"데이터 저장소"가 아니라 "뷰 설정 관리자"**입니다.
-모든 데이터를 저장하는 게 아니라, 뷰 설정을 관리하고 필요한 데이터를 조합하여 제공합니다.
-
-#### 핵심 개념: 필터/정렬 vs 피봇
-
-```
-[필터/정렬]
-결과: Uint32Array (인덱스만)
-저장: IndexManager
-렌더링: DataStore 원본 참조
-
-[피봇]
-결과: 새로운 Row[] + ColumnDef[]
-저장: ViewDataManager (DataStore에 없는 데이터)
-렌더링: ViewDataManager.getPivotedData() 직접 사용
-```
-
-#### 저장하는 것 vs 저장하지 않는 것
-
-| 저장 ✅ | 저장하지 않음 ❌ |
-|--------|----------------|
-| mode (normal/pivot) | scrollableRows (DataStore 참조) |
-| pinnedLeftColumnKeys | scrollableColumns (계산) |
-| pinnedRightColumnKeys | |
-| pinnedTopRowIds | |
-| pinnedBottomRowIds | |
-| pivotedData (피봇 모드만) | |
-| pivotedColumns (피봇 모드만) | |
-
-#### BodyRenderer에서의 사용
-
-```typescript
-class BodyRenderer {
-  private getScrollableRows(): VirtualRow[] {
-    const mode = this.viewDataManager.getMode();
-    
-    if (mode === 'pivot') {
-      // 피봇 모드: ViewDataManager에서 피봇 결과 사용
-      return this.viewDataManager.getPivotedData()!;
-    } else {
-      // 일반 모드: 기존 흐름 (GridCore → DataStore + IndexManager)
-      const data = this.gridCore.getAllData();
-      return this.groupManager.flattenWithGroups(data);
-    }
-  }
-  
-  private getColumnLayout(): ColumnLayout {
-    const leftKeys = this.viewDataManager.getPinnedLeftColumnKeys();
-    const rightKeys = this.viewDataManager.getPinnedRightColumnKeys();
-    const allColumns = this.viewDataManager.getMode() === 'pivot'
-      ? this.viewDataManager.getPivotedColumns()!
-      : this.gridCore.getColumns();
-    
-    return {
-      left: allColumns.filter(c => leftKeys.includes(c.key)),
-      center: allColumns.filter(c => !leftKeys.includes(c.key) && !rightKeys.includes(c.key)),
-      right: allColumns.filter(c => rightKeys.includes(c.key)),
-    };
-  }
-}
-```
-
-#### 왜 scrollableRows를 저장하지 않는가?
-
-```
-100만 행 시나리오:
-
-[저장하면] - 비효율
-- ViewDataManager: 100만 Row 참조 (중복)
-- DataStore: 100만 원본 데이터
-= 메모리 낭비, 동기화 복잡
-
-[저장 안 하면] - 효율적
-- DataStore: 100만 원본 (단일 원본)
-- IndexManager: Uint32Array (~4MB)
-- ViewDataManager: pinned IDs만 (수십 개)
-= 기존 아키텍처 활용, 동기화 불필요
-```
-
----
 
 ### 3.1 VirtualScroller (Proxy Scrollbar 방식)
 
@@ -591,55 +476,6 @@ flowchart LR
 ### 3.4 Row 클래스 및 행 고정
 
 > 상세 결정 과정: [Row 클래스 아키텍처](../decisions/007-row-class-architecture.md)
-> 상세 결정 과정: [피봇 그리드 아키텍처](../decisions/008-pivot-grid-architecture.md)
-
-#### Row와 RowRenderer 분리
-
-Row 클래스는 **순수 데이터/상태 객체**이며, 렌더링은 **RowRenderer**가 담당합니다.
-
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│      Row        │     │ ViewDataManager │     │   RowRenderer   │
-│   (What)        │ ──▶ │   (Where)       │ ──▶ │   (How)         │
-│                 │     │                 │     │                 │
-│ - 데이터        │     │ - 고정 위치     │     │ - DOM 생성      │
-│ - 상태          │     │ - 정렬 순서     │     │ - 스타일 적용   │
-│ - 메타데이터    │     │ - 필터 결과     │     │ - 이벤트 바인딩 │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-```
-
-#### Row = 순수 데이터 객체
-
-```typescript
-class Row {
-  readonly variant: RowVariant;
-  readonly data: Record<string, unknown>;
-  readonly structural: boolean;
-  
-  // 렌더링 로직 없음
-  getData(): Record<string, unknown>;
-  getVariant(): RowVariant;
-  isStructural(): boolean;
-}
-```
-
-#### RowRenderer = 렌더링 전담
-
-```typescript
-class RowRenderer {
-  render(row: Row, container: HTMLElement, context: RowRenderContext): void {
-    switch (row.variant) {
-      case 'data':
-        this.renderDataRow(row, container, context);
-        break;
-      case 'group-header':
-        this.renderGroupHeader(row, container, context);
-        break;
-      // ...
-    }
-  }
-}
-```
 
 #### 핵심 개념: Structural vs Non-structural
 
@@ -986,40 +822,88 @@ class EditorManager {
 
 GridCore와 UI Layer를 통합하는 메인 클래스.
 
+> **설정 API 상세**: [Config API 재설계](../decisions/010-config-api-redesign.md)
+
 ```typescript
 // src/ui/PureSheet.ts
 
-interface PureSheetOptions {
-  // 컬럼 정의
-  columns: ColumnDef[];
+// 데이터 타입
+type DataType = 'string' | 'number' | 'boolean' | 'date';
+type AggregateFunc = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'first' | 'last';
+
+// 필드 정의
+interface FieldDef {
+  key: string;                 // 필드 키
+  header: string;              // 헤더에 표시할 이름
+  dataType: DataType;          // 데이터 타입
+  aggregate?: AggregateFunc;   // 집계 함수
+  style?: string;              // CSS 스타일 (예: 'width: 200px;')
+  sortable?: boolean;          // 정렬 가능 여부
+  filterable?: boolean;        // 필터 가능 여부
+  editable?: boolean;          // 편집 가능 여부
+}
+
+interface PureSheetConfig {
+  // === 공통 ===
+  /** 그리드 모드 @default 'flat' */
+  mode?: 'flat' | 'pivot';
   
-  // 초기 데이터
-  data?: Record<string, any>[];
+  /** 데이터 */
+  data?: Row[];
   
-  // 행 설정
-  rowHeight?: number;          // 기본: 32
-  headerHeight?: number;       // 기본: 40
+  /** 필드 정의 */
+  fields: FieldDef[];
   
-  // 고정 행 설정 (신규)
-  pinnedRows?: {
-    top?: Row[];               // 헤더 아래 고정 행
-    bottom?: Row[];            // 하단 고정 행 (Footer)
+  // === UI 옵션 (공통) ===
+  /** 테마 @default 'light' */
+  theme?: 'light' | 'dark' | 'auto';
+  
+  /** 행 스타일 (예: 'height: 36px;') */
+  rowStyle?: string;
+  
+  /** 헤더 스타일 (예: 'height: 48px;') */
+  headerStyle?: string;
+  
+  /** 컬럼 리사이즈 가능 @default true */
+  resizableColumns?: boolean;
+  
+  /** 컬럼 재정렬 가능 @default true */
+  reorderableColumns?: boolean;
+  
+  /** 선택 모드 @default 'row' */
+  selectionMode?: 'none' | 'cell' | 'row' | 'range';
+  
+  /** 다중 선택 @default true */
+  multiSelect?: boolean;
+  
+  /** 편집 가능 @default false */
+  editable?: boolean;
+  
+  // === Flat 모드 전용 ===
+  /** 표시할 컬럼 목록 (fields의 key 참조) */
+  columns?: string[];
+  
+  /** 고정 컬럼 */
+  pinned?: {
+    left?: string[];
+    right?: string[];
   };
   
-  // 선택 설정
-  selectionMode?: 'row' | 'cell' | 'range' | 'none';
-  multiSelect?: boolean;       // 기본: true
-  showCheckboxColumn?: boolean;
+  /** 그룹핑 설정 */
+  group?: {
+    columns: string[];
+    subtotals?: string[];
+  };
   
-  // 편집 설정
-  editable?: boolean;          // 기본: false
+  // === Pivot 모드 전용 ===
+  /** 행 축 필드 */
+  rowFields?: string[];
   
-  // 컬럼 설정
-  resizableColumns?: boolean;  // 기본: true
-  reorderableColumns?: boolean;// 기본: true
+  /** 열 축 필드 (피벗되는 필드) */
+  columnFields?: string[];
   
-  // 테마
-  theme?: 'light' | 'dark' | 'auto';
+  /** 값 필드 */
+  valueFields?: string[];
 }
 
 class PureSheet {
@@ -1029,21 +913,43 @@ class PureSheet {
   private editorManager: EditorManager;
   private columnManager: ColumnManager;
   
-  constructor(container: HTMLElement, options: PureSheetOptions) {
+  constructor(container: HTMLElement, config: PureSheetConfig) {
+    // fields → columns 변환 (내부 호환성)
+    const columns = this.fieldsToColumns(config.fields);
+    
     // Core 초기화
-    this.gridCore = new GridCore({
-      columns: options.columns,
-      data: options.data,
-    });
+    this.gridCore = new GridCore({ columns });
     
     // UI 초기화
-    this.gridRenderer = new GridRenderer(container, this.gridCore, options);
+    this.gridRenderer = new GridRenderer(container, this.gridCore, config);
     this.selectionManager = new SelectionManager(this.gridCore);
     this.editorManager = new EditorManager(this.gridCore);
     this.columnManager = new ColumnManager(this.gridCore);
     
     // 이벤트 연결
     this.setupEventListeners();
+    
+    // 초기 데이터 로드
+    if (config.data) {
+      this.loadData(config.data);
+    }
+    
+    // 피벗 모드 설정
+    if (config.mode === 'pivot') {
+      this.setupPivotMode(config);
+    }
+  }
+  
+  private fieldsToColumns(fields: FieldDef[]): ColumnDef[] {
+    return fields.map(f => ({
+      key: f.key,
+      label: f.header,
+      type: f.dataType,
+      sortable: f.sortable,
+      filterable: f.filterable,
+      editable: f.editable,
+      // style 파싱 → width 추출
+    }));
   }
   
   // ===========================================================================
@@ -1496,11 +1402,12 @@ const sheet = new PureSheet(container, {
 ## 관련 문서
 
 - [Core Architecture](./ARCHITECTURE-CORE.md)
-- [Worker 환경 지원 전략](../decisions/001-worker-environment-support.md)
 - [가로 가상화 전략](../decisions/002-horizontal-virtualization.md)
 - [가변 행 높이 가상화 전략](../decisions/003-variable-row-height-virtualization.md)
 - [셀 병합 및 행 그룹화 전략](../decisions/004-cell-merge-and-row-grouping.md)
 - [Multi-Row 레이아웃 전략](../decisions/005-multi-row-layout.md)
 - [셀 렌더링 전략](../decisions/006-cell-rendering-strategy.md)
 - [Row 클래스 아키텍처](../decisions/007-row-class-architecture.md)
-- [피봇 그리드 아키텍처](../decisions/008-pivot-grid-architecture.md)
+- [피벗 그리드 아키텍처](../decisions/008-pivot-grid-architecture.md)
+- [Worker 제거 결정](../decisions/009-remove-worker-architecture.md)
+- [Config API 재설계](../decisions/010-config-api-redesign.md)

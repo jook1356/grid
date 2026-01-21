@@ -8,7 +8,7 @@
  * - EventEmitter: 이벤트 발행/구독
  * - DataStore: 원본 데이터 관리
  * - IndexManager: 인덱스 배열 관리
- * - WorkerBridge: Worker 통신
+ * - ArqueroProcessor: 데이터 처리 (정렬/필터/집계)
  *
  * @example
  * const grid = new GridCore({
@@ -44,9 +44,7 @@ import type {
 import { EventEmitter } from './EventEmitter';
 import { DataStore } from './DataStore';
 import { IndexManager } from './IndexManager';
-import { WorkerBridge } from '../processor/WorkerBridge';
-import { ViewDataManager } from './ViewDataManager';
-import type { PivotConfig, PivotResult } from './ViewConfig';
+import { ArqueroProcessor } from '../processor/ArqueroProcessor';
 
 // =============================================================================
 // 타입 정의
@@ -97,11 +95,8 @@ export class GridCore {
   /** 인덱스 관리자 */
   private readonly indexManager: IndexManager;
 
-  /** Worker 통신 브릿지 */
-  private readonly workerBridge: WorkerBridge;
-
-  /** 뷰 설정 관리자 (피봇/일반 통합) */
-  private readonly viewDataManager: ViewDataManager;
+  /** 데이터 처리기 (정렬/필터/집계) */
+  private readonly processor: ArqueroProcessor;
 
   // ===========================================================================
   // 상태
@@ -132,11 +127,7 @@ export class GridCore {
     this.events = new EventEmitter();
     this.dataStore = new DataStore(this.events, { idKey: options.idKey });
     this.indexManager = new IndexManager(this.events);
-    this.workerBridge = new WorkerBridge(this.events);
-    this.viewDataManager = new ViewDataManager(this.events);
-
-    // ViewDataManager에 GridCore 연결
-    this.viewDataManager.setGridCore(this);
+    this.processor = new ArqueroProcessor();
 
     // 초기 컬럼 설정
     this.dataStore.setColumns(options.columns);
@@ -149,7 +140,6 @@ export class GridCore {
   /**
    * Grid 초기화
    *
-   * Worker를 생성하고 준비합니다.
    * 데이터 로드 전에 반드시 호출해야 합니다.
    *
    * @example
@@ -160,9 +150,6 @@ export class GridCore {
     if (this.initialized) {
       return;
     }
-
-    // Worker 초기화
-    await this.workerBridge.initialize();
 
     this.initialized = true;
 
@@ -211,8 +198,8 @@ export class GridCore {
     // IndexManager 초기화
     this.indexManager.initialize(data.length);
 
-    // Worker에 데이터 전송
-    await this.workerBridge.initializeData(data);
+    // 프로세서에 데이터 로드
+    await this.processor.initialize(data);
 
     // 뷰 상태 리셋
     this.viewState = {
@@ -268,8 +255,8 @@ export class GridCore {
       changedProperty: 'sorts',
     });
 
-    // Worker에서 처리
-    const result = await this.workerBridge.query({
+    // 프로세서에서 처리
+    const result = await this.processor.query({
       sorts,
       filters: this.viewState.filters,
     });
@@ -351,8 +338,8 @@ export class GridCore {
       changedProperty: 'filters',
     });
 
-    // Worker에서 처리
-    const result = await this.workerBridge.query({
+    // 프로세서에서 처리
+    const result = await this.processor.query({
       sorts: this.viewState.sorts,
       filters,
     });
@@ -419,105 +406,7 @@ export class GridCore {
     this.ensureInitialized();
     this.ensureDataLoaded();
 
-    return this.workerBridge.aggregate(options);
-  }
-
-  // ===========================================================================
-  // 피봇
-  // ===========================================================================
-
-  /**
-   * 피봇 모드 설정
-   *
-   * 데이터를 피봇하여 행↔열 변환을 수행합니다.
-   * rowFields는 자동으로 좌측 고정 컬럼이 됩니다.
-   *
-   * @param config - 피봇 설정
-   * @returns 피봇 결과
-   *
-   * @example
-   * const result = await grid.setPivotConfig({
-   *   rowFields: ['department'],
-   *   columnFields: ['year', 'quarter'],
-   *   valueFields: [{ field: 'sales', aggregate: 'sum' }]
-   * });
-   *
-   * // result.rows: 피봇된 데이터
-   * // result.columns: 동적 생성된 컬럼 (rowFields + 동적 값 컬럼)
-   */
-  async setPivotConfig(config: PivotConfig): Promise<PivotResult> {
-    this.ensureInitialized();
-    this.ensureDataLoaded();
-
-    // 현재 필터 적용
-    const pivotOptions = {
-      rowFields: config.rowFields,
-      columnFields: config.columnFields,
-      valueFields: config.valueFields.map(vf => ({
-        field: vf.field,
-        aggregate: vf.aggregate,
-        label: vf.label,
-      })),
-      filters: this.viewState.filters,
-    };
-
-    // Worker에서 피봇 실행
-    const result = await this.workerBridge.pivot(pivotOptions);
-
-    // ViewDataManager에 피봇 모드 설정 (자동 컬럼 고정 포함)
-    this.viewDataManager.setPivotMode(config, result);
-
-    // 이벤트 발행
-    this.events.emit('view:changed', {
-      viewState: this.viewState,
-      changedProperty: 'pivot',
-    });
-
-    return result;
-  }
-
-  /**
-   * 피봇 모드 해제 (일반 모드로 복귀)
-   *
-   * @example
-   * grid.clearPivot();
-   */
-  clearPivot(): void {
-    this.viewDataManager.setNormalMode();
-
-    // 이벤트 발행
-    this.events.emit('view:changed', {
-      viewState: this.viewState,
-      changedProperty: 'pivot',
-    });
-  }
-
-  /**
-   * 피봇 모드 여부 확인
-   */
-  isPivotMode(): boolean {
-    return this.viewDataManager.isPivotMode();
-  }
-
-  /**
-   * 현재 피봇 설정 가져오기
-   */
-  getPivotConfig(): PivotConfig | null {
-    return this.viewDataManager.getCurrentPivotConfig();
-  }
-
-  /**
-   * 피봇된 데이터 가져오기 (피봇 모드에서만 유효)
-   */
-  getPivotedData(): Row[] | null {
-    return this.viewDataManager.getPivotedData();
-  }
-
-  /**
-   * 피봇된 컬럼 정의 가져오기 (피봇 모드에서만 유효)
-   */
-  getPivotedColumns(): ColumnDef[] | null {
-    return this.viewDataManager.getPivotedColumns();
+    return this.processor.aggregate(options);
   }
 
   // ===========================================================================
@@ -576,6 +465,31 @@ export class GridCore {
     return this.dataStore.getColumns();
   }
 
+  /**
+   * 컬럼 정의 설정
+   * 
+   * 피벗 모드 전환 등에서 컬럼을 동적으로 변경할 때 사용합니다.
+   * 
+   * @param columns - 새 컬럼 정의
+   */
+  setColumns(columns: ColumnDef[]): void {
+    this.dataStore.setColumns(columns);
+  }
+
+  /**
+   * DataStore 접근 (피벗 모드 등에서 직접 데이터 조작 시 사용)
+   */
+  getDataStore(): DataStore {
+    return this.dataStore;
+  }
+
+  /**
+   * IndexManager 접근 (피벗 모드 등에서 인덱스 재설정 시 사용)
+   */
+  getIndexManager(): IndexManager {
+    return this.indexManager;
+  }
+
   // ===========================================================================
   // CRUD 작업
   // ===========================================================================
@@ -591,13 +505,13 @@ export class GridCore {
   async addRow(row: Row): Promise<void> {
     this.dataStore.addRow(row);
 
-    // Worker 데이터 재초기화 (TODO: 증분 업데이트 최적화)
-    await this.workerBridge.initializeData(this.dataStore.getData() as Row[]);
+    // 프로세서 데이터 재초기화 (TODO: 증분 업데이트 최적화)
+    await this.processor.initialize(this.dataStore.getData() as Row[]);
     this.indexManager.initialize(this.dataStore.getRowCount());
 
     // 현재 정렬/필터 다시 적용
     if (this.viewState.sorts.length > 0 || this.viewState.filters.length > 0) {
-      const result = await this.workerBridge.query({
+      const result = await this.processor.query({
         sorts: this.viewState.sorts,
         filters: this.viewState.filters,
       });
@@ -614,12 +528,12 @@ export class GridCore {
   async updateRow(index: number, updates: Partial<Row>): Promise<void> {
     this.dataStore.patchRow(index, updates);
 
-    // Worker 데이터 재초기화
-    await this.workerBridge.initializeData(this.dataStore.getData() as Row[]);
+    // 프로세서 데이터 재초기화
+    await this.processor.initialize(this.dataStore.getData() as Row[]);
 
     // 현재 정렬/필터 다시 적용
     if (this.viewState.sorts.length > 0 || this.viewState.filters.length > 0) {
-      const result = await this.workerBridge.query({
+      const result = await this.processor.query({
         sorts: this.viewState.sorts,
         filters: this.viewState.filters,
       });
@@ -635,13 +549,13 @@ export class GridCore {
   async removeRow(index: number): Promise<void> {
     this.dataStore.removeRow(index);
 
-    // Worker 데이터 재초기화
-    await this.workerBridge.initializeData(this.dataStore.getData() as Row[]);
+    // 프로세서 데이터 재초기화
+    await this.processor.initialize(this.dataStore.getData() as Row[]);
     this.indexManager.initialize(this.dataStore.getRowCount());
 
     // 현재 정렬/필터 다시 적용
     if (this.viewState.sorts.length > 0 || this.viewState.filters.length > 0) {
-      const result = await this.workerBridge.query({
+      const result = await this.processor.query({
         sorts: this.viewState.sorts,
         filters: this.viewState.filters,
       });
@@ -747,7 +661,7 @@ export class GridCore {
    * onUnmounted(() => grid.destroy());
    */
   destroy(): void {
-    this.workerBridge.destroy();
+    this.processor.destroy();
     this.indexManager.destroy();
     this.events.destroy();
     this.initialized = false;
@@ -783,26 +697,10 @@ export class GridCore {
   }
 
   /**
-   * WorkerBridge 접근
+   * ArqueroProcessor 접근
    * @internal
    */
-  get _workerBridge(): WorkerBridge {
-    return this.workerBridge;
-  }
-
-  /**
-   * ViewDataManager 접근
-   *
-   * 뷰 설정 관리자로, 피봇/일반 모드 전환 및 고정 컬럼/행 관리에 사용됩니다.
-   *
-   * @example
-   * // 피봇 모드 설정
-   * grid.viewManager.setPivotMode(config, result);
-   *
-   * // 컬럼 고정
-   * grid.viewManager.pinColumn('name', 'left');
-   */
-  get viewManager(): ViewDataManager {
-    return this.viewDataManager;
+  get _processor(): ArqueroProcessor {
+    return this.processor;
   }
 }

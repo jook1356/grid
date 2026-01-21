@@ -31,8 +31,12 @@ export { GroupManager } from './grouping';
 // Multi-Row 모듈
 export { MultiRowRenderer } from './multirow';
 
+// Pivot 모듈
+export { PivotHeaderRenderer } from './pivot';
+export type { PivotHeaderRendererOptions } from './pivot';
+
 // Row 모듈
-export { Row, RowRenderer } from './row';
+export { Row } from './row';
 export type {
   RowVariant,
   RowConfig,
@@ -42,3 +46,26 @@ export type {
   RowRenderContext,
   VirtualRowInfo,
 } from './row';
+
+// Merge 모듈 (셀 병합)
+export {
+  MergeManager,
+  ContentMergeManager,
+  HierarchicalMergeManager,
+  CustomMergeManager,
+} from './merge';
+export type {
+  MergedRange,
+  CellMergeInfo,
+  MergeManagerConfig,
+  CustomMergeFunction,
+} from './merge';
+
+// Config 유틸리티
+export {
+  fieldToColumn,
+  configToInternalOptions,
+  getGridMode,
+  getPivotConfig,
+} from './utils/configAdapter';
+export type { InternalOptions } from './utils/configAdapter';

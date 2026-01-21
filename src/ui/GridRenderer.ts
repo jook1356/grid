@@ -8,11 +8,13 @@
  */
 
 import type { GridCore } from '../core/GridCore';
-import type { ColumnState, PureSheetOptions, SortState } from './types';
-import type { PivotHeaderData } from './header/PivotHeaderRenderer';
+import type { ColumnDef } from '../types';
+import type { PivotResult } from '../types/pivot.types';
+import type { ColumnState, SortState } from './types';
+import type { InternalOptions } from './utils/configAdapter';
 import { BodyRenderer } from './body/BodyRenderer';
 import { HeaderRenderer } from './header/HeaderRenderer';
-import { PivotHeaderRenderer } from './header/PivotHeaderRenderer';
+import { PivotHeaderRenderer } from './pivot/PivotHeaderRenderer';
 
 // CSS 스타일 삽입 여부 추적
 let styleInjected = false;
@@ -23,8 +25,8 @@ let styleInjected = false;
 export interface GridRendererOptions {
   /** GridCore 인스턴스 */
   gridCore: GridCore;
-  /** PureSheet 옵션 */
-  options: PureSheetOptions;
+  /** 내부 옵션 */
+  options: InternalOptions;
   /** 행 클릭 콜백 */
   onRowClick?: (rowIndex: number, row: Record<string, unknown>, event: MouseEvent) => void;
   /** 셀 클릭 콜백 */
@@ -59,7 +61,7 @@ export interface GridRendererOptions {
 export class GridRenderer {
   private readonly gridCore: GridCore;
   private readonly container: HTMLElement;
-  private readonly options: PureSheetOptions;
+  private readonly options: InternalOptions;
 
   // 컬럼 상태
   private columnStates: ColumnState[] = [];
@@ -68,14 +70,18 @@ export class GridRenderer {
   private gridContainer: HTMLElement | null = null;
   private headerElement: HTMLElement | null = null;
   private bodyElement: HTMLElement | null = null;
+  private scrollProxyY: HTMLElement | null = null;
+  private scrollProxyX: HTMLElement | null = null;
+  private spacerY: HTMLElement | null = null;
+  private spacerX: HTMLElement | null = null;
 
   // 모듈
   private headerRenderer: HeaderRenderer | null = null;
   private pivotHeaderRenderer: PivotHeaderRenderer | null = null;
   private bodyRenderer: BodyRenderer | null = null;
 
-  // 피봇 모드
-  private pivotMode: boolean = false;
+  // 현재 헤더 모드
+  private headerMode: 'flat' | 'pivot' = 'flat';
 
   // 콜백
   private onRowClick?: GridRendererOptions['onRowClick'];
@@ -145,6 +151,7 @@ export class GridRenderer {
       state.width = Math.max(50, width);
       this.updateColumnWidthCSS(columnKey, state.width);
       this.headerRenderer?.updateColumnWidth(columnKey, state.width);
+      this.bodyRenderer?.updateColumnWidth(columnKey, state.width);
     }
   }
 
@@ -183,15 +190,6 @@ export class GridRenderer {
       }
     });
     this.columnStates.sort((a, b) => a.order - b.order);
-    this.headerRenderer?.updateColumns(this.columnStates);
-    this.bodyRenderer?.updateColumns(this.columnStates);
-  }
-
-  /**
-   * 전체 컬럼 상태 업데이트 (피봇 등 전체 컬럼 변경 시 사용)
-   */
-  updateColumns(newColumnStates: ColumnState[]): void {
-    this.columnStates = newColumnStates;
     this.headerRenderer?.updateColumns(this.columnStates);
     this.bodyRenderer?.updateColumns(this.columnStates);
   }
@@ -257,65 +255,90 @@ export class GridRenderer {
   }
 
   // ===========================================================================
-  // 피봇 모드
+  // 피벗 모드 지원
   // ===========================================================================
 
   /**
-   * 피봇 모드 활성화
-   *
-   * 계층적 컬럼 헤더를 렌더링하기 위해 PivotHeaderRenderer로 전환합니다.
-   *
-   * @param data - 피봇 헤더 데이터
+   * 헤더 요소 반환
    */
-  enablePivotMode(data: PivotHeaderData): void {
+  getHeaderElement(): HTMLElement | null {
+    return this.headerElement;
+  }
+
+  /**
+   * 그리드 컨테이너 반환
+   */
+  getGridContainer(): HTMLElement | null {
+    return this.gridContainer;
+  }
+
+  /**
+   * 현재 헤더 모드 반환
+   */
+  getHeaderMode(): 'flat' | 'pivot' {
+    return this.headerMode;
+  }
+
+  /**
+   * 피벗 헤더로 전환
+   * 
+   * 기존 HeaderRenderer를 제거하고 PivotHeaderRenderer로 교체합니다.
+   * 
+   * @param pivotResult - 피벗 연산 결과
+   */
+  switchToPivotHeader(pivotResult: PivotResult): void {
     if (!this.headerElement) return;
 
-    this.pivotMode = true;
+    // 기존 HeaderRenderer 제거
+    if (this.headerRenderer) {
+      this.headerRenderer.destroy();
+      this.headerRenderer = null;
+    }
 
-    // 기존 HeaderRenderer 정리
-    this.headerRenderer?.destroy();
-    this.headerRenderer = null;
-
-    // 컬럼 너비 맵 생성
-    const columnWidths = new Map<string, number>();
-    for (const state of this.columnStates) {
-      columnWidths.set(state.key, state.width);
+    // 기존 PivotHeaderRenderer 제거 (이미 있는 경우)
+    if (this.pivotHeaderRenderer) {
+      this.pivotHeaderRenderer.destroy();
+      this.pivotHeaderRenderer = null;
     }
 
     // PivotHeaderRenderer 생성
     this.pivotHeaderRenderer = new PivotHeaderRenderer(this.headerElement, {
-      data,
-      headerHeight: this.options.headerHeight ?? 40,
-      columnWidths,
-      defaultColumnWidth: 100,
-      rowFieldWidth: 120,
+      headerTree: pivotResult.columnHeaderTree,
+      levelCount: pivotResult.headerLevelCount,
+      rowHeaderColumns: pivotResult.rowHeaderColumns,
+      dataColumns: pivotResult.columns,
+      headerHeight: this.options.rowHeight ?? 36,
     });
 
-    // 헤더 높이 업데이트
-    const totalHeight = this.pivotHeaderRenderer.getTotalHeight();
-    this.headerElement.style.height = `${totalHeight}px`;
-    this.headerElement.style.minHeight = `${totalHeight}px`;
+    // 컬럼 상태 업데이트 (행 헤더 + 피벗 컬럼)
+    const allColumns = [...pivotResult.rowHeaderColumns, ...pivotResult.columns];
+    this.updateColumnStates(allColumns);
+
+    this.headerMode = 'pivot';
   }
 
   /**
-   * 피봇 모드 비활성화
-   *
-   * 일반 HeaderRenderer로 복귀합니다.
+   * 일반 헤더로 복원
+   * 
+   * PivotHeaderRenderer를 제거하고 HeaderRenderer로 복원합니다.
    */
-  disablePivotMode(): void {
+  switchToFlatHeader(): void {
     if (!this.headerElement) return;
 
-    this.pivotMode = false;
+    // PivotHeaderRenderer 제거
+    if (this.pivotHeaderRenderer) {
+      this.pivotHeaderRenderer.destroy();
+      this.pivotHeaderRenderer = null;
+    }
 
-    // PivotHeaderRenderer 정리
-    this.pivotHeaderRenderer?.destroy();
-    this.pivotHeaderRenderer = null;
+    // 기존 컬럼 상태 복원
+    this.initializeColumnStates();
 
-    // 일반 HeaderRenderer 복구
+    // HeaderRenderer 재생성
     this.headerRenderer = new HeaderRenderer(this.headerElement, {
       gridCore: this.gridCore,
       columns: this.columnStates,
-      headerHeight: this.options.headerHeight ?? 40,
+      headerHeight: this.options.rowHeight ?? 36,
       resizable: this.options.resizableColumns !== false,
       reorderable: this.options.reorderableColumns ?? false,
       rowTemplate: this.options.rowTemplate,
@@ -324,17 +347,38 @@ export class GridRenderer {
       onColumnReorder: this.handleColumnReorder.bind(this),
     });
 
-    // 헤더 높이 복구
-    const headerHeight = this.options.headerHeight ?? 40;
-    this.headerElement.style.height = `${headerHeight}px`;
-    this.headerElement.style.minHeight = `${headerHeight}px`;
+    // BodyRenderer 컬럼 복원
+    this.bodyRenderer?.updateColumns(this.columnStates);
+
+    this.headerMode = 'flat';
   }
 
   /**
-   * 피봇 모드 여부 확인
+   * 피벗 헤더 렌더러 반환
    */
-  isPivotMode(): boolean {
-    return this.pivotMode;
+  getPivotHeaderRenderer(): PivotHeaderRenderer | null {
+    return this.pivotHeaderRenderer;
+  }
+
+  /**
+   * 컬럼 상태 직접 업데이트 (피벗 모드에서 사용)
+   * 
+   * @param columns - 새 컬럼 정의
+   */
+  updateColumnStates(columns: ColumnDef[]): void {
+    this.columnStates = columns.map((col, index) => ({
+      key: col.key,
+      width: col.width ?? 100,
+      pinned: col.pinned ?? col.frozen ?? 'none',
+      visible: col.hidden !== true,
+      order: index,
+    }));
+
+    // CSS 변수 업데이트
+    this.initializeColumnWidthCSS();
+
+    // BodyRenderer에 반영
+    this.bodyRenderer?.updateColumns(this.columnStates);
   }
 
   /**
@@ -382,6 +426,17 @@ export class GridRenderer {
 
   /**
    * DOM 구조 생성
+   * 
+   * 구조:
+   * .ps-grid-container (flex column)
+   *   ├── .ps-main-area (flex row)
+   *   │    ├── .ps-content-wrapper (flex column)
+   *   │    │    ├── .ps-header
+   *   │    │    └── .ps-body
+   *   │    └── .ps-scroll-proxy-y (세로 스크롤바)
+   *   └── .ps-scroll-area-x (flex row)
+   *        ├── .ps-scroll-proxy-x (가로 스크롤바)
+   *        └── .ps-scroll-corner (우측 하단 코너)
    */
   private createDOMStructure(): void {
     // 메인 컨테이너
@@ -402,15 +457,54 @@ export class GridRenderer {
       this.gridContainer.style.setProperty('--ps-group-indent', `${indentPx}px`);
     }
 
+    // === 메인 영역 (콘텐츠 + 세로 스크롤바) ===
+    const mainArea = document.createElement('div');
+    mainArea.className = 'ps-main-area';
+
+    // 콘텐츠 래퍼 (헤더 + 바디)
+    const contentWrapper = document.createElement('div');
+    contentWrapper.className = 'ps-content-wrapper';
+
     // 헤더 영역
     this.headerElement = document.createElement('div');
     this.headerElement.className = 'ps-header';
-    this.gridContainer.appendChild(this.headerElement);
+    contentWrapper.appendChild(this.headerElement);
 
     // 바디 영역
     this.bodyElement = document.createElement('div');
     this.bodyElement.className = 'ps-body';
-    this.gridContainer.appendChild(this.bodyElement);
+    contentWrapper.appendChild(this.bodyElement);
+
+    mainArea.appendChild(contentWrapper);
+
+    // 세로 프록시 스크롤바
+    this.scrollProxyY = document.createElement('div');
+    this.scrollProxyY.className = 'ps-scroll-proxy-y';
+    this.spacerY = document.createElement('div');
+    this.spacerY.className = 'ps-scroll-spacer-y';
+    this.scrollProxyY.appendChild(this.spacerY);
+    mainArea.appendChild(this.scrollProxyY);
+
+    this.gridContainer.appendChild(mainArea);
+
+    // === 가로 스크롤 영역 ===
+    const scrollAreaX = document.createElement('div');
+    scrollAreaX.className = 'ps-scroll-area-x';
+
+    // 가로 프록시 스크롤바
+    this.scrollProxyX = document.createElement('div');
+    this.scrollProxyX.className = 'ps-scroll-proxy-x';
+    this.spacerX = document.createElement('div');
+    this.spacerX.className = 'ps-scroll-spacer-x';
+    this.scrollProxyX.appendChild(this.spacerX);
+    scrollAreaX.appendChild(this.scrollProxyX);
+
+    // 우측 하단 코너 (스크롤바 교차점)
+    const scrollCorner = document.createElement('div');
+    scrollCorner.className = 'ps-scroll-corner';
+    scrollAreaX.appendChild(scrollCorner);
+
+    this.gridContainer.appendChild(scrollAreaX);
 
     // 컨테이너에 추가
     this.container.appendChild(this.gridContainer);
@@ -428,7 +522,7 @@ export class GridRenderer {
       onColumnReorder: this.handleColumnReorder.bind(this),
     });
 
-    // BodyRenderer 초기화
+    // BodyRenderer 초기화 (외부 스크롤 프록시 전달)
     this.bodyRenderer = new BodyRenderer(this.bodyElement, {
       rowHeight: this.options.rowHeight ?? 36,
       gridCore: this.gridCore,
@@ -436,6 +530,10 @@ export class GridRenderer {
       selectionMode: this.options.selectionMode ?? 'row',
       groupingConfig: this.options.groupingConfig,
       rowTemplate: this.options.rowTemplate,
+      scrollProxyY: this.scrollProxyY,
+      scrollProxyX: this.scrollProxyX,
+      spacerY: this.spacerY,
+      spacerX: this.spacerX,
       onRowClick: this.onRowClick,
       onCellClick: this.onCellClick,
       onCellDblClick: this.onCellDblClick,
@@ -453,20 +551,42 @@ export class GridRenderer {
    * 헤더와 바디의 가로 스크롤 동기화
    */
   private setupHorizontalScrollSync(): void {
-    if (!this.headerElement || !this.bodyRenderer) return;
+    if (!this.headerElement || !this.bodyRenderer || !this.scrollProxyX) return;
 
     const viewport = this.bodyRenderer.getViewport();
     const header = this.headerElement;
+    const scrollProxyX = this.scrollProxyX;
+
+    // 가로 프록시 스크롤바 스크롤 시 → 헤더 동기화
+    scrollProxyX.addEventListener('scroll', () => {
+      const scrollLeft = scrollProxyX.scrollLeft;
+      // 피벗 모드일 때는 PivotHeaderRenderer의 updateScrollPosition 사용
+      if (this.headerMode === 'pivot' && this.pivotHeaderRenderer) {
+        this.pivotHeaderRenderer.updateScrollPosition(scrollLeft);
+      } else {
+        header.scrollLeft = scrollLeft;
+      }
+    }, { passive: true });
 
     // Viewport 스크롤 시 → 헤더도 스크롤
     viewport.addEventListener('scroll', () => {
-      header.scrollLeft = viewport.scrollLeft;
+      const scrollLeft = viewport.scrollLeft;
+      // 피벗 모드일 때는 PivotHeaderRenderer의 updateScrollPosition 사용
+      if (this.headerMode === 'pivot' && this.pivotHeaderRenderer) {
+        this.pivotHeaderRenderer.updateScrollPosition(scrollLeft);
+      } else {
+        header.scrollLeft = scrollLeft;
+      }
     }, { passive: true });
 
-    // 헤더 스크롤 시 → Viewport도 스크롤 (드래그 등으로 직접 스크롤할 경우)
+    // 헤더 스크롤 시 → Viewport와 프록시도 스크롤 (드래그 등으로 직접 스크롤할 경우)
     header.addEventListener('scroll', () => {
-      if (Math.abs(viewport.scrollLeft - header.scrollLeft) > 1) {
-        viewport.scrollLeft = header.scrollLeft;
+      const scrollLeft = header.scrollLeft;
+      if (Math.abs(viewport.scrollLeft - scrollLeft) > 1) {
+        viewport.scrollLeft = scrollLeft;
+      }
+      if (Math.abs(scrollProxyX.scrollLeft - scrollLeft) > 1) {
+        scrollProxyX.scrollLeft = scrollLeft;
       }
     }, { passive: true });
   }

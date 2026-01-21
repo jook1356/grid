@@ -1,8 +1,7 @@
 /**
- * Row 클래스 - 순수 데이터/상태 객체
+ * Row 클래스
  *
  * Body, 고정 영역 모두에서 사용되는 통합 행 추상화입니다.
- * 렌더링 로직은 RowRenderer로 분리되었습니다.
  *
  * 핵심 개념:
  * - structural: true → UI 전용, 선택/인덱스 제외 (그룹 헤더, 소계 등)
@@ -10,20 +9,21 @@
  * - variant: 렌더링 힌트 (data, group-header, subtotal 등)
  * - pinned: 고정 위치 (top, bottom)
  *
- * 설계 원칙:
- * - Row = What (무엇을 렌더링할 것인가 - 데이터)
- * - RowRenderer = How (어떻게 렌더링할 것인가 - 렌더링 로직)
- *
- * @see docs/decisions/008-pivot-grid-architecture.md
+ * Multi-Row 관계:
+ * - Row는 데이터만 보유 (Multi-Row 레이아웃 로직 없음)
+ * - MultiRowRenderer가 Row.getData()로 데이터를 가져와 스타일링
  */
 
-import type { CellValue } from '../../types';
+import type { CellValue, ColumnDef, Row as RowData } from '../../types';
+import type { ColumnState } from '../types';
+import type { GridCore } from '../../core/GridCore';
 import type {
   RowVariant,
   RowConfig,
   GroupInfo,
   AggregateConfig,
   RowRenderContext,
+  MergeInfoGetter,
 } from './types';
 
 // Row ID 생성용 카운터
@@ -37,9 +37,7 @@ function generateRowId(): string {
 }
 
 /**
- * Row 클래스 - 순수 데이터/상태 객체
- *
- * 렌더링 로직은 RowRenderer에서 담당합니다.
+ * Row 클래스
  */
 export class Row {
   // ==========================================================================
@@ -302,22 +300,18 @@ export class Row {
   /**
    * 계산된 집계 값 반환
    *
-   * RowRenderer에서 GridCore 데이터를 기반으로 집계 값을 계산합니다.
-   * 이 메서드는 호환성을 위해 유지되지만, 실제 계산은 RowRenderer에서 수행됩니다.
+   * 현재 GridCore의 데이터를 기반으로 집계 값을 계산합니다.
+   * 렌더링 없이 값만 필요할 때 사용합니다.
    *
-   * @deprecated RowRenderer.calculateAggregates() 사용 권장
-   * @param _gridCore - GridCore 인스턴스 (미사용, RowRenderer에서 처리)
-   * @returns 빈 Map (실제 계산은 RowRenderer에서)
+   * @param gridCore - GridCore 인스턴스
+   * @returns 컬럼 키 → 집계 값 맵
    */
-  getComputedAggregates(_gridCore: unknown): Map<string, CellValue> {
-    // 호환성을 위해 빈 Map 반환
-    // 실제 집계는 RowRenderer에서 수행됨
-    console.warn('Row.getComputedAggregates() is deprecated. Use RowRenderer for rendering.');
-    return new Map();
+  getComputedAggregates(gridCore: GridCore): Map<string, CellValue> {
+    return this.calculateAggregates(gridCore);
   }
 
   // ==========================================================================
-  // 공개 API - 렌더링 관련 (RowRenderer에서 사용)
+  // 공개 API - 렌더링
   // ==========================================================================
 
   /**
@@ -328,40 +322,503 @@ export class Row {
   }
 
   /**
-   * 커스텀 렌더러 반환
+   * 행 렌더링
    *
-   * RowRenderer에서 커스텀 렌더러가 있는지 확인하고 사용합니다.
-   */
-  getCustomRender(): ((container: HTMLElement, context: RowRenderContext) => void) | null {
-    return this.customRender;
-  }
-
-  // ==========================================================================
-  // 호환성 API (deprecated)
-  // ==========================================================================
-
-  /**
-   * 행 렌더링 (deprecated)
-   *
-   * RowRenderer를 사용하세요.
-   *
-   * @deprecated RowRenderer.render() 사용 권장
+   * variant에 따라 적절한 렌더링 메서드를 호출합니다.
+   * 커스텀 렌더러가 있으면 우선 사용합니다.
    */
   render(container: HTMLElement, context: RowRenderContext): void {
-    console.warn('Row.render() is deprecated. Use RowRenderer.render() instead.');
-    // 호환성을 위해 RowRenderer 인스턴스 생성하여 렌더링
-    // 실제 프로덕션에서는 RowRenderer 인스턴스를 재사용해야 함
-    const { RowRenderer } = require('./RowRenderer');
-    const renderer = new RowRenderer();
-    renderer.render(this, container, context);
+    // 1. 컨테이너 초기화 (이전 variant 스타일/구조 제거)
+    this.resetContainerForVariant(container);
+
+    // 2. CSS 클래스 설정
+    this.applyBaseStyles(container);
+
+    // 3. 커스텀 렌더러가 있으면 사용
+    if (this.customRender) {
+      this.customRender(container, context);
+      return;
+    }
+
+    // 4. variant별 기본 렌더링
+    switch (this.variant) {
+      case 'group-header':
+        this.renderGroupHeader(container, context);
+        break;
+      case 'subtotal':
+      case 'grandtotal':
+        this.renderAggregate(container, context);
+        break;
+      case 'data':
+      default:
+        this.renderData(container, context);
+    }
   }
 
   /**
-   * 기존 DOM 요소 업데이트 (deprecated)
+   * 기존 DOM 요소 업데이트 (RowPool 재사용 시)
    *
-   * @deprecated RowRenderer.update() 사용 권장
+   * render()와 동일하지만, 의미적으로 "업데이트"임을 명시합니다.
    */
   update(container: HTMLElement, context: RowRenderContext): void {
     this.render(container, context);
   }
+
+  // ==========================================================================
+  // Private - 컨테이너 초기화 및 스타일 적용
+  // ==========================================================================
+
+  /**
+   * 컨테이너 초기화 (RowPool 재사용 시)
+   *
+   * 이전 variant의 스타일/구조를 제거하고 공통 구조를 보장합니다.
+   * 모든 variant 관련 초기화를 한 곳에서 처리합니다.
+   */
+  private resetContainerForVariant(container: HTMLElement): void {
+    // 1. 모든 variant 관련 클래스 제거
+    container.classList.remove(
+      'ps-group-header',
+      'ps-subtotal',
+      'ps-grandtotal',
+      'ps-row-group-header',
+      'ps-row-subtotal',
+      'ps-row-grandtotal',
+      'ps-row-filter',
+      'ps-row-custom',
+      'ps-structural'
+    );
+
+    // 2. 인라인 스타일 초기화
+    container.style.display = '';
+    container.style.paddingLeft = '';
+
+    // 3. 공통 DOM 구조 보장 (ps-cells-left/center/right)
+    const hasStructure = container.querySelector('.ps-cells-left');
+    if (!hasStructure) {
+      // 그룹 헤더 등에서 직접 콘텐츠가 들어간 경우 초기화
+      container.innerHTML = '';
+    }
+  }
+
+  /**
+   * 기본 CSS 클래스 적용
+   */
+  private applyBaseStyles(container: HTMLElement): void {
+    // 기본 클래스
+    container.classList.add('ps-row');
+
+    // structural 행 표시
+    container.classList.toggle('ps-structural', this.structural);
+
+    // variant별 클래스
+    if (this.variant !== 'data') {
+      container.classList.add(`ps-row-${this.variant}`);
+    }
+
+    // 사용자 정의 클래스
+    if (this.className) {
+      container.classList.add(this.className);
+    }
+  }
+
+  // ==========================================================================
+  // Private - 데이터 행 렌더링
+  // ==========================================================================
+
+  /**
+   * 데이터 행 렌더링
+   */
+  private renderData(container: HTMLElement, context: RowRenderContext): void {
+    const { columnGroups, columnDefs, rowIndex, rowHeight, getMergeInfo } = context;
+
+    // 셀 컨테이너 가져오기 또는 생성
+    const leftContainer = this.getOrCreateCellContainer(container, 'ps-cells-left');
+    const centerContainer = this.getOrCreateCellContainer(container, 'ps-cells-center');
+    const rightContainer = this.getOrCreateCellContainer(container, 'ps-cells-right');
+
+    // 각 영역별 셀 렌더링 (merge 정보 포함) - 병합 앵커 여부 반환
+    const hasLeftAnchor = this.renderCells(leftContainer, columnGroups.left, columnDefs, rowIndex, rowHeight, getMergeInfo);
+    const hasCenterAnchor = this.renderCells(centerContainer, columnGroups.center, columnDefs, rowIndex, rowHeight, getMergeInfo);
+    const hasRightAnchor = this.renderCells(rightContainer, columnGroups.right, columnDefs, rowIndex, rowHeight, getMergeInfo);
+
+    // 병합 앵커가 있는 row에 클래스 추가 (z-index 처리용)
+    // DOM 쿼리 없이 렌더링 결과로 판단
+    const hasMergeAnchor = hasLeftAnchor || hasCenterAnchor || hasRightAnchor;
+    container.classList.toggle('ps-row-has-merge-anchor', hasMergeAnchor);
+  }
+
+  /**
+   * 셀 컨테이너 가져오기 또는 생성
+   */
+  private getOrCreateCellContainer(parent: HTMLElement, className: string): HTMLElement {
+    let container = parent.querySelector(`.${className}`) as HTMLElement | null;
+    if (!container) {
+      container = document.createElement('div');
+      container.className = className;
+      parent.appendChild(container);
+    }
+    return container;
+  }
+
+  /**
+   * 셀 렌더링
+   *
+   * merge 정보가 있는 경우:
+   * - isAnchor가 true인 셀: 표시하고 높이 확장 (rowSpan * rowHeight)
+   * - isAnchor가 false인 셀: visibility: hidden으로 숨김
+   *
+   * @returns 이 컨테이너에 병합 앵커 셀이 있는지 여부
+   */
+  private renderCells(
+    container: HTMLElement,
+    columns: ColumnState[],
+    columnDefs: Map<string, ColumnDef>,
+    rowIndex?: number,
+    rowHeight?: number,
+    getMergeInfo?: MergeInfoGetter
+  ): boolean {
+    // 병합 앵커 셀 존재 여부 추적
+    let hasMergeAnchor = false;
+
+    // 그룹 헤더 콘텐츠가 남아있으면 제거 (ps-group-toggle 등)
+    const hasNonCellContent = container.firstChild && 
+      !(container.firstChild as HTMLElement).classList?.contains('ps-cell');
+    if (hasNonCellContent) {
+      container.innerHTML = '';
+    }
+
+    // 스타일 초기화 (그룹 헤더에서 재사용 시 남아있는 인라인 스타일 제거)
+    container.style.display = '';
+    container.style.paddingLeft = '';
+
+    // 필요한 셀 수 맞추기
+    while (container.children.length > columns.length) {
+      container.lastChild?.remove();
+    }
+    while (container.children.length < columns.length) {
+      const cell = document.createElement('div');
+      cell.className = 'ps-cell';
+      container.appendChild(cell);
+    }
+
+    // 셀 내용 업데이트
+    const cells = container.children;
+    for (let i = 0; i < columns.length; i++) {
+      const column = columns[i];
+      if (!column) continue;
+
+      const cell = cells[i] as HTMLElement;
+      const value = this.data[column.key];
+      const colDef = columnDefs.get(column.key);
+
+      // 너비 설정 (CSS 변수 사용)
+      cell.style.width = `var(--col-${column.key}-width, ${column.width}px)`;
+
+      // 데이터 속성
+      cell.dataset['columnKey'] = column.key;
+
+      // ========================================
+      // 셀 병합 처리
+      // ========================================
+      if (getMergeInfo && rowIndex !== undefined && rowHeight !== undefined) {
+        const mergeInfo = getMergeInfo(rowIndex, column.key);
+
+        if (mergeInfo.range && !mergeInfo.isAnchor) {
+          // 병합된 셀 (앵커 아님) → 숨김
+          cell.style.visibility = 'hidden';
+          cell.style.height = '';
+          cell.classList.add('ps-cell-merged-hidden');
+          cell.classList.remove('ps-cell-merged-anchor');
+          cell.textContent = '';
+          cell.title = '';
+          continue;
+        }
+
+        if (mergeInfo.range && mergeInfo.isAnchor && mergeInfo.rowSpan > 1) {
+          // 병합 앵커 셀 → 높이 확장
+          const mergedHeight = mergeInfo.rowSpan * rowHeight;
+          cell.style.visibility = '';  // 명시적 초기화 (재사용 시 hidden 제거)
+          cell.style.height = `${mergedHeight}px`;
+          cell.classList.add('ps-cell-merged-anchor');
+          cell.classList.remove('ps-cell-merged-hidden');
+          cell.dataset['rowSpan'] = String(mergeInfo.rowSpan);
+          hasMergeAnchor = true;  // 병합 앵커 발견
+        } else {
+          // 병합 없음 또는 단일 행
+          cell.style.visibility = '';
+          cell.style.height = '';
+          cell.classList.remove('ps-cell-merged-anchor', 'ps-cell-merged-hidden');
+          delete cell.dataset['rowSpan'];
+        }
+      } else {
+        // merge 정보 없음 → 일반 셀
+        cell.style.visibility = '';
+        cell.style.height = '';
+        cell.classList.remove('ps-cell-merged-anchor', 'ps-cell-merged-hidden');
+        delete cell.dataset['rowSpan'];
+      }
+
+      // 값 렌더링
+      const displayValue = this.formatCellValue(value, colDef);
+      cell.textContent = displayValue;
+      cell.title = displayValue; // 툴팁
+    }
+
+    return hasMergeAnchor;
+  }
+
+  /**
+   * 셀 값 포맷팅
+   */
+  private formatCellValue(value: unknown, _colDef?: ColumnDef): string {
+    if (value === null || value === undefined) {
+      return '';
+    }
+
+    // TODO: 컬럼 정의에 formatter 추가 시 사용
+    // 현재는 기본 문자열 변환만 수행
+
+    // 기본 문자열 변환
+    if (typeof value === 'object') {
+      return JSON.stringify(value);
+    }
+
+    return String(value);
+  }
+
+  // ==========================================================================
+  // Private - 그룹 헤더 렌더링
+  // ==========================================================================
+
+  /**
+   * 그룹 헤더 렌더링
+   */
+  private renderGroupHeader(container: HTMLElement, _context: RowRenderContext): void {
+    const group = this.group;
+    if (!group) {
+      console.warn('Row: group-header variant requires group info');
+      return;
+    }
+
+    // 그룹 헤더 스타일
+    container.classList.add('ps-group-header');
+
+    // 셀 컨테이너 가져오기 또는 생성 (데이터 행과 동일한 구조 유지)
+    const leftContainer = this.getOrCreateCellContainer(container, 'ps-cells-left');
+    const centerContainer = this.getOrCreateCellContainer(container, 'ps-cells-center');
+    const rightContainer = this.getOrCreateCellContainer(container, 'ps-cells-right');
+
+    // 왼쪽/오른쪽 컨테이너 비우기
+    leftContainer.innerHTML = '';
+    rightContainer.innerHTML = '';
+
+    // 중앙 컨테이너에 그룹 헤더 콘텐츠 표시
+    centerContainer.innerHTML = '';
+    centerContainer.style.display = 'flex';
+    centerContainer.style.alignItems = 'center';
+
+    // 들여쓰기 (레벨에 따라)
+    const indent = group.level * 20;
+    centerContainer.style.paddingLeft = `${indent + 8}px`;
+
+    // 토글 아이콘
+    const toggleIcon = document.createElement('span');
+    toggleIcon.className = 'ps-group-toggle';
+    toggleIcon.textContent = group.collapsed ? '▶' : '▼';
+    toggleIcon.style.cursor = 'pointer';
+    toggleIcon.style.marginRight = '8px';
+    centerContainer.appendChild(toggleIcon);
+
+    // 그룹 라벨
+    const label = document.createElement('span');
+    label.className = 'ps-group-label';
+    label.innerHTML = `<strong>${group.value}</strong> (${group.itemCount} items)`;
+    centerContainer.appendChild(label);
+
+    // 집계 값 표시 (있는 경우)
+    if (group.aggregates) {
+      const aggregates = Object.entries(group.aggregates);
+      if (aggregates.length > 0) {
+        const aggContainer = document.createElement('span');
+        aggContainer.className = 'ps-group-aggregates';
+        aggContainer.style.marginLeft = '16px';
+        aggContainer.style.color = '#666';
+
+        for (const [key, value] of aggregates) {
+          const aggSpan = document.createElement('span');
+          aggSpan.className = 'ps-group-aggregate';
+          aggSpan.style.marginRight = '12px';
+          aggSpan.textContent = `${key}: ${this.formatAggregateValue(value)}`;
+          aggContainer.appendChild(aggSpan);
+        }
+
+        centerContainer.appendChild(aggContainer);
+      }
+    }
+  }
+
+  // ==========================================================================
+  // Private - 집계 행 렌더링
+  // ==========================================================================
+
+  /**
+   * 집계 행 렌더링 (subtotal, grandtotal)
+   */
+  private renderAggregate(container: HTMLElement, context: RowRenderContext): void {
+    const { columnGroups, gridCore } = context;
+
+    // 집계 클래스 추가
+    container.classList.add(
+      this.variant === 'grandtotal' ? 'ps-grandtotal' : 'ps-subtotal'
+    );
+
+    // 셀 컨테이너 가져오기 또는 생성
+    const leftContainer = this.getOrCreateCellContainer(container, 'ps-cells-left');
+    const centerContainer = this.getOrCreateCellContainer(container, 'ps-cells-center');
+    const rightContainer = this.getOrCreateCellContainer(container, 'ps-cells-right');
+
+    // 집계 값 계산 (필요한 경우)
+    const aggregateValues = this.calculateAggregates(gridCore);
+
+    // 각 영역별 셀 렌더링 (집계 값 사용)
+    this.renderAggregateCells(leftContainer, columnGroups.left, aggregateValues);
+    this.renderAggregateCells(centerContainer, columnGroups.center, aggregateValues);
+    this.renderAggregateCells(rightContainer, columnGroups.right, aggregateValues);
+  }
+
+  /**
+   * 집계 셀 렌더링
+   */
+  private renderAggregateCells(
+    container: HTMLElement,
+    columns: ColumnState[],
+    aggregateValues: Map<string, CellValue>
+  ): void {
+    // 필요한 셀 수 맞추기
+    while (container.children.length > columns.length) {
+      container.lastChild?.remove();
+    }
+    while (container.children.length < columns.length) {
+      const cell = document.createElement('div');
+      cell.className = 'ps-cell ps-aggregate-cell';
+      container.appendChild(cell);
+    }
+
+    // 셀 내용 업데이트
+    const cells = container.children;
+    for (let i = 0; i < columns.length; i++) {
+      const column = columns[i];
+      if (!column) continue;
+
+      const cell = cells[i] as HTMLElement;
+      cell.style.width = `var(--col-${column.key}-width, ${column.width}px)`;
+      cell.dataset['columnKey'] = column.key;
+
+      // 집계 값이 있으면 표시
+      if (aggregateValues.has(column.key)) {
+        const value = aggregateValues.get(column.key);
+        const config = this.aggregates?.find(a => a.columnKey === column.key);
+        const displayValue = config?.formatter
+          ? config.formatter(value ?? null)
+          : this.formatAggregateValue(value);
+        cell.textContent = displayValue;
+        cell.classList.add('ps-has-aggregate');
+      } else {
+        cell.textContent = '';
+        cell.classList.remove('ps-has-aggregate');
+      }
+    }
+  }
+
+  /**
+   * 집계 값 계산
+   */
+  private calculateAggregates(gridCore: GridCore): Map<string, CellValue> {
+    const result = new Map<string, CellValue>();
+
+    if (!this.aggregates) return result;
+
+    // 그룹 소계인 경우 그룹 내 데이터만, 총합계인 경우 전체 데이터
+    const data: RowData[] = this.variant === 'grandtotal'
+      ? [...gridCore.getAllData()]
+      : this.getGroupData(gridCore);
+
+    for (const config of this.aggregates) {
+      const values = data
+        .map((row: RowData) => row[config.columnKey])
+        .filter((v): v is CellValue => v !== null && v !== undefined);
+      const aggregatedValue = this.applyAggregateFunc(values, config.func);
+      result.set(config.columnKey, aggregatedValue);
+    }
+
+    return result;
+  }
+
+  /**
+   * 그룹 데이터 가져오기 (소계용)
+   *
+   * 그룹 경로를 기반으로 해당 그룹에 속한 데이터만 필터링합니다.
+   * 그룹 정보가 없으면 전체 데이터를 반환합니다.
+   */
+  private getGroupData(gridCore: GridCore): RowData[] {
+    const allData = [...gridCore.getAllData()];
+
+    // 그룹 정보가 없으면 전체 데이터 반환
+    if (!this.group || !this.group.path || this.group.path.length === 0) {
+      return allData;
+    }
+
+    // 그룹 경로와 컬럼 정보를 기반으로 필터링
+    // group.path = ['Engineering', 'Active'] (그룹 값 배열) - 다중 레벨 그룹 지원 시 사용
+    // group.column = 'department' (마지막 그룹 컬럼)
+    const { column: groupColumn, value: groupValue } = this.group;
+
+    // 단일 레벨 그룹: 해당 컬럼의 값이 일치하는 데이터만
+    // TODO: 다중 레벨 그룹 지원 시 path를 사용하여 전체 경로 매칭
+    return allData.filter(row => {
+      const rowValue = row[groupColumn];
+      return rowValue === groupValue;
+    });
+  }
+
+  /**
+   * 집계 함수 적용
+   */
+  private applyAggregateFunc(
+    values: unknown[],
+    func: 'sum' | 'avg' | 'min' | 'max' | 'count' | ((values: CellValue[]) => CellValue)
+  ): CellValue {
+    if (typeof func === 'function') {
+      return func(values as CellValue[]);
+    }
+
+    const numbers = values.filter((v): v is number => typeof v === 'number');
+
+    switch (func) {
+      case 'sum':
+        return numbers.reduce((a, b) => a + b, 0);
+      case 'avg':
+        return numbers.length > 0 ? numbers.reduce((a, b) => a + b, 0) / numbers.length : 0;
+      case 'min':
+        return numbers.length > 0 ? Math.min(...numbers) : null;
+      case 'max':
+        return numbers.length > 0 ? Math.max(...numbers) : null;
+      case 'count':
+        return values.length;
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * 집계 값 포맷팅
+   */
+  private formatAggregateValue(value: unknown): string {
+    if (value === null || value === undefined) return '-';
+    if (typeof value === 'number') {
+      return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    }
+    return String(value);
+  }
 }
+

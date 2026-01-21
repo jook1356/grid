@@ -68,10 +68,32 @@ export type {
   MergeRange,
 } from './grouping.types';
 
-// 피봇 타입
+// 새 Config API 타입
 export type {
-  PivotColumnMeta,
-  PivotConfig,
+  DataType,
+  AggregateFunc,
+  SelectionMode,
+  Theme,
+  GridMode,
+  FieldDef,
+  GroupConfig,
+  PinnedConfig,
+  PureSheetConfigBase,
+  FlatModeConfig,
+  PivotModeConfig,
+  PureSheetConfig,
+  RowTemplateCell,
+  RowTemplate as FieldRowTemplate,
+} from './field.types';
+export { isFlatMode, isPivotMode } from './field.types';
+
+// 피벗 관련 타입
+export type {
   PivotValueField,
+  PivotConfig,
+  PivotHeaderNode,
+  PivotRow,
+  RowMergeInfo,
   PivotResult,
 } from './pivot.types';
+export { createPivotColumnKey, parsePivotColumnKey } from './pivot.types';

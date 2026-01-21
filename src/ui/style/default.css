@@ -21,13 +21,13 @@
   --ps-row-alt-bg: #fafafa;
   --ps-focus-color: #1976d2;
   --ps-shadow-color: rgba(0, 0, 0, 0.1);
-  --ps-cell-selected-bg: rgba(25, 118, 210, 0.15);
+  --ps-cell-selected-bg: rgba(149, 202, 255, 0.38);
   --ps-cell-selected-hover-bg: rgba(25, 118, 210, 0.25);
 
   /* 크기 */
   --ps-header-height: 40px;
   --ps-row-height: 36px;
-  --ps-scrollbar-width: 17px;
+  --ps-scrollbar-width: 10px;
   --ps-cell-padding: 0 12px;
   --ps-border-width: 1px;
 
@@ -64,20 +64,48 @@
   height: 100%;
   position: relative;
   display: flex;
-  flex-direction: column;
+  flex-direction: column;  /* 메인 영역 + 가로 스크롤바 세로 배치 */
   overflow: hidden;
   background: var(--ps-bg-color);
   font-family: var(--ps-font-family);
   font-size: var(--ps-font-size);
   color: var(--ps-cell-text);
   box-sizing: border-box;
-  border: var(--ps-border-width) solid var(--ps-border-color);
+  /* border: var(--ps-border-width) solid var(--ps-border-color); */
 }
 
 .ps-grid-container *,
 .ps-grid-container *::before,
 .ps-grid-container *::after {
   box-sizing: border-box;
+}
+
+/* 메인 영역 (콘텐츠 + 세로 스크롤바) */
+.ps-main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  min-height: 0;  /* flex item이 축소될 수 있도록 */
+}
+
+/* 콘텐츠 래퍼 (헤더 + 바디) */
+.ps-content-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;  /* flex item이 축소될 수 있도록 */
+}
+
+/* 가로 스크롤 영역 */
+.ps-scroll-area-x {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: row;
+  /* height: var(--ps-scrollbar-width); */
+  background: var(--ps-bg-color);
+  /* border-top: var(--ps-border-width) solid var(--ps-border-color); */
 }
 
 /* =============================================================================
@@ -91,8 +119,7 @@
   overflow-x: auto;
   overflow-y: hidden;
   z-index: 10;
-  /* 세로 스크롤바와 정렬을 위해 오른쪽 패딩 */
-  padding-right: var(--ps-scrollbar-width);
+  /* 스크롤바가 그리드 레벨에 있으므로 padding 불필요 */
 }
 
 /* 헤더 스크롤바 숨김 (바디와 동기화됨) */
@@ -111,9 +138,14 @@
   min-width: max-content;
 }
 
-/* 헤더 center 영역에 그룹 들여쓰기 적용 */
-.ps-header-row .ps-cells-center {
-  padding-left: var(--ps-group-indent, 0px);
+/* 헤더 center 영역 첫 번째 셀에 그룹 들여쓰기 적용 */
+.ps-header-row .ps-cells-center .ps-header-cell:first-child {
+  padding-left: calc(var(--ps-group-indent, 0px) + 12px);
+}
+
+/* Row center 영역 첫 번째 셀에 그룹 들여쓰기 적용 */
+.ps-row .ps-cells-center .ps-cell:first-child {
+  padding-left: calc(var(--ps-group-indent, 0px) + 12px);
 }
 
 .ps-header-cell {
@@ -161,89 +193,6 @@
 }
 
 /* =============================================================================
-   Pivot Header (계층적 컬럼 헤더)
-   ============================================================================= */
-
-.ps-pivot-header {
-  flex-shrink: 0;
-  background: var(--ps-header-bg);
-  border-bottom: 2px solid var(--ps-border-color);
-  overflow: hidden;
-  z-index: 10;
-}
-
-/* 피봇 헤더 컨테이너: 행 필드 + 열 필드 영역 */
-.ps-pivot-header-row-fields {
-  position: sticky;
-  left: 0;
-  z-index: 2;
-  background: var(--ps-header-bg);
-  flex-shrink: 0;
-}
-
-.ps-pivot-header-column-fields {
-  flex: 1;
-  min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-right: var(--ps-scrollbar-width);
-}
-
-/* 스크롤바 숨김 (바디와 동기화됨) */
-.ps-pivot-header-column-fields::-webkit-scrollbar {
-  display: none;
-}
-
-.ps-pivot-header-column-fields {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-/* 피봇 헤더 행 (각 레벨) */
-.ps-pivot-header-row {
-  min-width: max-content;
-}
-
-/* 피봇 헤더 셀 공통 */
-.ps-pivot-header-cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--ps-cell-padding);
-  font-weight: var(--ps-header-font-weight);
-  color: var(--ps-header-text);
-  border-right: var(--ps-border-width) solid var(--ps-border-color);
-  border-bottom: var(--ps-border-width) solid var(--ps-border-color);
-  user-select: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  box-sizing: border-box;
-}
-
-/* 행 필드 헤더 (왼쪽 고정) */
-.ps-pivot-row-field {
-  justify-content: flex-start;
-  background: var(--ps-header-bg);
-  border-right: 2px solid var(--ps-border-color);
-}
-
-/* 열 필드 헤더 (병합 가능) */
-.ps-pivot-column-field {
-  background: var(--ps-header-bg);
-}
-
-/* 값 필드 헤더 (맨 아래 레벨) */
-.ps-pivot-value-field {
-  background: var(--ps-header-bg);
-}
-
-/* 마지막 행의 셀들은 하단 border 제거 */
-.ps-pivot-header-row:last-child .ps-pivot-header-cell {
-  border-bottom: none;
-}
-
-/* =============================================================================
    Body
    ============================================================================= */
 
@@ -267,8 +216,7 @@
   background: var(--ps-bg-color);
   position: relative;
   z-index: 10;
-  /* 세로 스크롤바와 정렬을 위해 오른쪽 패딩 */
-  padding-right: var(--ps-scrollbar-width);
+  /* 스크롤바가 그리드 레벨에 있으므로 padding 불필요 */
 }
 
 /* 고정 영역 스크롤바 숨김 (JavaScript로 동기화) */
@@ -329,38 +277,76 @@
   overflow: hidden;
 }
 
-/* Proxy Scrollbar */
-.ps-scroll-proxy {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
+/* 세로 프록시 스크롤바 (그리드 레벨 - 전체 높이 차지) */
+.ps-scroll-proxy-y {
+  flex-shrink: 0;
   width: var(--ps-scrollbar-width);
   overflow-y: auto;
   overflow-x: hidden;
   z-index: 5;
-}
-
-.ps-scroll-proxy::-webkit-scrollbar {
-  width: var(--ps-scrollbar-width);
-}
-
-.ps-scroll-proxy::-webkit-scrollbar-track {
+  border-left: var(--ps-border-width) solid var(--ps-border-color);
   background: var(--ps-bg-color);
 }
 
-.ps-scroll-proxy::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 4px;
+.ps-scroll-proxy-y::-webkit-scrollbar {
+  width: var(--ps-scrollbar-width);
 }
 
-.ps-scroll-proxy::-webkit-scrollbar-thumb:hover {
+.ps-scroll-proxy-y::-webkit-scrollbar-track {
+  background: var(--ps-bg-color);
+}
+
+.ps-scroll-proxy-y::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+}
+
+.ps-scroll-proxy-y::-webkit-scrollbar-thumb:hover {
   background: #a8a8a8;
 }
 
-.ps-scroll-spacer {
+.ps-scroll-spacer-y {
   width: 1px;
   pointer-events: none;
+}
+
+/* 가로 프록시 스크롤바 */
+.ps-scroll-proxy-x {
+  flex: 1;
+  overflow-x: auto;  /* auto 대신 scroll로 항상 스크롤 영역 확보 */
+  overflow-y: hidden;
+  z-index: 5;
+  background: var(--ps-bg-color);
+}
+
+.ps-scroll-proxy-x::-webkit-scrollbar {
+  height: var(--ps-scrollbar-width);
+}
+
+.ps-scroll-proxy-x::-webkit-scrollbar-track {
+  background: var(--ps-bg-color);
+}
+
+.ps-scroll-proxy-x::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+}
+
+.ps-scroll-proxy-x::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+.ps-scroll-spacer-x {
+  display: block;
+  height: 1px;
+  pointer-events: none;
+}
+
+/* 스크롤바 교차점 (우측 하단 코너) */
+.ps-scroll-corner {
+  flex-shrink: 0;
+  width: var(--ps-scrollbar-width);
+  /* height: var(--ps-scrollbar-width); */
+  background: var(--ps-bg-color);
+  /* border-left: var(--ps-border-width) solid var(--ps-border-color); */
 }
 
 /* Viewport */
@@ -368,55 +354,35 @@
   position: absolute;
   top: 0;
   left: 0;
-  right: var(--ps-scrollbar-width);
+  right: 0;
   bottom: 0;
   overflow-x: auto;
   overflow-y: auto;
 }
 
-/* 세로 스크롤바 숨김 (프록시 스크롤바 사용)
-   Chrome/Safari/Edge에서 세로 스크롤바만 숨김
-   Firefox는 가로/세로 구분이 불가하여 기본 스크롤바 표시됨 */
-.ps-viewport::-webkit-scrollbar:vertical {
+/* 모든 스크롤바 숨김 (프록시 스크롤바 사용) */
+.ps-viewport::-webkit-scrollbar {
   width: 0;
+  height: 0;
   display: none;
 }
 
-/* 가로 스크롤바 스타일 */
-.ps-viewport::-webkit-scrollbar {
-  height: 10px;
+.ps-viewport {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
-.ps-viewport::-webkit-scrollbar-track {
-  background: var(--ps-bg-color);
-}
-
-.ps-viewport::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 4px;
-}
-
-.ps-viewport::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
-}
-
-/* 터치 기기: viewport가 터치 이벤트 받음, 프록시 스크롤바는 시각적 표시만 */
+/* 터치 기기: 스크롤바 터치 이벤트 통과 */
 @media (pointer: coarse) {
-  .ps-viewport {
-    /* viewport가 전체 영역 차지 */
-    right: 0;
-  }
-
-  .ps-scroll-proxy {
-    /* 프록시 스크롤바는 오른쪽에 오버레이로 표시 */
-    width: var(--ps-scrollbar-width);
+  .ps-scroll-proxy-y,
+  .ps-scroll-proxy-x {
     /* 터치 이벤트 통과 - viewport가 스크롤 처리 */
     pointer-events: none;
-    background: transparent;
   }
 
   /* 터치 기기에서 스크롤바 썸만 터치 가능하게 */
-  .ps-scroll-proxy::-webkit-scrollbar-thumb {
+  .ps-scroll-proxy-y::-webkit-scrollbar-thumb,
+  .ps-scroll-proxy-x::-webkit-scrollbar-thumb {
     pointer-events: auto;
   }
 }
@@ -441,26 +407,8 @@
   /* 컨텐츠가 더 넓으면 max-content로 확장 */
   min-width: 100%;
   width: max-content;
-  background: var(--ps-bg-color);
-  border-bottom: var(--ps-border-width) solid var(--ps-border-color);
   will-change: transform;
   contain: layout style;
-}
-
-.ps-row:nth-child(even) {
-  background: var(--ps-row-alt-bg);
-}
-
-.ps-row:hover {
-  background: var(--ps-row-hover-bg);
-}
-
-.ps-row.ps-selected {
-  background: var(--ps-row-selected-bg);
-}
-
-.ps-row.ps-selected:hover {
-  background: var(--ps-row-selected-bg);
 }
 
 /* =============================================================================
@@ -493,7 +441,7 @@
 .ps-cells-center {
   flex: 1;
   display: flex;
-  overflow: hidden;
+  /* overflow: hidden; */
   min-width: 0;
 }
 
@@ -516,8 +464,27 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  background: var(--ps-bg-color);
   border-right: var(--ps-border-width) solid var(--ps-border-color);
+  border-bottom: var(--ps-border-width) solid var(--ps-border-color);
   contain: content;
+}
+
+/* Row 상태에 따른 Cell 스타일 */
+/* .ps-row:nth-child(even) .ps-cell {
+  background: var(--ps-row-alt-bg);
+} */
+
+.ps-row:hover .ps-cell {
+  background: var(--ps-row-hover-bg);
+}
+
+.ps-row.ps-selected .ps-cell {
+  background: var(--ps-row-selected-bg);
+}
+
+.ps-row.ps-selected:hover .ps-cell {
+  background: var(--ps-row-selected-bg);
 }
 
 /* 마지막 셀도 오른쪽 border 유지 (그리드 우측 경계) */
@@ -689,16 +656,6 @@
   display: grid;
   /* .ps-row의 height 덮어쓰기 - Grid의 gridTemplateRows에 의해 결정 */
   height: auto;
-  border-bottom: 2px solid var(--ps-border-color);
-  background: var(--ps-bg-color);
-}
-
-.ps-multirow-container:nth-child(even) {
-  background: var(--ps-row-alt-bg);
-}
-
-.ps-multirow-container:hover {
-  background: var(--ps-row-hover-bg);
 }
 
 /* Multi-Row 셀 (Grid 배치) */
@@ -706,13 +663,27 @@
   display: flex;
   align-items: center;
   padding: var(--ps-cell-padding);
+  background: var(--ps-bg-color);
   border-right: var(--ps-border-width) solid var(--ps-border-color);
   border-bottom: 1px dashed var(--ps-border-color);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  background: inherit;
   position: relative;
+}
+
+/* Multi-Row 상태에 따른 Cell 스타일 */
+.ps-multirow-container:nth-child(even) .ps-multi-row-cell {
+  background: var(--ps-row-alt-bg);
+}
+
+.ps-multirow-container:hover .ps-multi-row-cell {
+  background: var(--ps-row-hover-bg);
+}
+
+/* 마지막 그리드 행의 셀에 컨테이너 하단 테두리 표시 */
+.ps-multi-row-cell.ps-last-row {
+  border-bottom: 2px solid var(--ps-border-color);
 }
 
 /* 첫 번째 그리드 컬럼에 있는 셀은 왼쪽 border 없음 (컨테이너 border 사용) */
@@ -722,11 +693,6 @@
 
 /* 마지막 그리드 컬럼에 있는 셀도 오른쪽 테두리 유지 (그리드 우측 경계) */
 /* .ps-multi-row-cell.ps-last-column { border-right: none; } */
-
-/* 마지막 그리드 행에 있는 셀은 아래쪽 점선 없음 */
-.ps-multi-row-cell.ps-last-row {
-  border-bottom: none;
-}
 
 /* rowSpan이 있는 셀 - 위로 올려서 border 표시 */
 .ps-multi-row-cell.ps-rowspan {
@@ -752,22 +718,12 @@
   background: var(--ps-header-bg);
 }
 
-/* 마지막 행의 셀은 아래쪽 점선 없음 (컨테이너 border로 대체) */
-.ps-multirow-container .ps-multi-row-cell {
-  /* grid-row가 마지막 행인 셀의 border-bottom을 없애는 것은 JS에서 처리 */
-}
-
-/* rowSpan이 있는 셀 - 배경색 명시 (겹침 방지) */
-.ps-multi-row-cell[style*="span"] {
-  background: var(--ps-bg-color);
-  z-index: 1;
-}
-
-.ps-multirow-container:nth-child(even) .ps-multi-row-cell[style*="span"] {
+/* rowSpan이 있는 셀의 상태별 배경색 */
+.ps-multirow-container:nth-child(even) .ps-multi-row-cell.ps-rowspan {
   background: var(--ps-row-alt-bg);
 }
 
-.ps-multirow-container:hover .ps-multi-row-cell[style*="span"] {
+.ps-multirow-container:hover .ps-multi-row-cell.ps-rowspan {
   background: var(--ps-row-hover-bg);
 }
 
@@ -786,11 +742,7 @@
 }
 
 /* 선택된 Multi-Row */
-.ps-multirow-container.ps-selected {
-  background: var(--ps-row-selected-bg);
-}
-
-.ps-multirow-container.ps-selected .ps-multi-row-cell[style*="span"] {
+.ps-multirow-container.ps-selected .ps-multi-row-cell {
   background: var(--ps-row-selected-bg);
 }
 
@@ -800,26 +752,127 @@
 
 /* 선택된 셀 배경 */
 .ps-cell.ps-cell-selected {
-  background: var(--ps-cell-selected-bg, rgba(25, 118, 210, 0.15));
+  background: var(--ps-cell-selected-bg, rgba(25, 118, 210, 0.15)) !important;
 }
 
 /* 다크 테마 선택된 셀 */
 .ps-theme-dark .ps-cell.ps-cell-selected {
-  background: var(--ps-cell-selected-bg, rgba(14, 99, 156, 0.3));
+  background: var(--ps-cell-selected-bg, rgba(14, 99, 156, 0.3)) !important;
 }
 
 /* 선택된 셀 + 호버 */
-.ps-row:hover .ps-cell.ps-cell-selected {
+/* .ps-row:hover .ps-cell.ps-cell-selected {
   background: var(--ps-cell-selected-hover-bg, rgba(25, 118, 210, 0.25));
 }
 
 .ps-theme-dark .ps-row:hover .ps-cell.ps-cell-selected {
   background: var(--ps-cell-selected-hover-bg, rgba(14, 99, 156, 0.4));
-}
+} */
 
 /* 드래그 중 커서 */
 .ps-body.ps-dragging,
 .ps-body.ps-dragging * {
   cursor: crosshair !important;
   user-select: none;
+}
+
+/* =============================================================================
+   Cell Merging (셀 병합)
+   ============================================================================= */
+
+/**
+ * 병합된 셀 스타일
+ *
+ * MergeManager를 사용한 셀 병합 시 적용되는 스타일입니다.
+ * - ps-cell-merged-anchor: 병합 범위의 첫 번째(앵커) 셀
+ * - ps-cell-merged-hidden: 병합 범위에서 숨겨진 셀
+ */
+
+/* 병합 앵커가 있는 row - 다른 row 위에 표시 */
+.ps-row.ps-row-has-merge-anchor {
+  z-index: 1;
+}
+
+/* 병합 앵커가 있는 row의 고정 컬럼 영역 - 더 높은 z-index */
+.ps-row.ps-row-has-merge-anchor .ps-cells-left {
+  z-index: 3;
+}
+
+.ps-row.ps-row-has-merge-anchor .ps-cells-right {
+  z-index: 3;
+}
+
+/* 병합 앵커 셀: 확장된 높이로 병합 영역 차지 */
+.ps-cell.ps-cell-merged-anchor {
+  /* 높이는 JS에서 동적으로 설정 (rowSpan * rowHeight) */
+  /* 부모 flex 컨테이너(ps-cells-*)가 align-items: center이므로 
+     상단 정렬을 위해 align-self 사용 */
+  align-self: flex-start;
+  /* 텍스트 세로 중앙 정렬 */
+  display: flex;
+  align-items: center;
+  /* 배경이 아래 행까지 보이도록 */
+  background: var(--ps-bg-color);
+  /* 병합 영역의 경계를 명확히 */
+  z-index: 1;
+  position: relative;
+  /* overflow 방지 */
+  overflow: hidden;
+  /* 병합 영역 테두리 - 전체 영역을 감싸는 border */
+  border: var(--ps-border-width) solid var(--ps-border-color);
+  border-top: none;  /* 상단은 행 border와 중복 방지 */
+  border-left: none;
+  /* box-sizing으로 border가 레이아웃에 영향 안 주도록 */
+  box-sizing: border-box;
+}
+
+/* 병합 앵커 셀: hover 상태 */
+.ps-row:hover .ps-cell.ps-cell-merged-anchor {
+  background: var(--ps-row-hover-bg);
+}
+
+/* 병합 앵커 셀: 선택 상태 */
+.ps-cell.ps-cell-merged-anchor.ps-cell-selected {
+  background: var(--ps-cell-selected-bg, rgba(25, 118, 210, 0.15)) !important;
+}
+
+/* 병합 앵커 셀: 짝수 행 배경 */
+/* .ps-row:nth-child(even) .ps-cell.ps-cell-merged-anchor {
+  background: var(--ps-row-alt-bg);
+}
+
+.ps-row:nth-child(even):hover .ps-cell.ps-cell-merged-anchor {
+  background: var(--ps-row-hover-bg);
+} */
+
+/* 병합된 숨김 셀 */
+.ps-cell.ps-cell-merged-hidden {
+  /* visibility: hidden은 JS에서 설정 */
+  /* 클릭 이벤트 방지 */
+  pointer-events: none;
+  /* 레이아웃 유지 (공간은 차지하지만 보이지 않음) */
+  /* border 제거 (앵커 셀이 전체 영역 border를 담당) */
+  border-color: transparent;
+}
+
+/* 다크 테마 병합 앵커 셀 */
+.ps-theme-dark .ps-cell.ps-cell-merged-anchor {
+  background: var(--ps-bg-color);
+}
+
+.ps-theme-dark .ps-row:hover .ps-cell.ps-cell-merged-anchor {
+  background: var(--ps-row-hover-bg);
+}
+
+.ps-theme-dark .ps-row:nth-child(even) .ps-cell.ps-cell-merged-anchor {
+  background: var(--ps-row-alt-bg);
+}
+
+.ps-theme-dark .ps-cell.ps-cell-merged-anchor.ps-cell-selected {
+  background: var(--ps-cell-selected-bg, rgba(14, 99, 156, 0.3)) !important;
+}
+
+/* 선택된 행 내 병합 앵커 셀 */
+.ps-row.ps-selected .ps-cell.ps-cell-merged-anchor {
+  background: var(--ps-row-selected-bg);
 }
