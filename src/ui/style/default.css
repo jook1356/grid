@@ -21,7 +21,7 @@
   --ps-row-alt-bg: #fafafa;
   --ps-focus-color: #1976d2;
   --ps-shadow-color: rgba(0, 0, 0, 0.1);
-  --ps-cell-selected-bg: rgba(25, 118, 210, 0.15);
+  --ps-cell-selected-bg: rgba(149, 202, 255, 0.38);
   --ps-cell-selected-hover-bg: rgba(25, 118, 210, 0.25);
 
   /* 크기 */
@@ -427,9 +427,9 @@
 }
 
 /* Row 상태에 따른 Cell 스타일 */
-.ps-row:nth-child(even) .ps-cell {
+/* .ps-row:nth-child(even) .ps-cell {
   background: var(--ps-row-alt-bg);
-}
+} */
 
 .ps-row:hover .ps-cell {
   background: var(--ps-row-hover-bg);
@@ -612,16 +612,6 @@
   display: grid;
   /* .ps-row의 height 덮어쓰기 - Grid의 gridTemplateRows에 의해 결정 */
   height: auto;
-  border-bottom: 2px solid var(--ps-border-color);
-  background: var(--ps-bg-color);
-}
-
-.ps-multirow-container:nth-child(even) {
-  background: var(--ps-row-alt-bg);
-}
-
-.ps-multirow-container:hover {
-  background: var(--ps-row-hover-bg);
 }
 
 /* Multi-Row 셀 (Grid 배치) */
@@ -629,13 +619,27 @@
   display: flex;
   align-items: center;
   padding: var(--ps-cell-padding);
+  background: var(--ps-bg-color);
   border-right: var(--ps-border-width) solid var(--ps-border-color);
   border-bottom: 1px dashed var(--ps-border-color);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  background: inherit;
   position: relative;
+}
+
+/* Multi-Row 상태에 따른 Cell 스타일 */
+.ps-multirow-container:nth-child(even) .ps-multi-row-cell {
+  background: var(--ps-row-alt-bg);
+}
+
+.ps-multirow-container:hover .ps-multi-row-cell {
+  background: var(--ps-row-hover-bg);
+}
+
+/* 마지막 그리드 행의 셀에 컨테이너 하단 테두리 표시 */
+.ps-multi-row-cell.ps-last-row {
+  border-bottom: 2px solid var(--ps-border-color);
 }
 
 /* 첫 번째 그리드 컬럼에 있는 셀은 왼쪽 border 없음 (컨테이너 border 사용) */
@@ -645,11 +649,6 @@
 
 /* 마지막 그리드 컬럼에 있는 셀도 오른쪽 테두리 유지 (그리드 우측 경계) */
 /* .ps-multi-row-cell.ps-last-column { border-right: none; } */
-
-/* 마지막 그리드 행에 있는 셀은 아래쪽 점선 없음 */
-.ps-multi-row-cell.ps-last-row {
-  border-bottom: none;
-}
 
 /* rowSpan이 있는 셀 - 위로 올려서 border 표시 */
 .ps-multi-row-cell.ps-rowspan {
@@ -675,22 +674,12 @@
   background: var(--ps-header-bg);
 }
 
-/* 마지막 행의 셀은 아래쪽 점선 없음 (컨테이너 border로 대체) */
-.ps-multirow-container .ps-multi-row-cell {
-  /* grid-row가 마지막 행인 셀의 border-bottom을 없애는 것은 JS에서 처리 */
-}
-
-/* rowSpan이 있는 셀 - 배경색 명시 (겹침 방지) */
-.ps-multi-row-cell[style*="span"] {
-  background: var(--ps-bg-color);
-  z-index: 1;
-}
-
-.ps-multirow-container:nth-child(even) .ps-multi-row-cell[style*="span"] {
+/* rowSpan이 있는 셀의 상태별 배경색 */
+.ps-multirow-container:nth-child(even) .ps-multi-row-cell.ps-rowspan {
   background: var(--ps-row-alt-bg);
 }
 
-.ps-multirow-container:hover .ps-multi-row-cell[style*="span"] {
+.ps-multirow-container:hover .ps-multi-row-cell.ps-rowspan {
   background: var(--ps-row-hover-bg);
 }
 
@@ -709,11 +698,7 @@
 }
 
 /* 선택된 Multi-Row */
-.ps-multirow-container.ps-selected {
-  background: var(--ps-row-selected-bg);
-}
-
-.ps-multirow-container.ps-selected .ps-multi-row-cell[style*="span"] {
+.ps-multirow-container.ps-selected .ps-multi-row-cell {
   background: var(--ps-row-selected-bg);
 }
 
@@ -723,22 +708,22 @@
 
 /* 선택된 셀 배경 */
 .ps-cell.ps-cell-selected {
-  background: var(--ps-cell-selected-bg, rgba(25, 118, 210, 0.15));
+  background: var(--ps-cell-selected-bg, rgba(25, 118, 210, 0.15)) !important;
 }
 
 /* 다크 테마 선택된 셀 */
 .ps-theme-dark .ps-cell.ps-cell-selected {
-  background: var(--ps-cell-selected-bg, rgba(14, 99, 156, 0.3));
+  background: var(--ps-cell-selected-bg, rgba(14, 99, 156, 0.3)) !important;
 }
 
 /* 선택된 셀 + 호버 */
-.ps-row:hover .ps-cell.ps-cell-selected {
+/* .ps-row:hover .ps-cell.ps-cell-selected {
   background: var(--ps-cell-selected-hover-bg, rgba(25, 118, 210, 0.25));
 }
 
 .ps-theme-dark .ps-row:hover .ps-cell.ps-cell-selected {
   background: var(--ps-cell-selected-hover-bg, rgba(14, 99, 156, 0.4));
-}
+} */
 
 /* 드래그 중 커서 */
 .ps-body.ps-dragging,

@@ -146,7 +146,7 @@ export class PivotHeaderRenderer {
       flex-direction: row;
       position: relative;
       background: var(--ps-header-bg, #f5f5f5);
-      border-bottom: 1px solid var(--ps-border-color, #e0e0e0);
+      // border-bottom: 1px solid var(--ps-border-color, #e0e0e0);
     `;
     return el;
   }
