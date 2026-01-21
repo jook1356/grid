@@ -1411,3 +1411,4 @@ const sheet = new PureSheet(container, {
 - [피벗 그리드 아키텍처](../decisions/008-pivot-grid-architecture.md)
 - [Worker 제거 결정](../decisions/009-remove-worker-architecture.md)
 - [Config API 재설계](../decisions/010-config-api-redesign.md)
+- [필터/정렬 → 피벗 파이프라인](../decisions/011-filter-sort-pivot-pipeline.md)

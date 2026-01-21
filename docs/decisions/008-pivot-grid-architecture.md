@@ -213,7 +213,54 @@ private calculateRowSpans(columnKey: string): Map<number, number> {
 
 ---
 
-## 4. 메인 스레드 처리 전략
+## 4. 필터/정렬 → 피벗 파이프라인
+
+> **상세 문서**: [필터/정렬 → 피벗 통합 파이프라인](./011-filter-sort-pivot-pipeline.md)
+
+### 데이터 처리 순서
+
+피벗 모드에서 데이터는 다음 순서로 처리됩니다:
+
+```
+원본 데이터 → 필터 적용 → 정렬 적용 → 피벗 연산 → 렌더링
+                ↓             ↓            ↓
+           데이터 축소   순서 결정   집계 + 구조 변환
+```
+
+### 정렬이 피벗에 미치는 영향
+
+| 정렬 대상 | 영향 받는 부분 | 예시 |
+|----------|---------------|------|
+| **rowFields** | 행 순서 | `product 내림차순` → Z~A |
+| **columnFields** | 컬럼 헤더 순서 | `month 내림차순` → 12월~1월 |
+| **valueFields** | 집계값 기준 행 순서 | `sales 내림차순` → 매출 높은 순 |
+
+### columnFields 정렬 예시
+
+`columnFields: ['year', 'month']` + `year 내림차순` + `month 내림차순`:
+
+```
+      2024          |       2023          |       2022
+4월  3월  2월  1월  | 4월  3월  2월  1월  | 4월  3월  2월  1월
+```
+
+### PivotConfig 확장
+
+```typescript
+export interface PivotConfig {
+  rowFields: string[];
+  columnFields: string[];
+  valueFields: PivotValueField[];
+  
+  // 전처리 옵션 (Filter → Sort → Pivot)
+  filters?: FilterState[];
+  sorts?: SortState[];
+}
+```
+
+---
+
+## 5. 메인 스레드 처리 전략
 
 ### 결정: 모든 연산을 메인 스레드에서 처리
 
@@ -295,7 +342,7 @@ interface PivotRow {
 
 ---
 
-## 5. 전체 아키텍처
+## 6. 전체 아키텍처
 
 ### 컴포넌트 구조
 
@@ -346,7 +393,7 @@ src/
 
 ---
 
-## 6. 구현 순서
+## 7. 구현 순서
 
 | 단계 | 작업 | 설명 |
 |------|------|------|
@@ -358,7 +405,7 @@ src/
 
 ---
 
-## 7. 공유 컴포넌트
+## 8. 공유 컴포넌트
 
 ### HeaderCell 재사용
 
@@ -453,7 +500,7 @@ class PivotProcessor extends ArqueroProcessor {
 
 ---
 
-## 8. 대용량 데이터 처리
+## 9. 대용량 데이터 처리
 
 ### 서버 사이드 피벗 (50만+ 건)
 
@@ -493,3 +540,4 @@ await grid.pivot(config);  // ~50-200ms 소요
 - [셀 병합 및 행 그룹화 전략](./004-cell-merge-and-row-grouping.md)
 - [Core Architecture](../base/ARCHITECTURE-CORE.md)
 - [Worker 제거 결정](./009-remove-worker-architecture.md)
+- [필터/정렬 → 피벗 파이프라인](./011-filter-sort-pivot-pipeline.md)
