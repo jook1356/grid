@@ -36,6 +36,22 @@
   <div class="demo-container">
     <div class="toolbar">
       <div class="toolbar-group">
+        <label>데이터 수:</label>
+        <select id="dataCountSelect" onchange="regenerateData()">
+          <option value="120">120건</option>
+          <option value="1000">1,000건</option>
+          <option value="10000">1만건</option>
+          <option value="100000" selected>10만건</option>
+          <option value="500000">50만건</option>
+          <option value="1000000">100만건</option>
+          <option value="2000000">200만건</option>
+          <option value="5000000">500만건</option>
+        </select>
+      </div>
+      
+      <div class="toolbar-divider"></div>
+      
+      <div class="toolbar-group">
         <label>행 축:</label>
         <select id="rowFieldSelect" onchange="updatePivot()">
           <option value="product" selected>제품</option>
@@ -76,7 +92,7 @@
     <div id="grid" style="height: 500px;"></div>
     
     <div class="status-bar" id="status">
-      준비됨 - 피벗 설정을 변경해보세요
+      초기화 중...
     </div>
   </div>
   
@@ -139,33 +155,57 @@ pivotGrid.<span class="function">setPivotConfig</span>({
     import { PureSheet } from '../../src/index.ts';
     
     let sheet = null;
+    let sampleData = [];
     
-    // 샘플 데이터 생성
-    const months = ['1월', '2월', '3월', '4월', '5월', '6월'];
-    const quarters = ['Q1', 'Q1', 'Q1', 'Q2', 'Q2', 'Q2'];
-    const products = ['노트북', '스마트폰', '태블릿', '모니터', '키보드'];
-    const regions = ['서울', '부산', '대구', '인천'];
+    // 기본 데이터 배열
+    const months = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
+    const quarters = ['Q1', 'Q1', 'Q1', 'Q2', 'Q2', 'Q2', 'Q3', 'Q3', 'Q3', 'Q4', 'Q4', 'Q4'];
+    const products = ['노트북', '스마트폰', '태블릿', '모니터', '키보드', '마우스', '헤드폰', '스피커', '웹캠', '프린터'];
+    const regions = ['서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종'];
     
-    const sampleData = [];
-    let id = 1;
-    
-    for (const product of products) {
-      for (const region of regions) {
-        for (let i = 0; i < months.length; i++) {
-          const baseSales = Math.floor(Math.random() * 100) + 50;
-          const baseProfit = Math.floor(baseSales * (Math.random() * 0.3 + 0.1));
-          
-          sampleData.push({
-            id: id++,
-            month: months[i],
-            quarter: quarters[i],
-            product,
-            region,
-            sales: baseSales,
-            profit: baseProfit,
-          });
+    // 데이터 생성 함수
+    function generateData(targetCount) {
+      const startTime = performance.now();
+      updateStatus(`데이터 생성 중... (목표: ${targetCount.toLocaleString()}건)`);
+      
+      const data = [];
+      let id = 1;
+      
+      // 기본 조합 수: products × regions × months = 10 × 8 × 12 = 960
+      const baseComboCount = products.length * regions.length * months.length;
+      
+      // 필요한 반복 수 계산
+      const iterations = Math.ceil(targetCount / baseComboCount);
+      
+      for (let iter = 0; iter < iterations && data.length < targetCount; iter++) {
+        for (const product of products) {
+          if (data.length >= targetCount) break;
+          for (const region of regions) {
+            if (data.length >= targetCount) break;
+            for (let i = 0; i < months.length; i++) {
+              if (data.length >= targetCount) break;
+              
+              const baseSales = Math.floor(Math.random() * 100) + 50;
+              const baseProfit = Math.floor(baseSales * (Math.random() * 0.3 + 0.1));
+              
+              data.push({
+                id: id++,
+                month: months[i],
+                quarter: quarters[i],
+                product,
+                region,
+                sales: baseSales,
+                profit: baseProfit,
+              });
+            }
+          }
         }
       }
+      
+      const duration = performance.now() - startTime;
+      console.log(`데이터 생성 완료: ${data.length.toLocaleString()}건 (${duration.toFixed(0)}ms)`);
+      
+      return data;
     }
     
     // 데이터 미리보기 표시
@@ -180,7 +220,7 @@ pivotGrid.<span class="function">setPivotConfig</span>({
           <td>${row.sales}</td>
           <td>${row.profit}</td>
         </tr>
-      `).join('') + '<tr><td colspan="6">... (총 ' + sampleData.length + '행)</td></tr>';
+      `).join('') + '<tr><td colspan="6">... (총 ' + sampleData.length.toLocaleString() + '행)</td></tr>';
     }
     
     // 상태 업데이트
@@ -208,6 +248,11 @@ pivotGrid.<span class="function">setPivotConfig</span>({
     // 피벗 그리드 초기화
     async function initPivotGrid() {
       const container = document.getElementById('grid');
+      
+      // 초기 데이터 생성
+      const dataCount = parseInt(document.getElementById('dataCountSelect').value);
+      sampleData = generateData(dataCount);
+      showDataPreview();
       
       const fields = [
         { key: 'month', header: '월', dataType: 'string' },
@@ -237,8 +282,44 @@ pivotGrid.<span class="function">setPivotConfig</span>({
       // 데이터 로드 후 피벗 설정 적용
       await sheet.setPivotConfig(pivotConfig);
       
-      updateStatus(`피벗 완료 - ${sampleData.length}개 원본 데이터 → ${sheet.getVisibleRowCount()}개 피벗 행`);
+      updateStatus(`피벗 완료 - ${sampleData.length.toLocaleString()}개 원본 데이터 → ${sheet.getVisibleRowCount()}개 피벗 행`);
     }
+    
+    // 데이터 재생성
+    window.regenerateData = async function() {
+      if (!sheet) return;
+      
+      const dataCount = parseInt(document.getElementById('dataCountSelect').value);
+      
+      // 대용량 데이터 경고
+      if (dataCount >= 1000000) {
+        updateStatus(`⚠️ ${(dataCount / 1000000).toFixed(0)}백만건 데이터 생성 중... 잠시 기다려주세요.`);
+        // UI 업데이트를 위해 짧은 지연
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      
+      const startTime = performance.now();
+      
+      sampleData = generateData(dataCount);
+      showDataPreview();
+      
+      const genTime = performance.now() - startTime;
+      updateStatus(`데이터 생성 완료 (${genTime.toFixed(0)}ms) - 피벗 계산 중...`);
+      
+      // UI 업데이트를 위해 짧은 지연
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      const pivotStart = performance.now();
+      await sheet.loadData(sampleData);
+      
+      const pivotConfig = parsePivotConfig();
+      await sheet.setPivotConfig(pivotConfig);
+      
+      const pivotTime = performance.now() - pivotStart;
+      const totalTime = performance.now() - startTime;
+      
+      updateStatus(`완료 - ${sampleData.length.toLocaleString()}건 → ${sheet.getVisibleRowCount()}행 (생성: ${genTime.toFixed(0)}ms, 피벗: ${pivotTime.toFixed(0)}ms, 총: ${totalTime.toFixed(0)}ms)`);
+    };
     
     // 피벗 업데이트
     window.updatePivot = async function() {
@@ -265,7 +346,6 @@ pivotGrid.<span class="function">setPivotConfig</span>({
     };
     
     // 초기화
-    showDataPreview();
     initPivotGrid().catch(console.error);
   </script>
   
