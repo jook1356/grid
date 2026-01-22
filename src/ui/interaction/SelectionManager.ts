@@ -8,13 +8,15 @@
  * - 드래그 범위 선택
  * - 키보드 네비게이션
  *
- * 선택된 셀은 Set<string>에 "rowIndex:columnKey" 형태로 저장됩니다.
+ * 선택된 셀은 Set<string>에 "dataIndex:columnKey" 형태로 저장됩니다.
+ * dataIndex는 실제 데이터의 인덱스이며, 그룹화 시에도 정확한 데이터를 참조합니다.
  * Set.has()를 사용하여 O(1) 조회 성능을 보장합니다.
  */
 
 import { EventEmitter } from '../../core/EventEmitter';
 import type { GridCore } from '../../core/GridCore';
 import type { ColumnDef, Row } from '../../types';
+import type { VirtualRow } from '../../types/grouping.types';
 import type { CellPosition, SelectionMode, SelectionState } from '../types';
 
 /**
@@ -56,6 +58,9 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   private dragAddToExisting = false;  // Ctrl 누른 상태로 드래그 시작했는지
   private preDragSelection: Set<string> = new Set();  // 드래그 시작 전 셀 선택 상태
   private preDragRowSelection: Set<string | number> = new Set();  // 드래그 시작 전 행 선택 상태
+
+  // 가상 행 (그룹화된 경우 그룹 헤더 포함) - viewIndex 기반 범위 선택용
+  private virtualRows: VirtualRow[] = [];
 
   constructor(options: SelectionManagerOptions) {
     super();
@@ -102,9 +107,12 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
 
   /**
    * 셀이 선택되었는지 확인 (O(1))
+   *
+   * @param dataIndex - 실제 데이터 인덱스 (그룹 헤더 제외)
+   * @param columnKey - 컬럼 키
    */
-  isCellSelected(rowIndex: number, columnKey: string): boolean {
-    return this.state.selectedCells.has(`${rowIndex}:${columnKey}`);
+  isCellSelected(dataIndex: number, columnKey: string): boolean {
+    return this.state.selectedCells.has(`${dataIndex}:${columnKey}`);
   }
 
   /**
@@ -148,6 +156,16 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   setSelectionMode(mode: SelectionMode): void {
     this.state.selectionMode = mode;
     this.clearSelection();
+  }
+
+  /**
+   * 가상 행 설정 (그룹화 시 viewIndex → dataIndex 변환용)
+   *
+   * 그룹화가 적용되면 viewIndex와 dataIndex가 다르며, 그룹 헤더도 포함됩니다.
+   * 드래그 선택 시 viewIndex 범위를 순회하며 데이터 행만 선택합니다.
+   */
+  setVirtualRows(virtualRows: VirtualRow[]): void {
+    this.virtualRows = virtualRows;
   }
 
   /**
@@ -229,6 +247,9 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
 
   /**
    * 행 범위 선택 (Shift + 클릭)
+   *
+   * viewIndex 범위를 사용하여 데이터 행만 선택합니다.
+   * 그룹화 시 그룹 헤더는 건너뜁니다.
    */
   selectRowRange(startIndex: number, endIndex: number): void {
     const minIndex = Math.min(startIndex, endIndex);
@@ -236,10 +257,26 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
 
     this.state.selectedRows.clear();
 
-    for (let i = minIndex; i <= maxIndex; i++) {
-      const row = this.gridCore.getRowByVisibleIndex(i);
-      if (row && row['id'] !== undefined) {
-        this.state.selectedRows.add(row['id'] as string | number);
+    // virtualRows가 있으면 viewIndex 기준으로 데이터 행만 선택
+    if (this.virtualRows.length > 0) {
+      for (let viewIdx = minIndex; viewIdx <= maxIndex; viewIdx++) {
+        const virtualRow = this.virtualRows[viewIdx];
+        if (virtualRow && virtualRow.type === 'data') {
+          const row = this.gridCore.getRowByVisibleIndex(virtualRow.dataIndex);
+          const rowId = this.getRowId(row);
+          if (rowId !== undefined) {
+            this.state.selectedRows.add(rowId);
+          }
+        }
+      }
+    } else {
+      // virtualRows가 없으면 기존 방식 (그룹화 비활성)
+      for (let i = minIndex; i <= maxIndex; i++) {
+        const row = this.gridCore.getRowByVisibleIndex(i);
+        const rowId = this.getRowId(row);
+        if (rowId !== undefined) {
+          this.state.selectedRows.add(rowId);
+        }
       }
     }
 
@@ -265,6 +302,8 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
 
   /**
    * 전체 선택
+   *
+   * 그룹화 시 그룹 헤더를 제외한 데이터 행만 선택합니다.
    */
   selectAll(): void {
     if (!this.multiSelect) return;
@@ -275,11 +314,27 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
     } else if (this.state.selectionMode === 'row') {
       // 행 모드: 모든 행 선택
       this.state.selectedRows.clear();
-      const totalRows = this.gridCore.getVisibleRowCount();
-      for (let i = 0; i < totalRows; i++) {
-        const row = this.gridCore.getRowByVisibleIndex(i);
-        if (row && row['id'] !== undefined) {
-          this.state.selectedRows.add(row['id'] as string | number);
+
+      if (this.virtualRows.length > 0) {
+        // 그룹화 활성: virtualRows에서 데이터 행만 선택
+        for (const virtualRow of this.virtualRows) {
+          if (virtualRow.type === 'data') {
+            const row = this.gridCore.getRowByVisibleIndex(virtualRow.dataIndex);
+            const rowId = this.getRowId(row);
+            if (rowId !== undefined) {
+              this.state.selectedRows.add(rowId);
+            }
+          }
+        }
+      } else {
+        // 그룹화 비활성: 기존 방식
+        const totalRows = this.gridCore.getVisibleRowCount();
+        for (let i = 0; i < totalRows; i++) {
+          const row = this.gridCore.getRowByVisibleIndex(i);
+          const rowId = this.getRowId(row);
+          if (rowId !== undefined) {
+            this.state.selectedRows.add(rowId);
+          }
         }
       }
     }
@@ -289,29 +344,33 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
 
   /**
    * 모든 셀 선택
+   *
+   * dataIndex 기반으로 모든 데이터 셀을 선택합니다.
+   * 그룹 헤더는 선택 대상에서 제외됩니다.
    */
   selectAllCells(): void {
     if (!this.multiSelect) return;
 
-    const totalRows = this.gridCore.getVisibleRowCount();
     const columns = this.gridCore.getColumns();
-
     this.state.selectedCells.clear();
 
-    for (let row = 0; row < totalRows; row++) {
-      for (const col of columns) {
-        this.state.selectedCells.add(`${row}:${col.key}`);
+    if (this.virtualRows.length > 0) {
+      // 그룹화 활성: virtualRows에서 데이터 행만 선택
+      for (const virtualRow of this.virtualRows) {
+        if (virtualRow.type === 'data') {
+          for (const col of columns) {
+            this.state.selectedCells.add(`${virtualRow.dataIndex}:${col.key}`);
+          }
+        }
       }
-    }
-
-    // 선택 범위 업데이트
-    if (totalRows > 0 && columns.length > 0) {
-      this.state.selectionRange = {
-        startRow: 0,
-        endRow: totalRows - 1,
-        startCol: 0,
-        endCol: columns.length - 1,
-      };
+    } else {
+      // 그룹화 비활성: 기존 방식
+      const totalRows = this.gridCore.getVisibleRowCount();
+      for (let dataIndex = 0; dataIndex < totalRows; dataIndex++) {
+        for (const col of columns) {
+          this.state.selectedCells.add(`${dataIndex}:${col.key}`);
+        }
+      }
     }
 
     this.emitSelectionChanged();
@@ -394,6 +453,9 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   /**
    * 셀 범위 선택 (Shift + 클릭)
    *
+   * viewIndex 범위를 사용하여 데이터 행만 선택합니다.
+   * 그룹화 시 그룹 헤더는 건너뜁니다.
+   *
    * @param start - 시작 셀 (앵커)
    * @param end - 끝 셀
    * @param addToExisting - 기존 선택에 추가할지 여부 (Ctrl+Shift)
@@ -403,7 +465,13 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
       this.state.selectedCells.clear();
     }
 
-    this.addCellsInRange(start, end);
+    // virtualRows가 있으면 viewIndex 기반으로 선택 (드래그와 동일)
+    if (this.virtualRows.length > 0) {
+      this.addCellsInRangeByViewIndex(start, end);
+    } else {
+      // virtualRows가 없으면 기존 방식 (그룹화 비활성)
+      this.addCellsInRange(start, end);
+    }
     this.emitSelectionChanged();
   }
 
@@ -413,18 +481,24 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
 
   /**
    * 드래그 선택 시작
+   *
+   * dataIndex를 기준으로 드래그 선택을 시작합니다.
+   * 그룹 헤더에서는 드래그 선택이 시작되지 않습니다.
    */
   startDragSelection(position: CellPosition, event: MouseEvent): void {
     // 'none' 모드에서는 드래그 선택 불가
     if (this.state.selectionMode === 'none') return;
 
+    // 그룹 헤더에서는 드래그 선택 안함 (dataIndex가 없음)
+    if (position.dataIndex === undefined) return;
+
     const isCtrlOrCmd = event.ctrlKey || event.metaKey;
-    
+
     // Ctrl 상태 저장 (드래그 세션 동안 유지)
     this.dragAddToExisting = isCtrlOrCmd;
-    
+
     this.state.isDragging = true;
-    this.state.anchorCell = position;  // 드래그 시작점 = 앵커
+    this.state.anchorCell = position;  // 드래그 시작점 = 앵커 (dataIndex 포함)
 
     if (this.state.selectionMode === 'row') {
       // row 모드: 행 선택
@@ -434,10 +508,11 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
         this.preDragRowSelection.clear();
         this.state.selectedRows.clear();
       }
-      // 시작 행 선택
-      const row = this.gridCore.getRowByVisibleIndex(position.rowIndex);
-      if (row && row['id'] !== undefined) {
-        this.state.selectedRows.add(row['id'] as string | number);
+      // 시작 행 선택 (dataIndex 기준)
+      const row = this.gridCore.getRowByVisibleIndex(position.dataIndex);
+      const rowId = this.getRowId(row);
+      if (rowId !== undefined) {
+        this.state.selectedRows.add(rowId);
       }
     } else {
       // range/all 모드: 셀 선택
@@ -447,7 +522,7 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
         this.preDragSelection.clear();
         this.state.selectedCells.clear();
       }
-      // 시작 셀 선택
+      // 시작 셀 선택 (dataIndex 기반 키)
       this.state.selectedCells.add(this.getCellKey(position));
     }
 
@@ -456,38 +531,52 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
 
   /**
    * 드래그 선택 업데이트 (마우스 이동 중)
+   *
+   * viewIndex 범위를 사용하여 데이터 행만 선택합니다.
+   * 그룹 헤더 위에서는 업데이트하지 않습니다.
    */
   updateDragSelection(position: CellPosition): void {
     if (!this.state.isDragging || !this.state.anchorCell) return;
 
+    // 그룹 헤더 위에서는 업데이트하지 않음 (dataIndex가 없음)
+    if (position.dataIndex === undefined) return;
+
     if (this.state.selectionMode === 'row') {
-      // row 모드: 행 범위 선택
+      // row 모드: 행 범위 선택 (viewIndex 기준으로 순회, 데이터 행만 선택)
       if (this.dragAddToExisting) {
         this.state.selectedRows = new Set(this.preDragRowSelection);
       } else {
         this.state.selectedRows.clear();
       }
-      
-      // 앵커에서 현재 위치까지 행 추가
-      const startRow = Math.min(this.state.anchorCell.rowIndex, position.rowIndex);
-      const endRow = Math.max(this.state.anchorCell.rowIndex, position.rowIndex);
-      for (let i = startRow; i <= endRow; i++) {
-        const row = this.gridCore.getRowByVisibleIndex(i);
-        if (row && row['id'] !== undefined) {
-          this.state.selectedRows.add(row['id'] as string | number);
+
+      // viewIndex 범위로 순회 (그룹 헤더 포함한 화면상 범위)
+      const anchorViewIndex = this.state.anchorCell.rowIndex;
+      const currentViewIndex = position.rowIndex;
+      const startViewIndex = Math.min(anchorViewIndex, currentViewIndex);
+      const endViewIndex = Math.max(anchorViewIndex, currentViewIndex);
+
+      // viewIndex 범위 내의 데이터 행만 선택
+      for (let viewIdx = startViewIndex; viewIdx <= endViewIndex; viewIdx++) {
+        const virtualRow = this.virtualRows[viewIdx];
+        if (virtualRow && virtualRow.type === 'data') {
+          const row = this.gridCore.getRowByVisibleIndex(virtualRow.dataIndex);
+          const rowId = this.getRowId(row);
+          if (rowId !== undefined) {
+            this.state.selectedRows.add(rowId);
+          }
         }
       }
     } else {
-      // range/all 모드: 셀 범위 선택
+      // range/all 모드: 셀 범위 선택 (viewIndex 기준으로 순회)
       if (this.dragAddToExisting) {
         this.state.selectedCells = new Set(this.preDragSelection);
       } else {
         this.state.selectedCells.clear();
       }
-      // 앵커에서 현재 위치까지 범위 추가
-      this.addCellsInRange(this.state.anchorCell, position);
+      // viewIndex 범위 내의 데이터 행만 선택
+      this.addCellsInRangeByViewIndex(this.state.anchorCell, position);
     }
-    
+
     this.emitSelectionChanged();
   }
 
@@ -512,10 +601,12 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
 
     this.state.isDragging = false;
     this.dragAddToExisting = false;
-    
+
     // 이전 선택 복원
     this.state.selectedCells = new Set(this.preDragSelection);
+    this.state.selectedRows = new Set(this.preDragRowSelection);
     this.preDragSelection.clear();
+    this.preDragRowSelection.clear();
 
     this.emitSelectionChanged();
   }
@@ -583,23 +674,29 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
 
   /**
    * 셀 이동 (화살표 키)
+   *
+   * dataIndex를 기준으로 이동합니다.
    */
   private moveFocus(rowDelta: number, colDelta: number, extendSelection: boolean): void {
     if (!this.state.anchorCell) {
-      // 첫 셀 선택 (현재 UI 순서 기준)
+      // 첫 셀 선택
       const firstColKey = this.columnKeysByIndex[0];
       if (firstColKey) {
-        this.selectSingleCell({ rowIndex: 0, columnKey: firstColKey });
+        this.selectSingleCell({ rowIndex: 0, columnKey: firstColKey, dataIndex: 0 });
       }
       return;
     }
 
-    // 새 위치 계산 (현재 UI 순서 기준)
+    // dataIndex 기준으로 이동
+    const currentDataIndex = this.state.anchorCell.dataIndex !== undefined
+      ? this.state.anchorCell.dataIndex
+      : this.state.anchorCell.rowIndex;
+
     const currentColIndex = this.getColumnIndex(this.state.anchorCell.columnKey);
-    const newRowIndex = Math.max(
+    const newDataIndex = Math.max(
       0,
       Math.min(
-        this.state.anchorCell.rowIndex + rowDelta,
+        currentDataIndex + rowDelta,
         this.gridCore.getVisibleRowCount() - 1
       )
     );
@@ -612,25 +709,26 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
     if (!newColumnKey) return;
 
     const newPosition: CellPosition = {
-      rowIndex: newRowIndex,
+      rowIndex: newDataIndex,
       columnKey: newColumnKey,
+      dataIndex: newDataIndex,
     };
 
     if (extendSelection && this.isCellSelectionMode()) {
       // Shift + 화살표: 선택 확장 (anchorCell 유지)
       const anchor = this.state.anchorCell;
       this.selectCellRange(anchor, newPosition);
-      // anchorCell은 확장 시 변경하지 않음 (시작점 유지)
     } else {
       // 일반 이동: 단일 셀 선택
       this.selectSingleCell(newPosition);
     }
 
-    // 행 모드에서는 행도 선택 (all 모드는 emitSelectionChanged에서 자동 동기화)
+    // 행 모드에서는 행도 선택
     if (this.state.selectionMode === 'row') {
-      const row = this.gridCore.getRowByVisibleIndex(newRowIndex);
-      if (row && row['id'] !== undefined) {
-        this.selectSingleRow(row['id'] as string | number, newRowIndex);
+      const row = this.gridCore.getRowByVisibleIndex(newDataIndex);
+      const rowId = this.getRowId(row);
+      if (rowId !== undefined) {
+        this.selectSingleRow(rowId, newDataIndex);
       }
     }
   }
@@ -641,7 +739,7 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   private focusFirstRow(): void {
     const columnKey = this.state.anchorCell?.columnKey;
     if (columnKey) {
-      this.selectSingleCell({ rowIndex: 0, columnKey });
+      this.selectSingleCell({ rowIndex: 0, columnKey, dataIndex: 0 });
     }
   }
 
@@ -652,36 +750,30 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
     const lastIndex = this.gridCore.getVisibleRowCount() - 1;
     const columnKey = this.state.anchorCell?.columnKey;
     if (columnKey) {
-      this.selectSingleCell({
-        rowIndex: Math.max(0, lastIndex),
-        columnKey,
-      });
+      const dataIndex = Math.max(0, lastIndex);
+      this.selectSingleCell({ rowIndex: dataIndex, columnKey, dataIndex });
     }
   }
 
   /**
-   * 첫 번째 열로 이동 (현재 UI 순서 기준)
+   * 첫 번째 열로 이동
    */
   private focusFirstCell(): void {
     const firstColumnKey = this.columnKeysByIndex[0];
     if (firstColumnKey) {
-      this.selectSingleCell({
-        rowIndex: this.state.anchorCell?.rowIndex ?? 0,
-        columnKey: firstColumnKey,
-      });
+      const dataIndex = this.state.anchorCell?.dataIndex ?? this.state.anchorCell?.rowIndex ?? 0;
+      this.selectSingleCell({ rowIndex: dataIndex, columnKey: firstColumnKey, dataIndex });
     }
   }
 
   /**
-   * 마지막 열로 이동 (현재 UI 순서 기준)
+   * 마지막 열로 이동
    */
   private focusLastCell(): void {
     const lastColumnKey = this.columnKeysByIndex[this.columnKeysByIndex.length - 1];
     if (lastColumnKey) {
-      this.selectSingleCell({
-        rowIndex: this.state.anchorCell?.rowIndex ?? 0,
-        columnKey: lastColumnKey,
-      });
+      const dataIndex = this.state.anchorCell?.dataIndex ?? this.state.anchorCell?.rowIndex ?? 0;
+      this.selectSingleCell({ rowIndex: dataIndex, columnKey: lastColumnKey, dataIndex });
     }
   }
 
@@ -691,9 +783,26 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
 
   /**
    * 셀 키 생성
+   *
+   * dataIndex가 있으면 dataIndex를 사용하고, 없으면 rowIndex를 fallback으로 사용합니다.
    */
   private getCellKey(position: CellPosition): string {
-    return `${position.rowIndex}:${position.columnKey}`;
+    const index = position.dataIndex !== undefined ? position.dataIndex : position.rowIndex;
+    return `${index}:${position.columnKey}`;
+  }
+
+  /**
+   * 행에서 ID 추출
+   *
+   * 타입 안전하게 row['id']를 추출합니다.
+   */
+  private getRowId(row: Row | undefined): string | number | undefined {
+    if (!row) return undefined;
+    const id = row['id'];
+    if (typeof id === 'string' || typeof id === 'number') {
+      return id;
+    }
+    return undefined;
   }
 
   /**
@@ -705,13 +814,20 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
 
   /**
    * 범위 내 모든 셀을 selectedCells에 추가
+   *
+   * dataIndex를 기준으로 범위를 계산합니다.
+   * (Shift+클릭 등 비드래그 선택 시 사용)
    */
   private addCellsInRange(start: CellPosition, end: CellPosition): void {
     const startColIndex = this.getColumnIndex(start.columnKey);
     const endColIndex = this.getColumnIndex(end.columnKey);
 
-    const minRow = Math.min(start.rowIndex, end.rowIndex);
-    const maxRow = Math.max(start.rowIndex, end.rowIndex);
+    // dataIndex 우선 사용
+    const startDataIndex = start.dataIndex !== undefined ? start.dataIndex : start.rowIndex;
+    const endDataIndex = end.dataIndex !== undefined ? end.dataIndex : end.rowIndex;
+
+    const minRow = Math.min(startDataIndex, endDataIndex);
+    const maxRow = Math.max(startDataIndex, endDataIndex);
     const minCol = Math.min(startColIndex, endColIndex);
     const maxCol = Math.max(startColIndex, endColIndex);
 
@@ -720,6 +836,41 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
         const columnKey = this.columnKeysByIndex[col];
         if (columnKey) {
           this.state.selectedCells.add(`${row}:${columnKey}`);
+        }
+      }
+    }
+  }
+
+  /**
+   * viewIndex 범위 내의 데이터 행만 selectedCells에 추가
+   *
+   * 그룹화 시 viewIndex 범위를 순회하며 데이터 행의 dataIndex만 사용합니다.
+   * 그룹 헤더는 건너뜁니다.
+   */
+  private addCellsInRangeByViewIndex(start: CellPosition, end: CellPosition): void {
+    const startColIndex = this.getColumnIndex(start.columnKey);
+    const endColIndex = this.getColumnIndex(end.columnKey);
+
+    // viewIndex 범위 계산
+    const startViewIndex = start.rowIndex;
+    const endViewIndex = end.rowIndex;
+    const minViewIndex = Math.min(startViewIndex, endViewIndex);
+    const maxViewIndex = Math.max(startViewIndex, endViewIndex);
+
+    const minCol = Math.min(startColIndex, endColIndex);
+    const maxCol = Math.max(startColIndex, endColIndex);
+
+    // viewIndex 범위 내의 데이터 행만 처리
+    for (let viewIdx = minViewIndex; viewIdx <= maxViewIndex; viewIdx++) {
+      const virtualRow = this.virtualRows[viewIdx];
+      // 데이터 행만 선택 (그룹 헤더 건너뜀)
+      if (virtualRow && virtualRow.type === 'data') {
+        const dataIndex = virtualRow.dataIndex;
+        for (let col = minCol; col <= maxCol; col++) {
+          const columnKey = this.columnKeysByIndex[col];
+          if (columnKey) {
+            this.state.selectedCells.add(`${dataIndex}:${columnKey}`);
+          }
         }
       }
     }
@@ -742,15 +893,18 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   /**
    * 셀 선택에서 행 선택 동기화 (all 모드 전용)
    * 선택된 셀이 있는 모든 행을 selectedRows에 추가
+   *
+   * 셀 키는 "dataIndex:columnKey" 형식이므로 dataIndex를 기준으로 조회합니다.
    */
   private syncRowsFromCells(): void {
     this.state.selectedRows.clear();
-    
+
     for (const cellKey of this.state.selectedCells) {
-      const rowIndex = parseInt(cellKey.split(':')[0], 10);
-      const row = this.gridCore.getRowByVisibleIndex(rowIndex);
-      if (row && row['id'] !== undefined) {
-        this.state.selectedRows.add(row['id'] as string | number);
+      const dataIndex = parseInt(cellKey.split(':')[0], 10);
+      const row = this.gridCore.getRowByVisibleIndex(dataIndex);
+      const rowId = this.getRowId(row);
+      if (rowId !== undefined) {
+        this.state.selectedRows.add(rowId);
       }
     }
   }

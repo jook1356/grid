@@ -13,12 +13,18 @@ import type { CellValue, Row } from '../types';
 
 /**
  * 셀의 위치를 나타내는 인터페이스
+ *
+ * 그룹화 시 rowIndex(뷰 인덱스)와 dataIndex(실제 데이터 인덱스)가 다릅니다:
+ * - rowIndex: 화면에 표시되는 행 인덱스 (그룹 헤더 포함)
+ * - dataIndex: 실제 데이터 배열의 인덱스 (그룹 헤더 제외)
  */
 export interface CellPosition {
-  /** 행 인덱스 (뷰 기준) */
+  /** 행 인덱스 (뷰 기준 - 그룹 헤더 포함) */
   rowIndex: number;
   /** 컬럼 키 */
   columnKey: string;
+  /** 실제 데이터 인덱스 (그룹 헤더 제외) - 선택의 기준 */
+  dataIndex?: number;
   /** 행 ID (데이터 기준) */
   rowId?: string | number;
 }
@@ -91,13 +97,14 @@ export interface CellRange {
 
 /**
  * 선택 상태 (단순화)
- * - 선택된 셀은 Set<string>으로만 관리 ("rowIndex:columnKey" 형식)
+ * - 선택된 셀은 Set<string>으로만 관리 ("dataIndex:columnKey" 형식)
+ * - dataIndex는 실제 데이터의 인덱스 (그룹 헤더 제외)
  * - 포커스 셀 개념 없음 (모든 선택된 셀이 동일하게 취급)
  */
 export interface SelectionState {
   /** 선택된 행 ID 집합 */
   selectedRows: Set<string | number>;
-  /** 선택된 셀 Set (key: "rowIndex:columnKey") - O(1) 조회 */
+  /** 선택된 셀 Set (key: "dataIndex:columnKey") - O(1) 조회 */
   selectedCells: Set<string>;
   /** 선택 모드 */
   selectionMode: SelectionMode;

@@ -27,8 +27,8 @@ export interface GridRendererOptions {
   gridCore: GridCore;
   /** 내부 옵션 */
   options: InternalOptions;
-  /** 행 클릭 콜백 */
-  onRowClick?: (rowIndex: number, row: Record<string, unknown>, event: MouseEvent) => void;
+  /** 행 클릭 콜백 (viewIndex, dataIndex 모두 전달) */
+  onRowClick?: (viewIndex: number, row: Record<string, unknown>, event: MouseEvent, dataIndex?: number) => void;
   /** 셀 클릭 콜백 */
   onCellClick?: (
     position: { rowIndex: number; columnKey: string },

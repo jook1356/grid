@@ -533,8 +533,15 @@ export class PureSheet {
 
   /**
    * 전체 선택
+   *
+   * 그룹화 시 그룹 헤더를 제외한 데이터 행만 선택합니다.
    */
   selectAll(): void {
+    // 그룹화 지원을 위해 virtualRows 동기화
+    const bodyRenderer = this.gridRenderer.getBodyRenderer();
+    if (bodyRenderer) {
+      this.selectionManager.setVirtualRows(bodyRenderer.getVirtualRows());
+    }
     this.selectionManager.selectAll();
     this.updateSelectionUI();
   }
@@ -922,23 +929,40 @@ export class PureSheet {
 
   /**
    * 행 클릭 핸들러
+   *
+   * @param viewIndex - 화면상 행 인덱스 (그룹 헤더 포함)
+   * @param row - 행 데이터
+   * @param event - 마우스 이벤트
+   * @param dataIndex - 실제 데이터 인덱스 (그룹 헤더 제외)
    */
-  private handleRowClick(rowIndex: number, row: RowData, event: MouseEvent): void {
+  private handleRowClick(viewIndex: number, row: RowData, event: MouseEvent, dataIndex?: number): void {
     // row 선택 모드에서만 행 선택 처리
     // range/cell 모드에서는 handleCellClick에서 처리
     if (this.options.selectionMode === 'row') {
       const rowId = row['id'] as string | number | undefined;
       if (rowId !== undefined) {
-        this.selectionManager.handleRowClick(rowIndex, rowId, event);
+        // Shift+클릭 범위 선택을 위해 virtualRows 동기화
+        const bodyRenderer = this.gridRenderer.getBodyRenderer();
+        if (bodyRenderer) {
+          this.selectionManager.setVirtualRows(bodyRenderer.getVirtualRows());
+        }
+        // viewIndex를 전달하여 올바른 범위 선택
+        this.selectionManager.handleRowClick(viewIndex, rowId, event);
       }
     }
-    this.emitEvent('row:click', { row, rowIndex, event });
+    // 외부 이벤트에는 dataIndex 전달 (API 호환성)
+    this.emitEvent('row:click', { row, rowIndex: dataIndex ?? viewIndex, event });
   }
 
   /**
    * 셀 클릭 핸들러
    */
   private handleCellClick(position: CellPosition, value: unknown, event: MouseEvent): void {
+    // Shift+클릭 범위 선택을 위해 virtualRows 동기화
+    const bodyRenderer = this.gridRenderer.getBodyRenderer();
+    if (bodyRenderer) {
+      this.selectionManager.setVirtualRows(bodyRenderer.getVirtualRows());
+    }
     this.selectionManager.handleCellClick(position, event);
 
     const row = this.gridCore.getRowByVisibleIndex(position.rowIndex);
@@ -1021,6 +1045,12 @@ export class PureSheet {
   private handleDragSelectionStart(position: CellPosition, event: MouseEvent): void {
     // 'none' 모드 외에는 드래그 선택 활성화
     if (this.options.selectionMode === 'none') return;
+
+    // 드래그 선택 시작 전에 virtualRows 동기화 (그룹화 시 viewIndex → dataIndex 변환용)
+    const bodyRenderer = this.gridRenderer.getBodyRenderer();
+    if (bodyRenderer) {
+      this.selectionManager.setVirtualRows(bodyRenderer.getVirtualRows());
+    }
 
     this.selectionManager.startDragSelection(position, event);
   }

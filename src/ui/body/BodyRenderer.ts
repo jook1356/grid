@@ -67,8 +67,8 @@ export interface BodyRendererOptions {
   spacerY?: HTMLElement;
   /** 외부 가로 스페이서 (선택) - GridRenderer에서 전달 */
   spacerX?: HTMLElement;
-  /** 행 클릭 콜백 */
-  onRowClick?: (rowIndex: number, row: RowData, event: MouseEvent) => void;
+  /** 행 클릭 콜백 (viewIndex, dataIndex 모두 전달) */
+  onRowClick?: (viewIndex: number, row: RowData, event: MouseEvent, dataIndex?: number) => void;
   /** 셀 클릭 콜백 */
   onCellClick?: (position: CellPosition, value: unknown, event: MouseEvent) => void;
   /** 셀 더블클릭 콜백 */
@@ -508,6 +508,15 @@ export class BodyRenderer {
   }
 
   /**
+   * 현재 virtualRows 반환 (SelectionManager 동기화용)
+   *
+   * 그룹화가 적용되면 그룹 헤더를 포함한 가상 행 배열을 반환합니다.
+   */
+  getVirtualRows(): VirtualRow[] {
+    return this.virtualRows;
+  }
+
+  /**
    * Multi-Row 템플릿 설정
    */
   setRowTemplate(template: RowTemplate | null): void {
@@ -690,18 +699,20 @@ export class BodyRenderer {
    * 셀 선택 상태 업데이트
    * 'all' 모드에서는 선택된 셀이 있는 행도 함께 하이라이트됩니다.
    * 'range' 모드에서는 셀만 하이라이트되고 행은 건드리지 않습니다.
+   *
+   * 셀 키 형식: "dataIndex:columnKey" (그룹화 시에도 실제 데이터 인덱스 사용)
    */
   updateCellSelection(selectedCells: Set<string>): void {
     this.selectedCells = selectedCells;
-    
+
     // 'range' 모드가 아닐 때만 행 하이라이트 (all 모드에서만 행도 선택)
     if (this.selectionMode !== 'range') {
-      // 선택된 셀에서 행 인덱스 추출
+      // 선택된 셀에서 dataIndex 추출
       this.selectedRowIndices.clear();
       for (const cellKey of selectedCells) {
-        const rowIndex = parseInt(cellKey.split(':')[0], 10);
-        if (!isNaN(rowIndex)) {
-          this.selectedRowIndices.add(rowIndex);
+        const dataIndex = parseInt(cellKey.split(':')[0], 10);
+        if (!isNaN(dataIndex)) {
+          this.selectedRowIndices.add(dataIndex);
         }
       }
       this.updateCombinedRowSelectionStyles();
@@ -710,7 +721,7 @@ export class BodyRenderer {
       this.selectedRowIndices.clear();
       this.updateCombinedRowSelectionStyles();
     }
-    
+
     this.updateCellSelectionStyles();
   }
 
@@ -993,6 +1004,8 @@ export class BodyRenderer {
     rowElement.dataset['rowIndex'] = String(rowIndex);
     rowElement.dataset['groupId'] = groupRow.groupId;
     rowElement.dataset['rowType'] = 'group-header';
+    // 이전에 데이터 행으로 사용된 DOM 요소의 dataIndex 제거 (재사용 시 잘못된 선택 방지)
+    delete rowElement.dataset['dataIndex'];
     rowElement.classList.remove('ps-selected');
 
     // Row 인스턴스 생성
@@ -1048,7 +1061,8 @@ export class BodyRenderer {
     delete rowElement.dataset['groupId'];
 
     // 선택 상태 (BodyRenderer 책임)
-    const isSelectedByCell = this.selectedRowIndices.has(rowIndex);
+    // dataIndex 기준으로 체크 (rowIndex는 뷰 인덱스이므로 그룹화 시 잘못된 행이 선택됨)
+    const isSelectedByCell = this.selectedRowIndices.has(dataRow.dataIndex);
     const isSelectedByRow = rowId !== undefined && this.selectedRows.has(rowId);
     rowElement.classList.toggle('ps-selected', isSelectedByCell || isSelectedByRow);
 
@@ -1073,20 +1087,27 @@ export class BodyRenderer {
     // Row 클래스로 렌더링 위임
     row.render(rowElement, context);
 
-    // 셀 선택 상태 적용 (Row 렌더링 후)
-    this.applyCellSelectionToRow(rowElement, rowIndex);
+    // 셀에 dataIndex 부여 및 선택 상태 적용 (Row 렌더링 후)
+    this.applyCellDataIndexAndSelection(rowElement, dataRow.dataIndex);
   }
 
   /**
-   * 셀 선택 상태 적용 (Row 렌더링 후 호출)
+   * 셀에 dataIndex 부여 및 선택 상태 적용 (Row 렌더링 후 호출)
+   *
+   * 그룹화 시 dataIndex가 실제 데이터의 인덱스이므로,
+   * 이를 기준으로 선택 상태를 확인합니다.
    */
-  private applyCellSelectionToRow(rowElement: HTMLElement, rowIndex: number): void {
+  private applyCellDataIndexAndSelection(rowElement: HTMLElement, dataIndex: number): void {
     const cells = rowElement.querySelectorAll('.ps-cell');
     cells.forEach((cell) => {
       const el = cell as HTMLElement;
+      // 셀에 dataIndex 부여
+      el.dataset['dataIndex'] = String(dataIndex);
+
       const columnKey = el.dataset['columnKey'];
       if (columnKey) {
-        const cellKey = `${rowIndex}:${columnKey}`;
+        // dataIndex 기반으로 선택 상태 확인
+        const cellKey = `${dataIndex}:${columnKey}`;
         const isSelected = this.selectedCells.has(cellKey);
         el.classList.toggle('ps-cell-selected', isSelected);
       }
@@ -1147,13 +1168,13 @@ export class BodyRenderer {
       const columnKey = cell.dataset['columnKey'];
       if (columnKey) {
         const value = rowData[columnKey];
-        this.onCellClick({ rowIndex, columnKey }, value, event);
+        this.onCellClick({ rowIndex, columnKey, dataIndex: virtualRow.dataIndex }, value, event);
       }
     }
 
-    // 행 클릭
+    // 행 클릭 (viewIndex와 dataIndex 모두 전달)
     if (this.onRowClick) {
-      this.onRowClick(virtualRow.dataIndex, rowData, event);
+      this.onRowClick(rowIndex, rowData, event, virtualRow.dataIndex);
     }
   }
 
@@ -1224,22 +1245,26 @@ export class BodyRenderer {
   /**
    * 통합 행 선택 스타일 업데이트
    * - selectedRows: 명시적 행 선택 (행 ID 기준)
-   * - selectedRowIndices: 셀 선택에서 파생된 행 (행 인덱스 기준)
+   * - selectedRowIndices: 셀 선택에서 파생된 행 (dataIndex 기준)
    */
   private updateCombinedRowSelectionStyles(): void {
-    for (const [rowIndex, rowElement] of this.rowPool.getActiveRows()) {
-      // 1. 셀 선택에서 파생된 행 인덱스 체크
-      let isSelected = this.selectedRowIndices.has(rowIndex);
-      
+    for (const [_viewIndex, rowElement] of this.rowPool.getActiveRows()) {
+      // dataIndex 추출 (셀 또는 행에서)
+      const dataIndexStr = rowElement.dataset['dataIndex'];
+      const dataIndex = dataIndexStr !== undefined ? parseInt(dataIndexStr, 10) : undefined;
+
+      // 1. 셀 선택에서 파생된 행 체크 (dataIndex 기준)
+      let isSelected = dataIndex !== undefined && this.selectedRowIndices.has(dataIndex);
+
       // 2. 명시적 행 선택 (ID 기준) 체크
       if (!isSelected && this.selectedRows.size > 0) {
-        const rowData = this.gridCore.getRowByVisibleIndex(rowIndex);
-        if (rowData) {
-          const rowId = rowData['id'];
-          isSelected = rowId !== undefined && this.selectedRows.has(rowId);
+        const rowId = rowElement.dataset['rowId'];
+        if (rowId !== undefined) {
+          const numericId = parseInt(rowId, 10);
+          isSelected = this.selectedRows.has(rowId) || (!isNaN(numericId) && this.selectedRows.has(numericId));
         }
       }
-      
+
       rowElement.classList.toggle('ps-selected', isSelected);
     }
   }
@@ -1290,6 +1315,8 @@ export class BodyRenderer {
 
   /**
    * 마우스 이동 이벤트 처리 (드래그 중)
+   *
+   * 그룹 헤더 위에서는 선택을 업데이트하지 않고 마지막 유효한 위치를 유지합니다.
    */
   private handleMouseMove(event: MouseEvent): void {
     if (!this.isDragging || !this.dragStartPosition) return;
@@ -1298,14 +1325,20 @@ export class BodyRenderer {
     const cellPosition = this.getCellPositionFromMousePosition(event);
     if (!cellPosition) return;
 
-    // 셀이 바뀌었는지 확인 (실제 드래그 시작)
-    const cellChanged = cellPosition.rowIndex !== this.dragStartPosition.rowIndex ||
-                        cellPosition.columnKey !== this.dragStartPosition.columnKey;
+    // 그룹 헤더 위인지 확인 (dataIndex가 없으면 그룹 헤더)
+    const isOverGroupHeader = cellPosition.dataIndex === undefined;
+
+    // 셀이 바뀌었는지 확인 (dataIndex 기준, 그룹 헤더 제외)
+    const startDataIndex = this.dragStartPosition.dataIndex;
+    const cellChanged = !isOverGroupHeader && (
+      cellPosition.dataIndex !== startDataIndex ||
+      cellPosition.columnKey !== this.dragStartPosition.columnKey
+    );
 
     if (!this.isActualDrag && cellChanged) {
-      // 처음으로 다른 셀로 이동 → 실제 드래그 시작
+      // 처음으로 다른 데이터 셀로 이동 → 실제 드래그 시작
       this.isActualDrag = true;
-      
+
       // 드래그 시작 콜백 호출 (저장해둔 이벤트로)
       if (this.onDragSelectionStart && this.dragStartEvent) {
         this.onDragSelectionStart(this.dragStartPosition, this.dragStartEvent);
@@ -1317,12 +1350,12 @@ export class BodyRenderer {
       // 마지막 컬럼 키 저장 (자동 스크롤 시 사용)
       this.lastDragColumnKey = cellPosition.columnKey;
 
-      // 콜백 호출
-      if (this.onDragSelectionUpdate) {
+      // 그룹 헤더 위에서는 콜백 호출 건너뜀 (마지막 유효한 선택 유지)
+      if (!isOverGroupHeader && this.onDragSelectionUpdate) {
         this.onDragSelectionUpdate(cellPosition);
       }
 
-      // 자동 스크롤 체크
+      // 자동 스크롤 체크 (그룹 헤더 위에서도 동작)
       this.checkAutoScroll(event);
     }
   }
@@ -1367,6 +1400,8 @@ export class BodyRenderer {
 
   /**
    * 이벤트에서 셀 위치 추출
+   *
+   * dataIndex를 포함하여 반환합니다. 그룹 헤더인 경우 dataIndex가 undefined입니다.
    */
   private getCellPositionFromEvent(event: MouseEvent): CellPosition | null {
     const target = event.target as HTMLElement;
@@ -1380,11 +1415,17 @@ export class BodyRenderer {
 
     if (rowIndex < 0 || !columnKey) return null;
 
-    return { rowIndex, columnKey };
+    // dataIndex 추출 (셀 또는 행에서)
+    const dataIndexStr = cell.dataset['dataIndex'] ?? row.dataset['dataIndex'];
+    const dataIndex = dataIndexStr !== undefined ? parseInt(dataIndexStr, 10) : undefined;
+
+    return { rowIndex, columnKey, dataIndex };
   }
 
   /**
    * 마우스 좌표에서 셀 위치 계산 (viewport 밖에서도 동작)
+   *
+   * dataIndex를 포함하여 반환합니다. 그룹 헤더인 경우 dataIndex가 undefined입니다.
    */
   private getCellPositionFromMousePosition(event: MouseEvent): CellPosition | null {
     const viewportRect = this.viewport.getBoundingClientRect();
@@ -1393,7 +1434,7 @@ export class BodyRenderer {
     // 마우스 Y 좌표 → 행 인덱스
     // viewport 내부의 Y 좌표 (음수면 위, viewportHeight 초과면 아래)
     const viewportY = event.clientY - viewportRect.top;
-    
+
     // 현재 보이는 첫 번째 행 인덱스 기준으로 계산
     const visibleStartIndex = this.virtualScroller.getVisibleStartIndex();
     let rowIndex = visibleStartIndex + Math.floor(viewportY / effectiveRowHeight);
@@ -1407,7 +1448,11 @@ export class BodyRenderer {
 
     if (!columnKey) return null;
 
-    return { rowIndex, columnKey };
+    // virtualRow에서 dataIndex 추출 (그룹 헤더인 경우 undefined)
+    const virtualRow = this.virtualRows[rowIndex];
+    const dataIndex = virtualRow?.type === 'data' ? virtualRow.dataIndex : undefined;
+
+    return { rowIndex, columnKey, dataIndex };
   }
 
   /**
@@ -1431,15 +1476,18 @@ export class BodyRenderer {
 
   /**
    * 셀 선택 스타일 업데이트
+   *
+   * dataIndex를 기준으로 선택 상태를 확인합니다.
    */
   private updateCellSelectionStyles(): void {
-    for (const [rowIndex, rowElement] of this.rowPool.getActiveRows()) {
+    for (const [_viewIndex, rowElement] of this.rowPool.getActiveRows()) {
       const cells = rowElement.querySelectorAll('.ps-cell');
       cells.forEach((cell) => {
         const el = cell as HTMLElement;
         const columnKey = el.dataset['columnKey'];
-        if (columnKey) {
-          const cellKey = `${rowIndex}:${columnKey}`;
+        const dataIndex = el.dataset['dataIndex'];
+        if (columnKey && dataIndex !== undefined) {
+          const cellKey = `${dataIndex}:${columnKey}`;
           const isSelected = this.selectedCells.has(cellKey);
           el.classList.toggle('ps-cell-selected', isSelected);
         }
@@ -1477,6 +1525,8 @@ export class BodyRenderer {
 
   /**
    * 자동 스크롤 시작
+   *
+   * 그룹 헤더는 건너뛰고 가장 가까운 데이터 행을 선택합니다.
    */
   private startAutoScroll(): void {
     if (this.autoScrollAnimationId !== null) return;
@@ -1498,15 +1548,31 @@ export class BodyRenderer {
       if (this.onDragSelectionUpdate && this.dragStartPosition && this.lastDragColumnKey) {
         const visibleStart = this.virtualScroller.getVisibleStartIndex();
         const visibleCount = this.virtualScroller.getVisibleRowCount();
-        const targetRow = this.autoScrollSpeed > 0
+        let targetViewIndex = this.autoScrollSpeed > 0
           ? Math.min(visibleStart + visibleCount - 1, this.virtualRows.length - 1)
           : Math.max(visibleStart, 0);
 
-        // 마지막으로 드래그한 컬럼 키 유지
-        this.onDragSelectionUpdate({
-          rowIndex: targetRow,
-          columnKey: this.lastDragColumnKey,
-        });
+        // 그룹 헤더를 건너뛰고 가장 가까운 데이터 행 찾기
+        let targetDataIndex: number | undefined;
+        const direction = this.autoScrollSpeed > 0 ? -1 : 1;
+
+        for (let i = targetViewIndex; i >= 0 && i < this.virtualRows.length; i += direction) {
+          const vRow = this.virtualRows[i];
+          if (vRow?.type === 'data') {
+            targetViewIndex = i;
+            targetDataIndex = vRow.dataIndex;
+            break;
+          }
+        }
+
+        // 데이터 행을 찾았을 때만 업데이트
+        if (targetDataIndex !== undefined) {
+          this.onDragSelectionUpdate({
+            rowIndex: targetViewIndex,
+            columnKey: this.lastDragColumnKey,
+            dataIndex: targetDataIndex,
+          });
+        }
       }
 
       this.autoScrollAnimationId = requestAnimationFrame(scroll);
