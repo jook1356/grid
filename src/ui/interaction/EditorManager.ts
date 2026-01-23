@@ -7,7 +7,7 @@
  * - 키보드 단축키 (Enter, Tab, Escape)
  */
 
-import { EventEmitter } from '../../core/EventEmitter';
+import { SimpleEventEmitter } from '../../core/SimpleEventEmitter';
 import type { GridCore } from '../../core/GridCore';
 import type { CellValue, ColumnDef } from '../../types';
 import type { CellPosition, EditorConfig, EditorType } from '../types';
@@ -39,7 +39,7 @@ export interface EditorManagerOptions {
 /**
  * 셀 편집 관리자
  */
-export class EditorManager extends EventEmitter<EditorManagerEvents> {
+export class EditorManager extends SimpleEventEmitter<EditorManagerEvents> {
   private readonly gridCore: GridCore;
   private readonly editable: boolean;
 

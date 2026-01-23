@@ -4,7 +4,7 @@
  * 컬럼의 너비, 순서, 가시성, 고정 상태를 관리합니다.
  */
 
-import { EventEmitter } from '../../core/EventEmitter';
+import { SimpleEventEmitter } from '../../core/SimpleEventEmitter';
 import type { ColumnDef } from '../../types';
 import type { ColumnState, PinPosition } from '../types';
 
@@ -35,7 +35,7 @@ export interface ColumnManagerOptions {
 /**
  * 컬럼 상태 관리자
  */
-export class ColumnManager extends EventEmitter<ColumnManagerEvents> {
+export class ColumnManager extends SimpleEventEmitter<ColumnManagerEvents> {
   private columnStates: Map<string, ColumnState> = new Map();
   private columnOrder: string[] = [];
 

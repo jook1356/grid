@@ -211,8 +211,8 @@ export class BodyRenderer {
   private rowContainer: HTMLElement;
   private pinnedBottomContainer: HTMLElement;
   
-  // 외부 스크롤 프록시 여부
-  private externalScrollProxy: boolean = false;
+  // 외부 스크롤 프록시 여부 (향후 사용)
+  private _externalScrollProxy: boolean = false;
 
   // 모듈
   private virtualScroller: VirtualScroller;
@@ -221,8 +221,8 @@ export class BodyRenderer {
   private virtualRowBuilder: VirtualRowBuilder;
   private multiRowRenderer: MultiRowRenderer | null = null;
 
-  // Multi-Row 설정
-  private rowTemplate: RowTemplate | null = null;
+  // Multi-Row 설정 (향후 사용)
+  private _rowTemplate: RowTemplate | null = null;
 
   // 고정 행
   private pinnedTopRows: Row[] = [];
@@ -304,7 +304,7 @@ export class BodyRenderer {
       this.scrollProxyX = options.scrollProxyX;
       this.spacerY = options.spacerY;
       this.spacerX = options.spacerX;
-      this.externalScrollProxy = true;
+      this._externalScrollProxy = true;
     } else {
       // 내부에서 생성 (기존 방식 - fallback)
       this.scrollProxyY = this.createElement('div', 'ps-scroll-proxy-y');
@@ -316,7 +316,7 @@ export class BodyRenderer {
       this.spacerX = this.createElement('div', 'ps-scroll-spacer-x');
       this.scrollProxyX.appendChild(this.spacerX);
       // 가로 스크롤바는 scrollWrapper 바깥에 추가해야 하지만 fallback에서는 일단 내부에
-      this.externalScrollProxy = false;
+      this._externalScrollProxy = false;
     }
 
     this.viewport = this.createElement('div', 'ps-viewport');
@@ -351,7 +351,7 @@ export class BodyRenderer {
 
     // Multi-Row 템플릿이 있으면 MultiRowRenderer 및 RowPool 초기화
     if (options.rowTemplate) {
-      this.rowTemplate = options.rowTemplate;
+      this._rowTemplate = options.rowTemplate;
       this.multiRowRenderer = new MultiRowRenderer(
         options.rowTemplate,
         this.columnDefs,
@@ -635,7 +635,7 @@ export class BodyRenderer {
    * Multi-Row 템플릿 설정
    */
   setRowTemplate(template: RowTemplate | null): void {
-    this.rowTemplate = template;
+    this._rowTemplate = template;
 
     // RowPool에도 템플릿 설정 (구조 변경 시 풀 초기화됨)
     this.rowPool.setMultiRowTemplate(template);
@@ -843,7 +843,7 @@ export class BodyRenderer {
       // 선택된 셀에서 dataIndex 추출
       this.selectedRowIndices.clear();
       for (const cellKey of selectedCells) {
-        const dataIndex = parseInt(cellKey.split(':')[0], 10);
+        const dataIndex = parseInt(cellKey.split(':')[0] ?? '', 10);
         if (!isNaN(dataIndex)) {
           this.selectedRowIndices.add(dataIndex);
         }

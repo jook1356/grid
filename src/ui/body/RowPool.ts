@@ -22,8 +22,8 @@ export class RowPool {
   /** 행 컨테이너 */
   private container: HTMLElement;
 
-  /** 셀 수 (Left, Center, Right 컨테이너 생성용) */
-  private columnCount: number;
+  /** 셀 수 (Left, Center, Right 컨테이너 생성용) - 향후 사용 */
+  private _columnCount: number;
 
   /** Multi-Row 템플릿 (null이면 Single-Row 모드) */
   private multiRowTemplate: RowTemplate | null = null;
@@ -33,7 +33,7 @@ export class RowPool {
 
   constructor(container: HTMLElement, columnCount: number) {
     this.container = container;
-    this.columnCount = columnCount;
+    this._columnCount = columnCount;
   }
 
   /**
@@ -146,7 +146,7 @@ export class RowPool {
    * 컬럼 수 업데이트 (컬럼 변경 시)
    */
   updateColumnCount(count: number): void {
-    this.columnCount = count;
+    this._columnCount = count;
     // 기존 풀의 행들은 다시 생성해야 하므로 비움
     this.pool = [];
   }

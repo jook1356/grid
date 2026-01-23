@@ -71,11 +71,14 @@ export interface ColumnDef {
   /** 컬럼 식별자 (Row 객체의 키와 매칭) */
   key: string;
 
-  /** 데이터 타입 */
-  type: ColumnType;
+  /** 데이터 타입 (선택적 - 기본값: 'string') */
+  type?: ColumnType;
 
   /** 화면에 표시할 이름 (없으면 key 사용) */
   label?: string;
+
+  /** 헤더에 표시할 이름 (label의 별칭) */
+  header?: string;
 
   /** 컬럼 너비 (픽셀) */
   width?: number;
@@ -100,6 +103,27 @@ export interface ColumnDef {
 
   /** 고정 위치 ('left' | 'right' | undefined) */
   frozen?: 'left' | 'right';
+
+  /** 고정 위치 (frozen의 별칭) */
+  pinned?: 'left' | 'right';
+
+  /** 셀 값 포맷터 */
+  formatter?: (value: CellValue) => string;
+
+  /** 병합 전략 (피벗용) */
+  mergeStrategy?: 'same-value' | 'none';
+
+  /** 표시 여부 (기본값: true) */
+  visible?: boolean;
+
+  /** 에디터 설정 */
+  editorConfig?: {
+    type: 'text' | 'number' | 'date' | 'select' | 'checkbox' | 'custom';
+    options?: { value: unknown; label: string }[];
+    validator?: (value: CellValue) => boolean | string;
+    formatter?: (value: CellValue) => string;
+    parser?: (input: string) => CellValue;
+  };
 }
 
 // ============================================================================

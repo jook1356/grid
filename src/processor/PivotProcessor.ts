@@ -24,7 +24,7 @@
 import * as aq from 'arquero';
 import type { Table } from 'arquero';
 import { ArqueroProcessor } from './ArqueroProcessor';
-import type { ColumnDef, CellValue, Row, SortState } from '../types';
+import type { ColumnDef, CellValue, SortState } from '../types';
 import type {
   PivotConfig,
   PivotResult,
@@ -386,7 +386,7 @@ export class PivotProcessor extends ArqueroProcessor {
   private transformToPivotStructure(
     aggregatedData: Record<string, unknown>[],
     config: PivotConfig,
-    uniqueValues: Record<string, CellValue[]>
+    _uniqueValues: Record<string, CellValue[]>
   ): PivotRow[] {
     const { rowFields, columnFields, valueFields } = config;
 

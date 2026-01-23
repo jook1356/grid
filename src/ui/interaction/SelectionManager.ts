@@ -13,7 +13,7 @@
  * Set.has()를 사용하여 O(1) 조회 성능을 보장합니다.
  */
 
-import { EventEmitter } from '../../core/EventEmitter';
+import { SimpleEventEmitter } from '../../core/SimpleEventEmitter';
 import type { GridCore } from '../../core/GridCore';
 import type { ColumnDef, Row } from '../../types';
 import type { VirtualRow } from '../../types/grouping.types';
@@ -42,7 +42,7 @@ export interface SelectionManagerOptions {
 /**
  * 선택 관리자
  */
-export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
+export class SelectionManager extends SimpleEventEmitter<SelectionManagerEvents> {
   private readonly gridCore: GridCore;
   private readonly multiSelect: boolean;
 
@@ -886,7 +886,7 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
   /**
    * 컬럼 목록 가져오기
    */
-  getColumns(): ColumnDef[] {
+  getColumns(): readonly ColumnDef[] {
     return this.gridCore.getColumns();
   }
 
@@ -900,7 +900,8 @@ export class SelectionManager extends EventEmitter<SelectionManagerEvents> {
     this.state.selectedRows.clear();
 
     for (const cellKey of this.state.selectedCells) {
-      const dataIndex = parseInt(cellKey.split(':')[0], 10);
+      const dataIndexStr = cellKey.split(':')[0] ?? '0';
+      const dataIndex = parseInt(dataIndexStr, 10);
       const row = this.gridCore.getRowByVisibleIndex(dataIndex);
       const rowId = this.getRowId(row);
       if (rowId !== undefined) {

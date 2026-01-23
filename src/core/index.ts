@@ -11,6 +11,7 @@ export type { GridCoreOptions, ViewRange } from './GridCore';
 
 // 내부 모듈 (고급 사용자용)
 export { EventEmitter } from './EventEmitter';
+export { SimpleEventEmitter } from './SimpleEventEmitter';
 export { DataStore } from './DataStore';
 export type { DataStoreOptions } from './DataStore';
 export { IndexManager } from './IndexManager';

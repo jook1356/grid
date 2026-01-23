@@ -48,7 +48,7 @@ export class GroupManager {
   // 그룹화 설정
   private groupColumns: string[] = [];
   private aggregates: Record<string, AggregateFn> = {};
-  private defaultCollapsed: boolean = false;
+  private _defaultCollapsed: boolean = false;
 
   // 접힌 그룹 상태
   private collapsedGroups: Set<string> = new Set();
@@ -76,7 +76,7 @@ export class GroupManager {
   setConfig(config: GroupingConfig): void {
     this.groupColumns = config.columns;
     this.aggregates = config.aggregates ?? {};
-    this.defaultCollapsed = config.defaultCollapsed ?? false;
+    this._defaultCollapsed = config.defaultCollapsed ?? false;
     this.invalidateCache();
   }
 
@@ -412,6 +412,8 @@ export class GroupManager {
     dataIndices: number[]
   ): GroupNode[] {
     const columnKey = this.groupColumns[level];
+    if (!columnKey) return []; // undefined 체크
+
     const groups: Map<CellValue, { rows: RowData[]; indices: number[] }> = new Map();
 
     // 원본 인덱스 유지
@@ -422,6 +424,7 @@ export class GroupManager {
 
     // 값별로 그룹화
     for (const { row, index } of indexedData) {
+      if (!row) continue; // undefined 체크
       const value = row[columnKey];
       if (!groups.has(value)) {
         groups.set(value, { rows: [], indices: [] });
@@ -505,10 +508,14 @@ export class GroupManager {
         this.traverseGroups(node.children, currentPath, result);
       } else if (node.rows && node.dataIndices) {
         for (let i = 0; i < node.rows.length; i++) {
+          const rowData = node.rows[i];
+          const dataIndex = node.dataIndices[i];
+          if (rowData === undefined || dataIndex === undefined) continue;
+
           const dataRow: DataRow = {
             type: 'data',
-            dataIndex: node.dataIndices[i],
-            data: node.rows[i],
+            dataIndex,
+            data: rowData,
             groupPath: currentPath,
           };
           result.push(dataRow);

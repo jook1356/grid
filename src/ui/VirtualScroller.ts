@@ -15,7 +15,7 @@
  * - 스크롤바 드래그로 빠른 위치 이동 가능
  */
 
-import { EventEmitter } from '../core/EventEmitter';
+import { SimpleEventEmitter } from '../core/SimpleEventEmitter';
 import type { VirtualScrollerOptions, VirtualScrollState } from './types';
 
 /**
@@ -57,7 +57,7 @@ const CHUNK_TRANSITION_BUFFER = 50;
 /**
  * 청크 기반 Proxy Scrollbar 가상 스크롤러
  */
-export class VirtualScroller extends EventEmitter<VirtualScrollerEvents> {
+export class VirtualScroller extends SimpleEventEmitter<VirtualScrollerEvents> {
   // 설정
   private readonly overscan: number;
 
