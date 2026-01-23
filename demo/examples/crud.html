@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CRUD & Undo/Redo - PureSheet Demo</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+  <link rel="stylesheet" href="../../src/ui/style/default.css">
+  <style>
+    /* 변경사항 패널 */
+    .changes-panel {
+      background: #f8f9fa;
+      border: 1px solid var(--demo-border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+
+    .changes-panel h4 {
+      margin: 0 0 12px 0;
+      font-size: 14px;
+      color: #666;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .changes-summary {
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+
+    .change-stat {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .change-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 28px;
+      height: 28px;
+      padding: 0 8px;
+      border-radius: 14px;
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .change-badge.added {
+      background: rgba(76, 175, 80, 0.2);
+      color: #2e7d32;
+    }
+
+    .change-badge.modified {
+      background: rgba(255, 193, 7, 0.2);
+      color: #f57c00;
+    }
+
+    .change-badge.deleted {
+      background: rgba(244, 67, 54, 0.2);
+      color: #c62828;
+    }
+
+    .change-badge.empty {
+      background: #e0e0e0;
+      color: #757575;
+    }
+
+    /* 액션 버튼 그룹 */
+    .action-buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #e0e0e0;
+    }
+
+    .btn-commit {
+      background: #4caf50 !important;
+      color: white !important;
+    }
+
+    .btn-commit:hover {
+      background: #388e3c !important;
+    }
+
+    .btn-commit:disabled {
+      background: #a5d6a7 !important;
+      cursor: not-allowed;
+    }
+
+    .btn-discard {
+      background: #f44336 !important;
+      color: white !important;
+    }
+
+    .btn-discard:hover {
+      background: #d32f2f !important;
+    }
+
+    .btn-discard:disabled {
+      background: #ef9a9a !important;
+      cursor: not-allowed;
+    }
+
+    /* Undo/Redo 버튼 */
+    .undo-redo-group {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .undo-redo-group button {
+      padding: 6px 12px;
+      font-size: 14px;
+    }
+
+    .undo-redo-group button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* 범례 */
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      padding: 12px 16px;
+      background: #f9f9f9;
+      border-bottom: 1px solid var(--demo-border);
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+    }
+
+    .legend-color {
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+    }
+
+    /* 키보드 단축키 표시 */
+    .shortcut-hint {
+      font-size: 11px;
+      color: #888;
+      margin-left: 4px;
+    }
+
+    kbd {
+      background: #eee;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-size: 11px;
+      font-family: monospace;
+    }
+
+    /* 선택된 행 정보 */
+    .selected-info {
+      margin-top: 8px;
+      padding: 8px 12px;
+      background: #e3f2fd;
+      border-radius: 4px;
+      font-size: 13px;
+      color: #1565c0;
+    }
+
+    /* 그리드 컨테이너 */
+    #crudGrid {
+      height: 450px;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- 네비게이션 -->
+  <nav class="demo-nav">
+    <a href="../index.html">🏠 홈</a>
+    <a href="pinning.html">📌 행/컬럼 고정</a>
+    <a href="multi-row.html">📑 Multi-Row</a>
+    <a href="grouping.html">📂 행 그룹화</a>
+    <a href="merge.html">🔗 셀 병합</a>
+    <a href="selection-modes.html">🎯 선택 모드</a>
+    <a href="pivot.html">📊 피벗</a>
+    <a href="format-row.html">🎨 formatRow</a>
+    <a href="crud.html" class="active">✏️ CRUD</a>
+  </nav>
+
+  <!-- 헤더 -->
+  <div class="demo-header">
+    <h1>✏️ CRUD & Undo/Redo</h1>
+    <span class="badge badge-implemented">구현됨</span>
+  </div>
+
+  <!-- 설명 -->
+  <div class="demo-description">
+    <p>
+      <strong>Dirty State Pattern</strong>으로 변경사항을 원본에 즉시 반영하지 않고 pending 상태로 관리합니다.
+      <code>commitChanges()</code> 호출 전까지 원본 데이터는 변경되지 않으며,
+      <code>discardChanges()</code>로 모든 변경을 취소할 수 있습니다.
+    </p>
+    <p>
+      <strong>Undo/Redo</strong>는 <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd> 단축키로 사용 가능합니다.
+      셀을 <strong>더블클릭</strong>하면 인라인 편집 모드로 진입합니다.
+    </p>
+  </div>
+
+  <!-- 범례 -->
+  <div class="demo-container" style="margin-bottom: 20px;">
+    <div class="legend">
+      <div class="legend-item">
+        <div class="legend-color" style="background: rgba(76, 175, 80, 0.1); border-left: 3px solid #4caf50;"></div>
+        <span>추가된 행 (added)</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background: rgba(255, 193, 7, 0.1); border-left: 3px solid #ffc107;"></div>
+        <span>수정된 행 (modified)</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color"
+          style="background: rgba(244, 67, 54, 0.1); border-left: 3px solid #f44336; text-decoration: line-through;">
+        </div>
+        <span>삭제 예정 행 (deleted)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 변경사항 패널 -->
+  <div class="changes-panel">
+    <h4>📋 Pending Changes (커밋 대기 중)</h4>
+    <div class="changes-summary">
+      <div class="change-stat">
+        <span>추가:</span>
+        <span class="change-badge added" id="addedCount">0</span>
+      </div>
+      <div class="change-stat">
+        <span>수정:</span>
+        <span class="change-badge modified" id="modifiedCount">0</span>
+      </div>
+      <div class="change-stat">
+        <span>삭제:</span>
+        <span class="change-badge deleted" id="deletedCount">0</span>
+      </div>
+      <div class="change-stat" style="margin-left: auto;">
+        <div class="undo-redo-group">
+          <button onclick="handleUndo()" id="undoBtn" disabled title="Ctrl+Z">
+            ↩️ Undo
+          </button>
+          <button onclick="handleRedo()" id="redoBtn" disabled title="Ctrl+Y">
+            ↪️ Redo
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="action-buttons">
+      <button class="btn-commit" id="commitBtn" onclick="handleCommit()" disabled>
+        ✅ Commit (원본에 반영)
+      </button>
+      <button class="btn-discard" id="discardBtn" onclick="handleDiscard()" disabled>
+        ❌ Discard (변경 취소)
+      </button>
+    </div>
+  </div>
+
+  <!-- 그리드 영역 -->
+  <div class="demo-container">
+    <div class="toolbar">
+      <div class="toolbar-group">
+        <button onclick="addNewRow()">➕ 행 추가</button>
+        <button onclick="deleteSelectedRows()" class="danger">🗑️ 선택 행 삭제</button>
+      </div>
+      <div class="toolbar-divider"></div>
+      <div class="toolbar-group">
+        <button onclick="modifySelectedRow()" class="secondary">✏️ 선택 행 수정 (가격+100)</button>
+        <button onclick="restoreSelectedRow()" class="secondary">↩️ 선택 행 복원</button>
+      </div>
+      <div class="toolbar-divider"></div>
+      <div class="toolbar-group">
+        <span class="shortcut-hint">
+          단축키: <kbd>Ctrl</kbd>+<kbd>Z</kbd> Undo, <kbd>Ctrl</kbd>+<kbd>Y</kbd> Redo
+        </span>
+      </div>
+    </div>
+    <div id="crudGrid"></div>
+    <div class="status-bar" id="statusBar">초기화 중...</div>
+    <div class="selected-info" id="selectedInfo" style="display: none;"></div>
+  </div>
+
+  <!-- 코드 예제 -->
+  <div class="code-example">
+    <h3>CRUD & Undo/Redo API 사용법</h3>
+    <pre><span class="comment">// ═══════════════════════════════════════════════════════════════</span>
+<span class="comment">// Dirty State CRUD API</span>
+<span class="comment">// ═══════════════════════════════════════════════════════════════</span>
+
+<span class="comment">// 1. 행 추가 (pending)</span>
+<span class="keyword">const</span> newId = grid.<span class="function">addRowDirty</span>({
+  name: <span class="string">'홍길동'</span>,
+  department: <span class="string">'개발팀'</span>,
+  salary: <span class="number">4500</span>,
+});
+<span class="comment">// → ps-row-added 클래스 자동 적용</span>
+
+<span class="comment">// 2. 셀 값 수정 (pending)</span>
+grid.<span class="function">updateCellDirty</span>(<span class="string">'row-5'</span>, <span class="string">'salary'</span>, <span class="number">5000</span>);
+<span class="comment">// → ps-row-modified 클래스 자동 적용</span>
+
+<span class="comment">// 3. 행 삭제 (pending)</span>
+grid.<span class="function">deleteRowDirty</span>(<span class="string">'row-3'</span>);
+<span class="comment">// → ps-row-deleted 클래스 자동 적용</span>
+
+<span class="comment">// ═══════════════════════════════════════════════════════════════</span>
+<span class="comment">// Undo/Redo API</span>
+<span class="comment">// ═══════════════════════════════════════════════════════════════</span>
+
+<span class="comment">// Undo (Ctrl+Z)</span>
+grid.<span class="function">undo</span>();
+
+<span class="comment">// Redo (Ctrl+Y)</span>
+grid.<span class="function">redo</span>();
+
+<span class="comment">// 가능 여부 확인</span>
+<span class="keyword">if</span> (grid.<span class="property">canUndo</span>) { <span class="comment">/* ... */</span> }
+<span class="keyword">if</span> (grid.<span class="property">canRedo</span>) { <span class="comment">/* ... */</span> }
+
+<span class="comment">// ═══════════════════════════════════════════════════════════════</span>
+<span class="comment">// Dirty State 조회 및 커밋</span>
+<span class="comment">// ═══════════════════════════════════════════════════════════════</span>
+
+<span class="comment">// 변경사항 존재 여부</span>
+<span class="keyword">if</span> (grid.<span class="property">hasChanges</span>) {
+  <span class="comment">// 변경사항 조회</span>
+  <span class="keyword">const</span> changes = grid.<span class="function">getChanges</span>();
+  <span class="keyword">console</span>.log(changes.added);    <span class="comment">// 추가된 행들</span>
+  <span class="keyword">console</span>.log(changes.modified); <span class="comment">// 수정된 행들</span>
+  <span class="keyword">console</span>.log(changes.deleted);  <span class="comment">// 삭제된 행들</span>
+}
+
+<span class="comment">// 커밋 (원본에 반영)</span>
+<span class="keyword">await</span> grid.<span class="function">commitChanges</span>();
+<span class="comment">// → 모든 dirty 클래스 제거, Undo 스택 초기화</span>
+
+<span class="comment">// 폐기 (변경 취소)</span>
+grid.<span class="function">discardChanges</span>();
+<span class="comment">// → 모든 pending 변경 취소, Undo 스택 초기화</span>
+
+<span class="comment">// 특정 행만 폐기</span>
+grid.<span class="function">discardRow</span>(<span class="string">'row-5'</span>);</pre>
+  </div>
+
+  <script type="module">
+    import { PureSheet } from '../../src/index.ts';
+
+    let grid = null;
+    let nextId = 100;
+
+    // =========================================================================
+    // 샘플 데이터 생성
+    // =========================================================================
+
+    const departments = ['개발팀', '기획팀', '디자인팀', '마케팅팀', '인사팀'];
+    const statuses = ['재직', '휴직', '퇴사예정'];
+    const names = ['김철수', '이영희', '박지민', '최수진', '정민호', '강서연', '윤도현', '임지은'];
+
+    function generateData() {
+      const data = [];
+      for (let i = 1; i <= 30; i++) {
+        data.push({
+          id: i,
+          name: names[Math.floor(Math.random() * names.length)] + i,
+          department: departments[Math.floor(Math.random() * departments.length)],
+          salary: Math.floor(Math.random() * 3000) + 3000,
+          status: statuses[Math.floor(Math.random() * statuses.length)],
+          joinDate: `2020-${String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')}-01`,
+        });
+      }
+      return data;
+    }
+
+    // =========================================================================
+    // 초기화
+    // =========================================================================
+
+    async function init() {
+      const container = document.getElementById('crudGrid');
+      const data = generateData();
+
+      const fields = [
+        { key: 'id', header: 'ID', dataType: 'number', width: 60 },
+        { key: 'name', header: '이름', dataType: 'string', width: 120 },
+        { key: 'department', header: '부서', dataType: 'string', width: 100 },
+        { key: 'salary', header: '급여', dataType: 'number', width: 100 },
+        { key: 'status', header: '상태', dataType: 'string', width: 90 },
+        { key: 'joinDate', header: '입사일', dataType: 'string', width: 110 },
+      ];
+
+      grid = new PureSheet(container, {
+        mode: 'flat',
+        fields,
+        data,
+        idKey: 'id',
+        selectionMode: 'row',
+        editable: true, // 더블클릭 인라인 편집 활성화
+        theme: 'light',
+      });
+
+      // 선택 이벤트
+      grid.on('selection:changed', () => {
+        updateSelectedInfo();
+      });
+
+      // 키보드 단축키는 PureSheet 내부에서 자동 처리됨
+      // (Ctrl+Z, Ctrl+Y)
+
+      updateStatus('준비 완료 - 셀을 더블클릭하여 편집, Ctrl+Z로 Undo');
+      updateChangesPanel();
+    }
+
+    // =========================================================================
+    // CRUD 함수들
+    // =========================================================================
+
+    window.addNewRow = function () {
+      if (!grid) return;
+
+      const newRow = {
+        id: ++nextId,
+        name: `신입사원 ${nextId}`,
+        department: departments[Math.floor(Math.random() * departments.length)],
+        salary: Math.floor(Math.random() * 2000) + 3000,
+        status: '재직',
+        joinDate: new Date().toISOString().split('T')[0],
+      };
+
+      grid.addRowDirty(newRow);
+      updateChangesPanel();
+      updateUndoRedoButtons();
+      updateStatus(`행 추가됨 (ID: ${nextId}) - Undo 가능`);
+    };
+
+    window.deleteSelectedRows = function () {
+      if (!grid) return;
+
+      const selectedIds = grid.getSelectedRowIds();
+      if (selectedIds.length === 0) {
+        alert('삭제할 행을 선택하세요');
+        return;
+      }
+
+      // Batch로 묶어서 Ctrl+Z 한 번에 전체 복원 가능
+      grid.beginBatch(`${selectedIds.length}개 행 삭제`);
+      for (const id of selectedIds) {
+        grid.deleteRowDirty(id);
+      }
+      grid.endBatch();
+
+      grid.clearSelection();
+      updateChangesPanel();
+      updateUndoRedoButtons();
+      updateStatus(`${selectedIds.length}개 행 삭제 예정 - Undo 1번으로 전체 복원 가능`);
+    };
+
+    window.modifySelectedRow = function () {
+      if (!grid) return;
+
+      const selectedIds = grid.getSelectedRowIds();
+      if (selectedIds.length === 0) {
+        alert('수정할 행을 선택하세요');
+        return;
+      }
+
+      // Batch로 묶어서 Ctrl+Z 한 번에 전체 되돌리기 가능
+      grid.beginBatch(`${selectedIds.length}개 행 급여 수정`);
+      for (const id of selectedIds) {
+        // 현재 salary 값을 가져와서 +100
+        const rowData = grid.getRowById(id);
+        if (rowData) {
+          const currentSalary = rowData.salary ?? 0;
+          grid.updateCellDirty(id, 'salary', currentSalary + 100);
+        }
+      }
+      grid.endBatch();
+
+      updateChangesPanel();
+      updateUndoRedoButtons();
+      updateStatus(`${selectedIds.length}개 행 급여 +100 수정됨 - Undo 1번으로 전체 복원 가능`);
+    };
+
+    window.restoreSelectedRow = function () {
+      if (!grid) return;
+
+      const selectedIds = grid.getSelectedRowIds();
+      if (selectedIds.length === 0) {
+        alert('복원할 행을 선택하세요');
+        return;
+      }
+
+      // Batch로 묶어서 Ctrl+Z 한 번에 전체 다시 삭제 가능
+      grid.beginBatch(`${selectedIds.length}개 행 복원`);
+      for (const id of selectedIds) {
+        grid.discardRowDirty(id);  // Undo 지원되는 폐기 메서드
+      }
+      grid.endBatch();
+
+      updateChangesPanel();
+      updateUndoRedoButtons();
+      updateStatus(`${selectedIds.length}개 행 변경사항 복원됨 - Undo 1번으로 전체 취소 가능`);
+    };
+
+    // =========================================================================
+    // Undo/Redo
+    // =========================================================================
+
+    window.handleUndo = function () {
+      if (!grid) return;
+
+      if (grid.undo()) {
+        updateChangesPanel();
+        updateUndoRedoButtons();
+        updateStatus('Undo 실행됨');
+      }
+    };
+
+    window.handleRedo = function () {
+      if (!grid) return;
+
+      if (grid.redo()) {
+        updateChangesPanel();
+        updateUndoRedoButtons();
+        updateStatus('Redo 실행됨');
+      }
+    };
+
+    function updateUndoRedoButtons() {
+      if (!grid) return;
+
+      document.getElementById('undoBtn').disabled = !grid.canUndo;
+      document.getElementById('redoBtn').disabled = !grid.canRedo;
+    }
+
+    // 키보드 이벤트 리스너 (Undo/Redo 후 UI 업데이트)
+    document.addEventListener('keydown', (e) => {
+      if (!grid) return;
+
+      // Ctrl+Z 또는 Ctrl+Y 감지
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'y')) {
+        // PureSheet 내부에서 처리되므로 약간의 딜레이 후 UI 업데이트
+        setTimeout(() => {
+          updateChangesPanel();
+          updateUndoRedoButtons();
+        }, 50);
+      }
+    });
+
+    // =========================================================================
+    // Commit/Discard
+    // =========================================================================
+
+    window.handleCommit = async function () {
+      if (!grid || !grid.hasChanges) return;
+
+      const changes = grid.getChanges();
+      const summary = `추가: ${changes.added.length}, 수정: ${changes.modified.length}, 삭제: ${changes.deleted.length}`;
+
+      if (confirm(`다음 변경사항을 원본에 반영하시겠습니까?\n\n${summary}`)) {
+        await grid.commitChanges();
+        updateChangesPanel();
+        updateUndoRedoButtons();
+        updateStatus('변경사항이 원본에 반영되었습니다');
+      }
+    };
+
+    window.handleDiscard = function () {
+      if (!grid || !grid.hasChanges) return;
+
+      if (confirm('모든 변경사항을 취소하시겠습니까?')) {
+        grid.discardChanges();
+        updateChangesPanel();
+        updateUndoRedoButtons();
+        updateStatus('모든 변경사항이 취소되었습니다');
+      }
+    };
+
+    // =========================================================================
+    // UI 업데이트
+    // =========================================================================
+
+    function updateChangesPanel() {
+      if (!grid) return;
+
+      const changes = grid.getChanges();
+      const addedCount = changes.added.length;
+      const modifiedCount = changes.modified.length;
+      const deletedCount = changes.deleted.length;
+      const hasChanges = addedCount + modifiedCount + deletedCount > 0;
+
+      // 배지 업데이트
+      document.getElementById('addedCount').textContent = addedCount;
+      document.getElementById('addedCount').className =
+        `change-badge ${addedCount > 0 ? 'added' : 'empty'}`;
+
+      document.getElementById('modifiedCount').textContent = modifiedCount;
+      document.getElementById('modifiedCount').className =
+        `change-badge ${modifiedCount > 0 ? 'modified' : 'empty'}`;
+
+      document.getElementById('deletedCount').textContent = deletedCount;
+      document.getElementById('deletedCount').className =
+        `change-badge ${deletedCount > 0 ? 'deleted' : 'empty'}`;
+
+      // 버튼 활성화
+      document.getElementById('commitBtn').disabled = !hasChanges;
+      document.getElementById('discardBtn').disabled = !hasChanges;
+    }
+
+    function updateStatus(message) {
+      document.getElementById('statusBar').textContent = message;
+    }
+
+    function updateSelectedInfo() {
+      if (!grid) return;
+
+      const selectedIds = grid.getSelectedRowIds();
+      const infoEl = document.getElementById('selectedInfo');
+
+      if (selectedIds.length === 0) {
+        infoEl.style.display = 'none';
+        return;
+      }
+
+      // 선택된 행의 상태 표시
+      const stateInfos = selectedIds.slice(0, 5).map(id => {
+        const state = grid.getRowState(id);
+        return `ID ${id}: ${state}`;
+      });
+
+      if (selectedIds.length > 5) {
+        stateInfos.push(`... 외 ${selectedIds.length - 5}개`);
+      }
+
+      infoEl.style.display = 'block';
+      infoEl.innerHTML = `
+        <strong>선택된 행:</strong> ${selectedIds.length}개
+        <br>
+        <strong>상태:</strong> ${stateInfos.join(', ')}
+      `;
+    }
+
+    // 초기화 실행
+    init().catch(console.error);
+  </script>
+</body>
+
+</html>

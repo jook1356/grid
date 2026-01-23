@@ -108,3 +108,19 @@ export type {
   PivotResult,
 } from './pivot.types';
 export { createPivotColumnKey, parsePivotColumnKey } from './pivot.types';
+
+// CRUD 관련 타입
+export type {
+  RowState as CrudRowState,
+  CellState,
+  AddedRow,
+  ModifiedRow,
+  DeletedRow,
+  ChangedField,
+  ChangesSummary,
+  CommandType,
+  Command,
+  BatchCommand,
+  ChangeTrackerEvents,
+  UndoStackEvents,
+} from './crud.types';

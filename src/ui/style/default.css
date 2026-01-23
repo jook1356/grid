@@ -72,6 +72,7 @@
   color: var(--ps-cell-text);
   box-sizing: border-box;
   /* border: var(--ps-border-width) solid var(--ps-border-color); */
+  outline: none;  /* tabindex 포커스 아웃라인 제거 */
 }
 
 .ps-grid-container *,
@@ -884,7 +885,13 @@
 /* 추가된 행 */
 .ps-row.ps-row-added {
   background-color: rgba(76, 175, 80, 0.08);
+}
+
+.ps-row.ps-row-added::after {
+  content: "";
+  height: 100%;
   border-left: 3px solid #4caf50;
+  position: absolute;
 }
 
 .ps-row.ps-row-added .ps-cell {
@@ -894,7 +901,13 @@
 /* 수정된 행 */
 .ps-row.ps-row-modified {
   background-color: rgba(255, 193, 7, 0.08);
+}
+
+.ps-row.ps-row-modified::after {
+  content: "";
+  height: 100%;
   border-left: 3px solid #ffc107;
+  position: absolute;
 }
 
 .ps-row.ps-row-modified .ps-cell {
@@ -909,9 +922,16 @@
 /* 삭제 예정 행 */
 .ps-row.ps-row-deleted {
   background-color: rgba(244, 67, 54, 0.08);
-  border-left: 3px solid #f44336;
   opacity: 0.6;
 }
+
+.ps-row.ps-row-deleted::after {
+  content: "";
+  height: 100%;
+  border-left: 3px solid #f44336;
+  position: absolute;
+}
+
 
 .ps-row.ps-row-deleted .ps-cell {
   background-color: rgba(244, 67, 54, 0.08);

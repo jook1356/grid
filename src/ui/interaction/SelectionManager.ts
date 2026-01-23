@@ -257,13 +257,12 @@ export class SelectionManager extends SimpleEventEmitter<SelectionManagerEvents>
 
     this.state.selectedRows.clear();
 
-    // virtualRows가 있으면 viewIndex 기준으로 데이터 행만 선택
+    // virtualRows가 있으면 viewIndex 기준으로 데이터 행만 선택 (ChangeTracker 데이터 포함)
     if (this.virtualRows.length > 0) {
       for (let viewIdx = minIndex; viewIdx <= maxIndex; viewIdx++) {
         const virtualRow = this.virtualRows[viewIdx];
         if (virtualRow && virtualRow.type === 'data') {
-          const row = this.gridCore.getRowByVisibleIndex(virtualRow.dataIndex);
-          const rowId = this.getRowId(row);
+          const rowId = this.getRowId(virtualRow.data);
           if (rowId !== undefined) {
             this.state.selectedRows.add(rowId);
           }
@@ -316,11 +315,10 @@ export class SelectionManager extends SimpleEventEmitter<SelectionManagerEvents>
       this.state.selectedRows.clear();
 
       if (this.virtualRows.length > 0) {
-        // 그룹화 활성: virtualRows에서 데이터 행만 선택
+        // 그룹화 활성: virtualRows에서 데이터 행만 선택 (ChangeTracker 데이터 포함)
         for (const virtualRow of this.virtualRows) {
           if (virtualRow.type === 'data') {
-            const row = this.gridCore.getRowByVisibleIndex(virtualRow.dataIndex);
-            const rowId = this.getRowId(row);
+            const rowId = this.getRowId(virtualRow.data);
             if (rowId !== undefined) {
               this.state.selectedRows.add(rowId);
             }
@@ -508,11 +506,13 @@ export class SelectionManager extends SimpleEventEmitter<SelectionManagerEvents>
         this.preDragRowSelection.clear();
         this.state.selectedRows.clear();
       }
-      // 시작 행 선택 (dataIndex 기준)
-      const row = this.gridCore.getRowByVisibleIndex(position.dataIndex);
-      const rowId = this.getRowId(row);
-      if (rowId !== undefined) {
-        this.state.selectedRows.add(rowId);
+      // 시작 행 선택 (virtualRows 사용 - ChangeTracker 데이터 포함)
+      const virtualRow = this.virtualRows[position.rowIndex];
+      if (virtualRow?.type === 'data') {
+        const rowId = this.getRowId(virtualRow.data);
+        if (rowId !== undefined) {
+          this.state.selectedRows.add(rowId);
+        }
       }
     } else {
       // range/all 모드: 셀 선택
@@ -555,12 +555,11 @@ export class SelectionManager extends SimpleEventEmitter<SelectionManagerEvents>
       const startViewIndex = Math.min(anchorViewIndex, currentViewIndex);
       const endViewIndex = Math.max(anchorViewIndex, currentViewIndex);
 
-      // viewIndex 범위 내의 데이터 행만 선택
+      // viewIndex 범위 내의 데이터 행만 선택 (virtualRows 사용 - ChangeTracker 데이터 포함)
       for (let viewIdx = startViewIndex; viewIdx <= endViewIndex; viewIdx++) {
         const virtualRow = this.virtualRows[viewIdx];
         if (virtualRow && virtualRow.type === 'data') {
-          const row = this.gridCore.getRowByVisibleIndex(virtualRow.dataIndex);
-          const rowId = this.getRowId(row);
+          const rowId = this.getRowId(virtualRow.data);
           if (rowId !== undefined) {
             this.state.selectedRows.add(rowId);
           }
@@ -723,12 +722,14 @@ export class SelectionManager extends SimpleEventEmitter<SelectionManagerEvents>
       this.selectSingleCell(newPosition);
     }
 
-    // 행 모드에서는 행도 선택
+    // 행 모드에서는 행도 선택 (virtualRows 사용 - ChangeTracker 데이터 포함)
     if (this.state.selectionMode === 'row') {
-      const row = this.gridCore.getRowByVisibleIndex(newDataIndex);
-      const rowId = this.getRowId(row);
-      if (rowId !== undefined) {
-        this.selectSingleRow(rowId, newDataIndex);
+      const virtualRow = this.virtualRows[newPosition.rowIndex];
+      if (virtualRow?.type === 'data') {
+        const rowId = this.getRowId(virtualRow.data);
+        if (rowId !== undefined) {
+          this.selectSingleRow(rowId, newDataIndex);
+        }
       }
     }
   }
@@ -902,10 +903,16 @@ export class SelectionManager extends SimpleEventEmitter<SelectionManagerEvents>
     for (const cellKey of this.state.selectedCells) {
       const dataIndexStr = cellKey.split(':')[0] ?? '0';
       const dataIndex = parseInt(dataIndexStr, 10);
-      const row = this.gridCore.getRowByVisibleIndex(dataIndex);
-      const rowId = this.getRowId(row);
-      if (rowId !== undefined) {
-        this.state.selectedRows.add(rowId);
+
+      // virtualRows에서 dataIndex로 찾기 (ChangeTracker 데이터 포함)
+      const virtualRow = this.virtualRows.find(
+        (vr) => vr.type === 'data' && vr.dataIndex === dataIndex
+      );
+      if (virtualRow?.type === 'data') {
+        const rowId = this.getRowId(virtualRow.data);
+        if (rowId !== undefined) {
+          this.state.selectedRows.add(rowId);
+        }
       }
     }
   }

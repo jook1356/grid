@@ -15,3 +15,14 @@ export { SimpleEventEmitter } from './SimpleEventEmitter';
 export { DataStore } from './DataStore';
 export type { DataStoreOptions } from './DataStore';
 export { IndexManager } from './IndexManager';
+
+// CRUD 및 Undo/Redo
+export { ChangeTracker } from './ChangeTracker';
+export { UndoStack } from './UndoStack';
+export type { UndoStackOptions } from './UndoStack';
+export {
+    AddRowCommand,
+    UpdateCellCommand,
+    DeleteRowCommand,
+    BatchCommand,
+} from './commands';

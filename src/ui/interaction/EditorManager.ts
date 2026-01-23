@@ -34,6 +34,10 @@ export interface EditorManagerOptions {
   gridCore: GridCore;
   /** 편집 가능 여부 */
   editable: boolean;
+  /** 셀 편집 완료 콜백 (ChangeTracker 연동용) */
+  onCellEdit?: (rowId: string | number, field: string, oldValue: CellValue, newValue: CellValue) => void;
+  /** 행 데이터 조회 콜백 (ChangeTracker 병합 데이터 포함) */
+  getRowData?: (visibleIndex: number) => Record<string, unknown> | undefined;
 }
 
 /**
@@ -51,11 +55,19 @@ export class EditorManager extends SimpleEventEmitter<EditorManagerEvents> {
   // 컬럼별 에디터 설정
   private editorConfigs: Map<string, EditorConfig> = new Map();
 
+  // 셀 편집 콜백 (ChangeTracker 연동)
+  private onCellEdit?: EditorManagerOptions['onCellEdit'];
+
+  // 행 데이터 조회 콜백 (ChangeTracker 병합 데이터 포함)
+  private getRowData?: EditorManagerOptions['getRowData'];
+
   constructor(options: EditorManagerOptions) {
     super();
 
     this.gridCore = options.gridCore;
     this.editable = options.editable;
+    this.onCellEdit = options.onCellEdit;
+    this.getRowData = options.getRowData;
 
     // 컬럼 정의에서 에디터 설정 추출
     this.initializeEditorConfigs();
@@ -96,8 +108,9 @@ export class EditorManager extends SimpleEventEmitter<EditorManagerEvents> {
       return false;
     }
 
-    // 현재 값 가져오기
-    const row = this.gridCore.getRowByVisibleIndex(position.rowIndex);
+    // 현재 값 가져오기 (ChangeTracker 병합 데이터 우선 사용)
+    const row = this.getRowData?.(position.rowIndex)
+      ?? this.gridCore.getRowByVisibleIndex(position.rowIndex);
     if (!row) return false;
 
     this.editingCell = position;
@@ -138,11 +151,33 @@ export class EditorManager extends SimpleEventEmitter<EditorManagerEvents> {
       return false;
     }
 
+    // 값이 변경되었는지 확인
+    const valueChanged = newValue !== this.originalValue;
+
     // 값이 변경되었으면 업데이트
-    if (newValue !== this.originalValue) {
-      this.gridCore.updateRow(this.editingCell.rowIndex, {
-        [this.editingCell.columnKey]: newValue,
-      });
+    if (valueChanged) {
+      // onCellEdit 콜백 호출 (ChangeTracker 연동)
+      if (this.onCellEdit) {
+        // ChangeTracker 병합 데이터에서 rowId 조회
+        const row = this.getRowData?.(this.editingCell.rowIndex)
+          ?? this.gridCore.getRowByVisibleIndex(this.editingCell.rowIndex);
+        const rawRowId = row?.['id'];
+        const rowId = typeof rawRowId === 'string' || typeof rawRowId === 'number' ? rawRowId : undefined;
+        if (rowId !== undefined) {
+          this.onCellEdit(rowId, this.editingCell.columnKey, this.originalValue, newValue);
+        }
+        // 주의: onCellEdit이 있으면 ChangeTracker가 변경사항을 관리합니다.
+        // DataStore 원본은 수정하지 않습니다 (commitChanges() 시점에 반영).
+        // 이렇게 해야 Undo/Redo가 정상 작동합니다.
+      } else {
+        // onCellEdit이 없으면 직접 DataStore 업데이트 (기존 동작)
+        const gridCoreRow = this.gridCore.getRowByVisibleIndex(this.editingCell.rowIndex);
+        if (gridCoreRow) {
+          this.gridCore.updateRow(this.editingCell.rowIndex, {
+            [this.editingCell.columnKey]: newValue,
+          });
+        }
+      }
 
       this.emit('editCommit', {
         position: this.editingCell,
@@ -151,7 +186,9 @@ export class EditorManager extends SimpleEventEmitter<EditorManagerEvents> {
       });
     }
 
-    this.unmountEditor();
+    // 값이 변경되었으면 refresh가 새 값 렌더링하므로 복원 불필요
+    // 값이 변경되지 않았으면 원래 내용 복원 필요
+    this.unmountEditor(!valueChanged);
     return true;
   }
 
@@ -352,20 +389,25 @@ export class EditorManager extends SimpleEventEmitter<EditorManagerEvents> {
 
   /**
    * 에디터 언마운트
+   *
+   * @param restoreContent - true면 원래 내용 복원 (취소 시), false면 refresh가 새 값 렌더링 (확정 시)
    */
-  private unmountEditor(): void {
+  private unmountEditor(restoreContent: boolean = true): void {
     if (!this.activeEditor) return;
 
     const cellElement = this.activeEditor.parentElement;
     if (cellElement) {
       cellElement.classList.remove('ps-editing');
 
-      // 원래 내용 복원 (새 값으로 다시 렌더링됨)
-      const originalContent = cellElement.dataset['originalContent'];
-      if (originalContent !== undefined) {
-        cellElement.innerHTML = originalContent;
-        delete cellElement.dataset['originalContent'];
+      // 취소 시에만 원래 내용 복원
+      // 확정 시에는 gridRenderer.refresh()가 새 값으로 렌더링함
+      if (restoreContent) {
+        const originalContent = cellElement.dataset['originalContent'];
+        if (originalContent !== undefined) {
+          cellElement.innerHTML = originalContent;
+        }
       }
+      delete cellElement.dataset['originalContent'];
     }
 
     this.activeEditor.removeEventListener('keydown', this.handleEditorKeyDown);

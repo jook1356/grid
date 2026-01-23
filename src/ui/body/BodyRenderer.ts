@@ -12,6 +12,7 @@
 import type { GridCore } from '../../core/GridCore';
 import type { Row as RowData, ColumnDef, CellValue } from '../../types';
 import type { VirtualRow, GroupHeaderRow, DataRow, GroupingConfig, RowTemplate, RowState } from '../../types/grouping.types';
+import type { AddedRow, ModifiedRow } from '../../types/crud.types';
 import type { ColumnState, ColumnGroups, CellPosition } from '../types';
 import type { RowRenderContext, MergeInfoGetter } from '../row/types';
 import { VirtualScroller } from '../VirtualScroller';
@@ -182,6 +183,16 @@ export interface BodyRendererOptions {
   onDragSelectionEnd?: () => void;
   /** 행 포맷팅 콜백 (Wijmo formatItem 대체) */
   formatRow?: FormatRowCallback;
+  /** 행 상태 조회 콜백 (ChangeTracker 연동용) */
+  getRowState?: (rowId: string | number) => RowState;
+  /** 변경된 필드 조회 콜백 (ChangeTracker 연동용) */
+  getChangedFields?: (rowId: string | number) => Set<string> | undefined;
+  /** 추가된 행 목록 조회 콜백 (ChangeTracker 연동용) */
+  getAddedRows?: () => ReadonlyMap<string | number, AddedRow>;
+  /** 수정된 행 목록 조회 콜백 (ChangeTracker 연동용) */
+  getModifiedRows?: () => ReadonlyMap<string | number, ModifiedRow>;
+  /** 삭제된 행 ID 목록 조회 콜백 (ChangeTracker 연동용) */
+  getDeletedRowIds?: () => Set<string | number>;
 }
 
 /**
@@ -210,7 +221,7 @@ export class BodyRenderer {
   private spacerX: HTMLElement;
   private rowContainer: HTMLElement;
   private pinnedBottomContainer: HTMLElement;
-  
+
   // 외부 스크롤 프록시 여부 (향후 사용)
   private _externalScrollProxy: boolean = false;
 
@@ -243,6 +254,11 @@ export class BodyRenderer {
   private onDragSelectionUpdate?: BodyRendererOptions['onDragSelectionUpdate'];
   private onDragSelectionEnd?: BodyRendererOptions['onDragSelectionEnd'];
   private formatRow?: FormatRowCallback;
+  private getRowState?: BodyRendererOptions['getRowState'];
+  private getChangedFields?: BodyRendererOptions['getChangedFields'];
+  private getAddedRows?: BodyRendererOptions['getAddedRows'];
+  private getModifiedRows?: BodyRendererOptions['getModifiedRows'];
+  private getDeletedRowIds?: BodyRendererOptions['getDeletedRowIds'];
 
   // 드래그 선택 상태
   private isDragging = false;
@@ -280,6 +296,11 @@ export class BodyRenderer {
     this.onDragSelectionUpdate = options.onDragSelectionUpdate;
     this.onDragSelectionEnd = options.onDragSelectionEnd;
     this.formatRow = options.formatRow;
+    this.getRowState = options.getRowState;
+    this.getChangedFields = options.getChangedFields;
+    this.getAddedRows = options.getAddedRows;
+    this.getModifiedRows = options.getModifiedRows;
+    this.getDeletedRowIds = options.getDeletedRowIds;
 
     // 이벤트 핸들러 바인딩
     this.boundHandleMouseMove = this.handleMouseMove.bind(this);
@@ -293,10 +314,10 @@ export class BodyRenderer {
     // DOM 구조 생성
     // 상단 고정 영역
     this.pinnedTopContainer = this.createElement('div', 'ps-pinned-top');
-    
+
     // 스크롤 영역 래퍼 (flex 레이아웃에서 나머지 공간 차지)
     this.scrollWrapper = this.createElement('div', 'ps-scroll-wrapper');
-    
+
     // 스크롤 프록시와 스페이서 (외부에서 전달받거나 내부 생성)
     if (options.scrollProxyY && options.scrollProxyX && options.spacerY && options.spacerX) {
       // 외부에서 전달받은 경우 (그리드 컨테이너 레벨에 위치)
@@ -311,7 +332,7 @@ export class BodyRenderer {
       this.spacerY = this.createElement('div', 'ps-scroll-spacer-y');
       this.scrollProxyY.appendChild(this.spacerY);
       this.scrollWrapper.appendChild(this.scrollProxyY);
-      
+
       this.scrollProxyX = this.createElement('div', 'ps-scroll-proxy-x');
       this.spacerX = this.createElement('div', 'ps-scroll-spacer-x');
       this.scrollProxyX.appendChild(this.spacerX);
@@ -692,6 +713,35 @@ export class BodyRenderer {
   }
 
   /**
+   * 행 상태 조회 콜백 설정 (ChangeTracker 연동)
+   *
+   * @param callback - 행 ID로 상태를 조회하는 콜백
+   */
+  setGetRowState(callback: BodyRendererOptions['getRowState']): void {
+    this.getRowState = callback;
+  }
+
+  /**
+   * 변경된 필드 조회 콜백 설정
+   */
+  setGetChangedFields(callback: BodyRendererOptions['getChangedFields']): void {
+    this.getChangedFields = callback;
+  }
+
+  /**
+   * Dirty State 콜백 설정 (ChangeTracker 연동)
+   */
+  setDirtyStateCallbacks(callbacks: {
+    getAddedRows?: BodyRendererOptions['getAddedRows'];
+    getModifiedRows?: BodyRendererOptions['getModifiedRows'];
+    getDeletedRowIds?: BodyRendererOptions['getDeletedRowIds'];
+  }): void {
+    this.getAddedRows = callbacks.getAddedRows;
+    this.getModifiedRows = callbacks.getModifiedRows;
+    this.getDeletedRowIds = callbacks.getDeletedRowIds;
+  }
+
+  /**
    * 렌더링용 행 높이 설정
    *
    * 가변 높이 row를 지원할 때 사용합니다.
@@ -915,10 +965,14 @@ export class BodyRenderer {
    *
    * 필터/정렬이 적용된 데이터를 기반으로 VirtualRows를 생성합니다.
    * VirtualRowBuilder를 사용하여 통합된 방식으로 처리합니다.
+   * ChangeTracker의 pending 변경사항을 병합합니다.
    */
   private updateVirtualRows(): void {
     // 필터/정렬이 적용된 데이터 사용
-    const data = this.gridCore.getVisibleData();
+    const baseData = this.gridCore.getVisibleData();
+
+    // ChangeTracker의 pending 변경사항 병합
+    const data = this.mergeChangeTrackerData(baseData);
 
     // VirtualRowBuilder를 통해 VirtualRow[] 생성
     if (this.groupManager.hasGrouping()) {
@@ -945,6 +999,62 @@ export class BodyRenderer {
     // VirtualScroller는 여전히 "데이터 행" 수로 관리하고,
     // 렌더링 시에만 여러 visual row를 그림
     this.virtualScroller.setTotalRows(this.virtualRows.length);
+  }
+
+  /**
+   * ChangeTracker의 pending 변경사항을 데이터에 병합
+   *
+   * - 추가된 행 삽입
+   * - 수정된 셀 값 적용
+   * - 삭제된 행 제외 (deleted 상태는 표시하되 스타일로 구분)
+   */
+  private mergeChangeTrackerData(baseData: RowData[]): RowData[] {
+    // 콜백이 없으면 원본 데이터 그대로 반환
+    if (!this.getAddedRows && !this.getModifiedRows && !this.getDeletedRowIds) {
+      return baseData;
+    }
+
+    const addedRows = this.getAddedRows?.() ?? new Map();
+    const modifiedRows = this.getModifiedRows?.() ?? new Map();
+    const deletedRowIds = this.getDeletedRowIds?.() ?? new Set();
+
+    // 변경사항이 없으면 원본 데이터 반환
+    if (addedRows.size === 0 && modifiedRows.size === 0 && deletedRowIds.size === 0) {
+      return baseData;
+    }
+
+    // 결과 배열 생성
+    const result: RowData[] = [];
+
+    // 1. 기존 데이터 처리 (수정된 값 적용, 삭제된 행은 유지하되 표시)
+    for (const row of baseData) {
+      const rowId = row['id'] as string | number | undefined;
+
+      if (rowId !== undefined) {
+        // 수정된 행이면 currentData 사용
+        const modified = modifiedRows.get(rowId);
+        if (modified) {
+          result.push(modified.currentData);
+          continue;
+        }
+      }
+
+      // 원본 데이터 사용 (삭제된 행도 포함 - CSS로 표시)
+      result.push(row);
+    }
+
+    // 2. 추가된 행 삽입 (insertIndex 기준)
+    // insertIndex 순서대로 정렬하여 삽입
+    const addedRowsArray = Array.from(addedRows.values())
+      .sort((a, b) => a.insertIndex - b.insertIndex);
+
+    for (const addedRow of addedRowsArray) {
+      // insertIndex가 현재 길이보다 크면 끝에 추가
+      const insertAt = Math.min(addedRow.insertIndex, result.length);
+      result.splice(insertAt, 0, addedRow.data);
+    }
+
+    return result;
   }
 
   /**
@@ -1249,8 +1359,17 @@ export class BodyRenderer {
     // 셀에 dataIndex 부여 및 선택 상태 적용 (Row 렌더링 후)
     this.applyCellDataIndexAndSelection(rowElement, dataRow.dataIndex);
 
-    // Dirty State CSS 클래스 적용
-    this.applyRowStateClass(rowElement, dataRow.rowState);
+    // Dirty State CSS 클래스 적용 (ChangeTracker에서 실시간 조회)
+    let effectiveRowState = dataRow.rowState;
+    if (this.getRowState && rowId !== undefined) {
+      effectiveRowState = this.getRowState(rowId);
+    }
+    this.applyRowStateClass(rowElement, effectiveRowState);
+
+    // 수정된 셀에 CSS 클래스 적용 (ChangeTracker에서 실시간 조회)
+    if (rowId !== undefined) {
+      this.applyCellModifiedClass(rowElement, rowId);
+    }
 
     // formatRow 콜백 호출
     this.invokeFormatRowForData(rowElement, rowIndex, dataRow);
@@ -1271,6 +1390,27 @@ export class BodyRenderer {
     } else if (rowState === 'deleted') {
       rowElement.classList.add('ps-row-deleted');
     }
+  }
+
+  /**
+   * 수정된 셀에 CSS 클래스 적용
+   */
+  private applyCellModifiedClass(rowElement: HTMLElement, rowId: string | number): void {
+    // 변경된 필드 조회
+    const changedFields = this.getChangedFields?.(rowId);
+
+    const cells = rowElement.querySelectorAll('.ps-cell');
+    cells.forEach((cell) => {
+      const el = cell as HTMLElement;
+      const columnKey = el.dataset['columnKey'];
+
+      if (columnKey) {
+        const isModified = changedFields?.has(columnKey) ?? false;
+        el.classList.toggle('ps-cell-modified', isModified);
+        // DOM 재사용 시 남아있을 수 있는 편집 상태 클래스 제거
+        el.classList.remove('ps-editing');
+      }
+    });
   }
 
   /**
@@ -1552,13 +1692,30 @@ export class BodyRenderer {
     // 왼쪽 버튼만 처리
     if (event.button !== 0) return;
 
+    // 에디터 내부 요소에서는 드래그 선택 안함 (텍스트 선택, spinner 조작 허용)
+    const target = event.target as HTMLElement;
+    if (
+      target.tagName === 'INPUT' ||
+      target.tagName === 'SELECT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.closest('.ps-editing')
+    ) {
+      return;
+    }
+
+    // 편집 중인 에디터가 있으면 blur 트리거하여 편집 종료
+    const activeElement = document.activeElement as HTMLElement | null;
+    if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'SELECT' || activeElement.tagName === 'TEXTAREA')) {
+      activeElement.blur();
+    }
+
     // 셀에서 시작했는지 확인
     const cellPosition = this.getCellPositionFromEvent(event);
     if (!cellPosition) return;
 
     // 그룹 헤더에서는 드래그 선택 안함
-    const target = event.target as HTMLElement;
-    const row = target.closest('.ps-row') as HTMLElement | null;
+    const rowTarget = event.target as HTMLElement;
+    const row = rowTarget.closest('.ps-row') as HTMLElement | null;
     if (row?.dataset['rowType'] === 'group-header') return;
 
     // 드래그 준비 (아직 실제 드래그 시작 아님)

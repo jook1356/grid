@@ -8,8 +8,9 @@
  */
 
 import { GridCore } from '../core/GridCore';
-import type { ColumnDef, Row as RowData, SortState, FilterState, FieldDef, PureSheetConfig, PivotConfig, PivotResult } from '../types';
+import type { ColumnDef, Row as RowData, SortState, FilterState, FieldDef, PureSheetConfig, PivotConfig, PivotResult, CellValue } from '../types';
 import type { GroupingConfig } from '../types/grouping.types';
+import type { ChangesSummary } from '../types/crud.types';
 import type { CellPosition, ColumnState } from './types';
 import { GridRenderer } from './GridRenderer';
 import { SelectionManager } from './interaction/SelectionManager';
@@ -21,6 +22,10 @@ import { configToInternalOptions, getGridMode, getPivotConfig, type InternalOpti
 import { PivotProcessor } from '../processor/PivotProcessor';
 import type { MergeManager } from './merge/MergeManager';
 import { HierarchicalMergeManager } from './merge/MergeManager';
+import { ChangeTracker } from '../core/ChangeTracker';
+import { UndoStack } from '../core/UndoStack';
+import { AddRowCommand, UpdateCellCommand, DeleteRowCommand, UndeleteRowCommand, DiscardRowCommand } from '../core/commands';
+import { KeyboardShortcutManager } from './keyboard/KeyboardShortcutManager';
 
 /**
  * PureSheet 이벤트 타입
@@ -80,6 +85,11 @@ export class PureSheet {
   private pivotConfig: PivotConfig | null = null;
   private pivotResult: PivotResult | null = null;
 
+  // CRUD 및 Dirty State 관련
+  private changeTracker: ChangeTracker;
+  private undoStack: UndoStack;
+  private keyboardShortcutManager: KeyboardShortcutManager;
+
   /**
    * PureSheet 생성자
    *
@@ -103,6 +113,13 @@ export class PureSheet {
 
     // Config를 내부 옵션으로 변환
     this.options = configToInternalOptions(config);
+
+    // 컨테이너를 포커스 가능하게 설정 (키보드 단축키 지원을 위해 필수)
+    if (!this.container.hasAttribute('tabindex')) {
+      this.container.setAttribute('tabindex', '0');
+    }
+    // 포커스 아웃라인(검정 테두리) 제거
+    this.container.style.outline = 'none';
 
     // 피벗 모드일 때 pivotConfig 자동 설정
     if (this.gridMode === 'pivot') {
@@ -145,11 +162,78 @@ export class PureSheet {
       multiSelect: this.options.multiSelect ?? true,
     });
 
+    // CRUD 및 Undo/Redo 초기화 (EditorManager보다 먼저)
+    this.changeTracker = new ChangeTracker();
+    this.undoStack = new UndoStack({ maxSize: 100 });
+    // keyboardShortcutManager는 EditorManager 초기화 후에 설정
+
     // EditorManager 초기화
     this.editorManager = new EditorManager({
       gridCore: this.gridCore,
       editable: this.options.editable ?? false,
+      // 인라인 편집 시 ChangeTracker 연동
+      onCellEdit: (rowId, field, _oldValue, newValue) => {
+        // 추가된 행인지 확인
+        const addedRow = this.changeTracker.addedRows.get(rowId);
+        if (addedRow) {
+          // 추가된 행도 UpdateCellCommand 사용하여 Undo/Redo 지원
+          const command = new UpdateCellCommand(
+            this.changeTracker,
+            rowId,
+            field,
+            newValue,
+            addedRow.data
+          );
+          this.undoStack.push(command);
+          return;
+        }
+
+        // 기존 행은 UpdateCellCommand 사용
+        const originalData = this.gridCore.getDataStore().getRowById(rowId);
+        if (originalData) {
+          const command = new UpdateCellCommand(
+            this.changeTracker,
+            rowId,
+            field,
+            newValue,
+            originalData as RowData
+          );
+          this.undoStack.push(command);
+        }
+      },
+      // 행 데이터 조회 (ChangeTracker 병합 데이터 포함)
+      getRowData: (visibleIndex: number) => {
+        const bodyRenderer = this.gridRenderer.getBodyRenderer();
+        if (!bodyRenderer) return undefined;
+
+        const virtualRows = bodyRenderer.getVirtualRows();
+        const virtualRow = virtualRows[visibleIndex];
+        if (virtualRow?.type === 'data') {
+          return virtualRow.data;
+        }
+        return undefined;
+      },
     });
+
+    // 키보드 단축키 관리자 초기화 (Ctrl+Z/Y Undo/Redo)
+    // onRefresh 콜백으로 Undo/Redo 후 새로고침 처리
+    this.keyboardShortcutManager = new KeyboardShortcutManager(
+      this.container,
+      this.undoStack,
+      { onRefresh: () => this.refresh() }
+    );
+
+    // ChangeTracker → BodyRenderer 연결 (Dirty State CSS 적용 + 데이터 병합)
+    const bodyRenderer = this.gridRenderer.getBodyRenderer();
+    if (bodyRenderer) {
+      bodyRenderer.setGetRowState((rowId) => this.changeTracker.getRowState(rowId));
+      bodyRenderer.setGetChangedFields((rowId) => this.changeTracker.getChangedFields(rowId));
+      bodyRenderer.setDirtyStateCallbacks({
+        getAddedRows: () => this.changeTracker.addedRows,
+        getModifiedRows: () => this.changeTracker.modifiedRows,
+        getDeletedRowIds: () => this.changeTracker.deletedRowIds,
+      });
+    }
 
     // 이벤트 연결
     this.setupEventListeners();
@@ -506,14 +590,384 @@ export class PureSheet {
   }
 
   // ===========================================================================
+  // Dirty State CRUD API
+  // ===========================================================================
+
+  /**
+   * 행 추가 (Dirty State)
+   *
+   * 원본 데이터에 즉시 반영하지 않고 pending 상태로 추가합니다.
+   * Undo/Redo가 지원됩니다.
+   *
+   * @param row - 추가할 행 데이터
+   * @param insertIndex - 삽입 위치 (기본: 마지막)
+   * @returns 추가된 행의 ID
+   */
+  addRowDirty(row: Partial<RowData>, insertIndex?: number): string | number {
+    const idx = insertIndex ?? this.gridCore.getDataStore().getRowCount();
+    const command = new AddRowCommand(this.changeTracker, row as RowData, idx);
+    this.undoStack.push(command);
+    this.refresh();
+    // Command에서 실제 생성된 ID 반환 (자동 생성된 ID 포함)
+    return command.getAddedRowId();
+  }
+
+  /**
+   * 셀 값 수정 (Dirty State)
+   *
+   * 원본 데이터에 즉시 반영하지 않고 pending 상태로 수정합니다.
+   * Undo/Redo가 지원됩니다.
+   *
+   * @param rowId - 행 ID
+   * @param field - 필드 이름
+   * @param value - 새 값
+   */
+  updateCellDirty(rowId: string | number, field: string, value: CellValue): void {
+    const originalData = this.gridCore.getDataStore().getRowById(rowId);
+    if (!originalData) return;
+
+    const command = new UpdateCellCommand(
+      this.changeTracker,
+      rowId,
+      field,
+      value,
+      originalData as RowData
+    );
+    this.undoStack.push(command);
+    this.refresh();
+  }
+
+  /**
+   * 행 삭제 (Dirty State)
+   *
+   * 원본 데이터에서 즉시 삭제하지 않고 삭제 예정 상태로 표시합니다.
+   * Undo/Redo가 지원됩니다.
+   *
+   * @param rowId - 삭제할 행 ID
+   */
+  deleteRowDirty(rowId: string | number): void {
+    this.deleteRowDirtyCore(rowId, true);
+  }
+
+  /**
+   * 행 삭제 내부 구현 (공통 로직)
+   *
+   * @param rowId - 삭제할 행 ID
+   * @param shouldRefresh - refresh 호출 여부 (Batch 모드에서는 false)
+   */
+  private deleteRowDirtyCore(rowId: string | number, shouldRefresh: boolean): void {
+    // 추가된 행인지 확인
+    const addedRow = this.changeTracker.addedRows.get(rowId);
+    if (addedRow) {
+      // 추가된 행 삭제 → ChangeTracker에서 완전 제거 (deleted 상태가 아님)
+      const command = new DeleteRowCommand(
+        this.changeTracker,
+        rowId,
+        addedRow.data,
+        addedRow.insertIndex
+      );
+      this.undoStack.push(command);
+      if (shouldRefresh) this.refresh();
+      return;
+    }
+
+    // 기존 행 삭제
+    const originalData = this.gridCore.getDataStore().getRowById(rowId);
+    const originalIndex = this.gridCore.getDataStore().getIndexById(rowId);
+    if (!originalData || originalIndex === -1) return;
+
+    const command = new DeleteRowCommand(
+      this.changeTracker,
+      rowId,
+      originalData as RowData,
+      originalIndex
+    );
+    this.undoStack.push(command);
+    if (shouldRefresh) this.refresh();
+  }
+
+  /**
+   * 선택된 행 일괄 삭제 (Dirty State)
+   *
+   * 현재 선택된 모든 행을 삭제 예정 상태로 표시합니다.
+   * 하나의 Undo 단위로 묶여서 Ctrl+Z 한 번으로 전체 복원됩니다.
+   *
+   * @returns 삭제된 행 수
+   */
+  deleteSelectedRowsDirty(): number {
+    const selectedIds = this.getSelectedRowIds();
+    if (selectedIds.length === 0) return 0;
+
+    this.beginBatch(`${selectedIds.length}개 행 삭제`);
+    for (const rowId of selectedIds) {
+      this.deleteRowDirtyInternal(rowId);
+    }
+    this.endBatch();
+
+    return selectedIds.length;
+  }
+
+  /**
+   * 삭제 예정 행 일괄 복원 (Dirty State)
+   *
+   * 지정된 행들의 삭제를 취소합니다.
+   * 하나의 Undo 단위로 묶여서 Ctrl+Z 한 번으로 전체 취소됩니다.
+   *
+   * @param rowIds - 복원할 행 ID 배열
+   * @returns 복원된 행 수
+   */
+  undeleteRowsDirty(rowIds: (string | number)[]): number {
+    const validIds = rowIds.filter(id => this.changeTracker.deletedRowIds.has(id));
+    if (validIds.length === 0) return 0;
+
+    this.beginBatch(`${validIds.length}개 행 복원`);
+    for (const rowId of validIds) {
+      this.undeleteRowDirtyInternal(rowId);
+    }
+    this.endBatch();
+
+    return validIds.length;
+  }
+
+  /**
+   * 단일 행 삭제 취소 (Dirty State)
+   *
+   * @param rowId - 복원할 행 ID
+   */
+  undeleteRowDirty(rowId: string | number): void {
+    if (!this.changeTracker.deletedRowIds.has(rowId)) return;
+    this.undeleteRowDirtyInternal(rowId);
+    this.refresh();
+  }
+
+  /**
+   * 삭제 취소 내부 구현 (refresh 없이)
+   */
+  private undeleteRowDirtyInternal(rowId: string | number): void {
+    // 삭제된 행의 원본 데이터 조회
+    const originalData = this.gridCore.getDataStore().getRowById(rowId);
+    const originalIndex = this.gridCore.getDataStore().getIndexById(rowId);
+    if (!originalData || originalIndex === -1) return;
+
+    const command = new UndeleteRowCommand(
+      this.changeTracker,
+      rowId,
+      originalData as RowData,
+      originalIndex
+    );
+    this.undoStack.push(command);
+  }
+
+  /**
+   * 단일 행 변경사항 폐기 (Dirty State - Undo 지원)
+   *
+   * Undo/Redo가 지원됩니다.
+   *
+   * @param rowId - 폐기할 행 ID
+   */
+  discardRowDirty(rowId: string | number): void {
+    const command = new DiscardRowCommand(
+      this.changeTracker,
+      rowId
+    );
+    this.undoStack.push(command);
+    this.refresh();
+  }
+
+  /**
+   * 선택된 행 변경사항 일괄 폐기 (Dirty State)
+   *
+   * 하나의 Undo 단위로 묶여서 Ctrl+Z 한 번으로 전체 복원됩니다.
+   *
+   * @returns 폐기된 행 수
+   */
+  discardSelectedRowsDirty(): number {
+    const selectedIds = this.getSelectedRowIds();
+    if (selectedIds.length === 0) return 0;
+
+    this.beginBatch(`${selectedIds.length}개 행 폐기`);
+    for (const rowId of selectedIds) {
+      const command = new DiscardRowCommand(
+        this.changeTracker,
+        rowId
+      );
+      this.undoStack.push(command);
+    }
+    this.endBatch();
+
+    return selectedIds.length;
+  }
+
+  /**
+   * 행 삭제 내부 구현 (refresh 없이 - Batch 모드용)
+   */
+  private deleteRowDirtyInternal(rowId: string | number): void {
+    this.deleteRowDirtyCore(rowId, false);
+  }
+
+  // ===========================================================================
+  // Undo/Redo API
+  // ===========================================================================
+
+  /**
+   * Batch 모드 시작
+   *
+   * beginBatch() 호출 후 endBatch() 전까지의 모든 Dirty 작업들이
+   * 하나의 Undo 단위로 묶입니다.
+   *
+   * @param description - Batch 설명 (디버깅용)
+   *
+   * @example
+   * grid.beginBatch('3개 행 삭제');
+   * selectedIds.forEach(id => grid.deleteRowDirty(id));
+   * grid.endBatch();
+   * // → Ctrl+Z 1번으로 3개 행 모두 복원
+   */
+  beginBatch(description?: string): void {
+    this.undoStack.beginBatch(description);
+  }
+
+  /**
+   * Batch 모드 종료
+   *
+   * 버퍼에 모인 작업들을 하나의 Undo 단위로 스택에 추가합니다.
+   */
+  endBatch(): void {
+    this.undoStack.endBatch();
+    this.refresh();
+  }
+
+  /**
+   * 실행 취소 (Undo)
+   *
+   * @returns 성공 여부
+   */
+  undo(): boolean {
+    const result = this.undoStack.undo();
+    if (result) this.refresh();
+    return result;
+  }
+
+  /**
+   * 다시 실행 (Redo)
+   *
+   * @returns 성공 여부
+   */
+  redo(): boolean {
+    const result = this.undoStack.redo();
+    if (result) this.refresh();
+    return result;
+  }
+
+  /**
+   * Undo 가능 여부
+   */
+  get canUndo(): boolean {
+    return this.undoStack.canUndo;
+  }
+
+  /**
+   * Redo 가능 여부
+   */
+  get canRedo(): boolean {
+    return this.undoStack.canRedo;
+  }
+
+  // ===========================================================================
+  // Dirty State 조회 API
+  // ===========================================================================
+
+  /**
+   * 변경사항 존재 여부
+   */
+  get hasChanges(): boolean {
+    return this.changeTracker.hasChanges;
+  }
+
+  /**
+   * 변경사항 조회
+   */
+  getChanges(): ChangesSummary {
+    return this.changeTracker.getChanges();
+  }
+
+  /**
+   * 행 상태 조회
+   */
+  getRowState(rowId: string | number): 'pristine' | 'added' | 'modified' | 'deleted' {
+    return this.changeTracker.getRowState(rowId);
+  }
+
+  /**
+   * 변경사항 커밋 (원본 데이터에 반영)
+   *
+   * 모든 pending 변경사항을 DataStore에 반영합니다.
+   */
+  async commitChanges(): Promise<void> {
+    const changes = this.getChanges();
+
+    // DataStore에 반영
+    for (const added of changes.added) {
+      await this.gridCore.addRow(added.data);
+    }
+    for (const modified of changes.modified) {
+      const index = this.gridCore.getDataStore().getIndexById(modified.rowId);
+      if (index >= 0) {
+        await this.gridCore.updateRow(index, modified.currentData);
+      }
+    }
+    for (const deleted of changes.deleted) {
+      const index = this.gridCore.getDataStore().getIndexById(deleted.rowId);
+      if (index >= 0) {
+        await this.gridCore.removeRow(index);
+      }
+    }
+
+    // ChangeTracker & UndoStack 초기화
+    this.changeTracker.commitComplete();
+    this.undoStack.clear();
+
+    this.refresh();
+  }
+
+  /**
+   * 모든 변경사항 폐기
+   */
+  discardChanges(): void {
+    this.changeTracker.discard();
+    this.undoStack.clear();
+    this.refresh();
+  }
+
+  /**
+   * 특정 행 변경사항 폐기
+   */
+  discardRow(rowId: string | number): void {
+    this.changeTracker.discardRow(rowId);
+    this.refresh();
+  }
+
+  // ===========================================================================
   // 선택 API
   // ===========================================================================
 
   /**
    * 선택된 행 가져오기
+   *
+   * ChangeTracker의 pending 데이터를 포함한 최신 데이터를 반환합니다.
    */
   getSelectedRows(): RowData[] {
-    return this.selectionManager.getSelectedRows();
+    const selectedIds = this.getSelectedRowIds();
+    const rows: RowData[] = [];
+
+    for (const id of selectedIds) {
+      const row = this.getRowById(id);
+      if (row) {
+        rows.push(row);
+      }
+    }
+
+    return rows;
   }
 
   /**
@@ -552,6 +1006,96 @@ export class PureSheet {
   clearSelection(): void {
     this.selectionManager.clearSelection();
     this.updateSelectionUI();
+  }
+
+  /**
+   * ID로 행 데이터 가져오기
+   *
+   * ChangeTracker의 pending 데이터를 우선 조회하고,
+   * 없으면 GridCore의 원본 데이터를 반환합니다.
+   *
+   * @param rowId - 행 ID
+   * @returns 행 데이터 또는 undefined
+   */
+  getRowById(rowId: string | number): RowData | undefined {
+    // 추가된 행 확인
+    const addedRow = this.changeTracker.addedRows.get(rowId);
+    if (addedRow) {
+      return addedRow.data;
+    }
+
+    // 수정된 행 확인 (currentData 반환)
+    const modifiedRow = this.changeTracker.modifiedRows.get(rowId);
+    if (modifiedRow) {
+      return modifiedRow.currentData;
+    }
+
+    // GridCore에서 조회
+    return this.gridCore.getDataStore().getRowById(rowId) as RowData | undefined;
+  }
+
+  /**
+   * 선택된 행 삭제 (Dirty State)
+   *
+   * 추가된 행과 기존 행 모두 처리합니다.
+   * - 추가된 행: ChangeTracker에서 완전 제거
+   * - 기존 행: 삭제 예정 상태로 표시
+   *
+   * @returns 삭제된 행 수
+   */
+  deleteSelectedRows(): number {
+    const selectedIds = this.getSelectedRowIds();
+    if (selectedIds.length === 0) return 0;
+
+    for (const id of selectedIds) {
+      this.deleteRowDirty(id);
+    }
+
+    this.clearSelection();
+    return selectedIds.length;
+  }
+
+  /**
+   * 선택된 행의 셀 값 수정 (Dirty State)
+   *
+   * @param field - 수정할 필드명
+   * @param value - 새 값 또는 현재 값을 받아 새 값을 반환하는 함수
+   * @returns 수정된 행 수
+   */
+  updateSelectedCells(
+    field: string,
+    value: CellValue | ((currentValue: CellValue, row: RowData) => CellValue)
+  ): number {
+    const selectedIds = this.getSelectedRowIds();
+    if (selectedIds.length === 0) return 0;
+
+    for (const id of selectedIds) {
+      const row = this.getRowById(id);
+      if (row) {
+        const newValue = typeof value === 'function'
+          ? value(row[field] as CellValue, row)
+          : value;
+        this.updateCellDirty(id, field, newValue);
+      }
+    }
+
+    return selectedIds.length;
+  }
+
+  /**
+   * 선택된 행의 변경사항 폐기
+   *
+   * @returns 폐기된 행 수
+   */
+  discardSelectedRows(): number {
+    const selectedIds = this.getSelectedRowIds();
+    if (selectedIds.length === 0) return 0;
+
+    for (const id of selectedIds) {
+      this.discardRow(id);
+    }
+
+    return selectedIds.length;
   }
 
   // ===========================================================================
@@ -830,7 +1374,7 @@ export class PureSheet {
         filters: viewState.filters,
         sorts: viewState.sorts,
       });
-      
+
       // 결과 인덱스로 데이터 추출
       filteredData = Array.from(result.indices).map(i => sourceData[i]).filter((row): row is RowData => row !== undefined);
     } else {
@@ -912,6 +1456,12 @@ export class PureSheet {
     this.editorManager.destroy();
     this.columnManager.destroy();
     this.gridCore.destroy();
+
+    // CRUD 관련 정리
+    this.keyboardShortcutManager.destroy();
+    this.undoStack.clear();
+    this.changeTracker.removeAllListeners();
+
     this.eventHandlers.clear();
   }
 
@@ -924,8 +1474,7 @@ export class PureSheet {
    */
   private setupEventListeners(): void {
     // SelectionManager 이벤트
-    this.selectionManager.on('selectionChanged', (event) => {
-      const state = event.payload;  // event = { type, payload, timestamp }
+    this.selectionManager.on('selectionChanged', (state) => {
       this.updateSelectionUI();
       this.emitEvent('selection:changed', {
         selectedRows: Array.from(state.selectedRows ?? []),
@@ -942,6 +1491,8 @@ export class PureSheet {
         newValue: payload.newValue,
       });
       this.gridRenderer.refresh();
+      // 편집 완료 후 컨테이너로 포커스 복원 (키보드 단축키 지원)
+      this.container.focus();
     });
 
     // ColumnManager 이벤트
@@ -1045,7 +1596,7 @@ export class PureSheet {
   private updateSelectionUI(): void {
     const mode = this.options.selectionMode;
     const bodyRenderer = this.gridRenderer.getBodyRenderer();
-    
+
     if (mode === 'row') {
       // row 모드: 행만 업데이트
       this.gridRenderer.updateSelection(this.selectionManager.getSelectedRowIds());
