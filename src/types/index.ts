@@ -57,6 +57,9 @@ export type {
   GroupIdentifier,
   GroupHeaderRow,
   DataRow,
+  GroupFooterRow,
+  SubtotalRow,
+  GrandTotalRow,
   VirtualRow,
   GroupingConfig,
   GroupExpandState,
@@ -66,6 +69,7 @@ export type {
   MergeStrategy,
   CellMeta,
   MergeRange,
+  RowState,
 } from './grouping.types';
 
 // 새 Config API 타입
@@ -84,6 +88,13 @@ export type {
   PureSheetConfig,
   RowTemplateCell,
   RowTemplate as FieldRowTemplate,
+  // formatRow API 타입
+  CellInfo,
+  DataRowContext,
+  GroupHeaderContext,
+  SubtotalContext,
+  FormatRowInfo,
+  FormatRowCallback,
 } from './field.types';
 export { isFlatMode, isPivotMode } from './field.types';
 

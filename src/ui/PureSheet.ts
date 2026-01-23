@@ -697,6 +697,32 @@ export class PureSheet {
   }
 
   /**
+   * formatRow 콜백 설정
+   *
+   * 행이 렌더링될 때마다 호출되는 콜백을 설정합니다.
+   * 조건부 스타일링, 셀 포맷팅 등에 사용합니다.
+   *
+   * @param callback - formatRow 콜백 (null이면 해제)
+   *
+   * @example
+   * ```ts
+   * sheet.setFormatRow((info) => {
+   *   if (info.type === 'data') {
+   *     const { data, rowElement, cells } = info.ctx;
+   *     if (data.price >= 1000) {
+   *       rowElement.classList.add('highlight');
+   *     }
+   *   }
+   * });
+   * ```
+   */
+  setFormatRow(callback: import('../types').FormatRowCallback | null): void {
+    const bodyRenderer = this.gridRenderer.getBodyRenderer();
+    bodyRenderer?.setFormatRow(callback ?? undefined);
+    this.refresh();
+  }
+
+  /**
    * 현재 그리드 모드 가져오기
    */
   getMode(): 'flat' | 'pivot' {

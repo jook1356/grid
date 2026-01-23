@@ -1,8 +1,17 @@
 /**
- * GroupManager - 행 그룹화 관리
+ * GroupManager - 행 그룹화 상태 관리
  *
- * 데이터를 그룹화하고, 그룹 헤더/데이터 행을 가상화용 플랫 배열로 변환합니다.
- * 접기/펼치기, 집계 기능을 제공합니다.
+ * 그룹 설정과 접기/펼치기 상태만 관리합니다.
+ * VirtualRow[] 생성은 VirtualRowBuilder가 담당합니다.
+ *
+ * 책임:
+ * - 그룹화 설정 (컬럼, 집계 함수)
+ * - 접기/펼치기 상태
+ * - 그룹 트리 빌드
+ *
+ * 관심사 분리:
+ * - GroupManager: 그룹 상태 관리
+ * - VirtualRowBuilder: VirtualRow[] 배열 생성
  *
  * Row 클래스 통합:
  * - flattenWithRows()로 Row 인스턴스 배열 반환
@@ -95,11 +104,36 @@ export class GroupManager {
   }
 
   /**
+   * 그룹화 여부 (alias for isGroupingEnabled)
+   */
+  hasGrouping(): boolean {
+    return this.isGroupingEnabled();
+  }
+
+  /**
    * 집계 함수 설정
    */
   setAggregate(columnKey: string, fn: AggregateFn): void {
     this.aggregates[columnKey] = fn;
     this.invalidateCache();
+  }
+
+  /**
+   * 집계 설정 반환
+   *
+   * VirtualRowBuilder에서 사용합니다.
+   */
+  getAggregates(): Record<string, AggregateFn> {
+    return { ...this.aggregates };
+  }
+
+  /**
+   * 접힌 그룹 Set 반환
+   *
+   * VirtualRowBuilder에서 사용합니다.
+   */
+  getCollapsedSet(): Set<string> {
+    return new Set(this.collapsedGroups);
   }
 
   /**
@@ -162,6 +196,23 @@ export class GroupManager {
    * 데이터를 가상화용 플랫 배열로 변환
    *
    * 그룹화가 활성화된 경우 그룹 헤더 행을 포함합니다.
+   *
+   * @deprecated VirtualRowBuilder를 직접 사용하세요.
+   * 이 메서드는 하위 호환성을 위해 유지됩니다.
+   *
+   * @example
+   * ```typescript
+   * // 권장: VirtualRowBuilder 사용
+   * const builder = new VirtualRowBuilder();
+   * const virtualRows = builder.build({
+   *   type: groupManager.hasGrouping() ? 'grouped' : 'flat',
+   *   data,
+   *   groupTree: groupManager.buildTree(data),
+   *   collapsedSet: groupManager.getCollapsedSet(),
+   *   aggregates: groupManager.getAggregates(),
+   *   dataVersion: 1,
+   * });
+   * ```
    */
   flattenWithGroups(data: RowData[]): VirtualRow[] {
     // 캐시 확인
@@ -200,6 +251,32 @@ export class GroupManager {
     this.cachedVirtualRows = null;
     this.cachedData = null;
     this.cachedRowInstances = null;
+  }
+
+  /**
+   * 그룹 트리만 빌드 (플래트닝 없이)
+   *
+   * VirtualRowBuilder와 함께 사용합니다.
+   * 플래트닝은 VirtualRowBuilder가 담당합니다.
+   *
+   * @example
+   * ```typescript
+   * const tree = groupManager.buildTree(data);
+   * const virtualRows = builder.build({
+   *   type: 'grouped',
+   *   data,
+   *   groupTree: tree,
+   *   collapsedSet: groupManager.getCollapsedSet(),
+   *   aggregates: groupManager.getAggregates(),
+   *   dataVersion: 1,
+   * });
+   * ```
+   */
+  buildTree(data: RowData[]): GroupNode[] {
+    if (!this.isGroupingEnabled()) {
+      return [];
+    }
+    return this.groupData(data);
   }
 
   /**

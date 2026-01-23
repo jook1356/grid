@@ -11,6 +11,7 @@ import type {
   PureSheetConfig,
   FlatModeConfig,
   PivotModeConfig,
+  FormatRowCallback,
 } from '../../types/field.types';
 import { isFlatMode } from '../../types/field.types';
 import type { GroupingConfig, RowTemplate } from '../../types/grouping.types';
@@ -32,6 +33,7 @@ export interface InternalOptions {
   theme: 'light' | 'dark' | 'auto';
   groupingConfig?: GroupingConfig;
   rowTemplate?: RowTemplate;
+  formatRow?: FormatRowCallback;
 }
 
 /**
@@ -139,6 +141,7 @@ export function configToInternalOptions(config: PureSheetConfig): InternalOption
     resizableColumns: config.resizableColumns ?? true,
     reorderableColumns: config.reorderableColumns ?? true,
     theme: config.theme ?? 'light',
+    formatRow: config.formatRow,
   };
 
   // Flat 모드의 그룹핑 설정

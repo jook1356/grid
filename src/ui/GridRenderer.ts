@@ -541,6 +541,7 @@ export class GridRenderer {
       onDragSelectionStart: this.onDragSelectionStart,
       onDragSelectionUpdate: this.onDragSelectionUpdate,
       onDragSelectionEnd: this.onDragSelectionEnd,
+      formatRow: this.options.formatRow,
     });
 
     // 가로 스크롤 동기화 설정

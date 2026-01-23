@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>formatRow API - PureSheet Demo</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+  <link rel="stylesheet" href="../../src/ui/style/default.css">
+  <style>
+    /* formatRow 커스텀 스타일 */
+
+    /* 고가 제품 하이라이트 */
+    .highlight-expensive {
+      background-color: rgba(255, 193, 7, 0.15) !important;
+    }
+
+    /* 재고 부족 경고 */
+    .low-stock {
+      background-color: rgba(244, 67, 54, 0.1) !important;
+    }
+
+    .low-stock-cell {
+      color: #d32f2f !important;
+      font-weight: 600 !important;
+    }
+
+    /* 높은 수익 하이라이트 */
+    .high-profit {
+      background-color: rgba(76, 175, 80, 0.1) !important;
+    }
+
+    .high-profit-cell {
+      color: #2e7d32 !important;
+      font-weight: 600 !important;
+    }
+
+    /* 음수 값 */
+    .negative-value {
+      color: #d32f2f !important;
+    }
+
+    /* 양수 값 */
+    .positive-value {
+      color: #2e7d32 !important;
+    }
+
+    /* 그룹 헤더 커스텀 */
+    .group-header-level-0 {
+      background-color: rgba(25, 118, 210, 0.1) !important;
+    }
+
+    .group-header-level-1 {
+      background-color: rgba(25, 118, 210, 0.05) !important;
+    }
+
+    /* 피벗 행 하이라이트 */
+    .pivot-row-highlight {
+      background-color: rgba(156, 39, 176, 0.08) !important;
+    }
+
+    /* 피벗 셀 하이라이트 */
+    .pivot-high-value {
+      background-color: rgba(76, 175, 80, 0.2) !important;
+      font-weight: 600 !important;
+    }
+
+    .pivot-low-value {
+      background-color: rgba(244, 67, 54, 0.15) !important;
+    }
+
+    /* 두 그리드 나란히 표시 */
+    .grid-row {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    .grid-column {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .grid-column h3 {
+      margin-bottom: 12px;
+      font-size: 1.1rem;
+      color: #333;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .grid-column .demo-container {
+      height: 100%;
+    }
+
+    .grid-column #flatGrid,
+    .grid-column #pivotGrid {
+      height: 400px;
+    }
+
+    /* 범례 */
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      padding: 12px 16px;
+      background: #f9f9f9;
+      border-bottom: 1px solid var(--demo-border);
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+    }
+
+    .legend-color {
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
+      border: 1px solid rgba(0,0,0,0.1);
+    }
+
+    @media (max-width: 1200px) {
+      .grid-row {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- 네비게이션 -->
+  <nav class="demo-nav">
+    <a href="../index.html">🏠 홈</a>
+    <a href="pinning.html">📌 행/컬럼 고정</a>
+    <a href="multi-row.html">📑 Multi-Row</a>
+    <a href="grouping.html">📂 행 그룹화</a>
+    <a href="merge.html">🔗 셀 병합</a>
+    <a href="selection-modes.html">🎯 선택 모드</a>
+    <a href="pivot.html">📊 피벗</a>
+    <a href="format-row.html" class="active">🎨 formatRow</a>
+  </nav>
+
+  <!-- 헤더 -->
+  <div class="demo-header">
+    <h1>🎨 formatRow API</h1>
+    <span class="badge badge-implemented">구현됨</span>
+  </div>
+
+  <!-- 설명 -->
+  <div class="demo-description">
+    <p>
+      <strong>formatRow</strong>는 행이 렌더링될 때마다 호출되는 콜백입니다.
+      Wijmo의 <code>formatItem</code>과 유사하지만 <strong>행 단위</strong>로 호출되어 20배 더 효율적입니다.
+      데이터 값에 따라 조건부 스타일링, 하이라이팅, 셀 포맷팅 등을 적용할 수 있습니다.
+    </p>
+  </div>
+
+  <!-- 범례 -->
+  <div class="demo-container" style="margin-bottom: 20px;">
+    <div class="legend">
+      <div class="legend-item">
+        <div class="legend-color" style="background: rgba(255, 193, 7, 0.15);"></div>
+        <span>고가 제품 (가격 ≥ 800)</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background: rgba(244, 67, 54, 0.1);"></div>
+        <span>재고 부족 (재고 ≤ 20)</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background: rgba(76, 175, 80, 0.1);"></div>
+        <span>높은 수익 (수익 ≥ 500)</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background: rgba(156, 39, 176, 0.08);"></div>
+        <span>피벗 주요 제품</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 그리드 영역 -->
+  <div class="grid-row">
+    <!-- 일반 그리드 (Flat Mode) -->
+    <div class="grid-column">
+      <h3>📋 일반 그리드 (Flat Mode)</h3>
+      <div class="demo-container">
+        <div class="toolbar">
+          <div class="toolbar-group">
+            <label>그룹화:</label>
+            <select id="groupSelect" onchange="updateGrouping()">
+              <option value="">없음</option>
+              <option value="category">카테고리</option>
+              <option value="category,status">카테고리 → 상태</option>
+            </select>
+          </div>
+          <div class="toolbar-divider"></div>
+          <div class="toolbar-group">
+            <button onclick="addSampleRow()">➕ 행 추가</button>
+            <button onclick="modifySampleRow()" class="secondary">✏️ 수정</button>
+          </div>
+          <div class="toolbar-divider"></div>
+          <div class="toolbar-group">
+            <button onclick="toggleFlatFormatRow()" class="secondary" id="toggleFlatBtn">formatRow 끄기</button>
+          </div>
+        </div>
+        <div id="flatGrid"></div>
+        <div class="status-bar" id="flatStatus">초기화 중...</div>
+      </div>
+    </div>
+
+    <!-- 피벗 그리드 -->
+    <div class="grid-column">
+      <h3>📊 피벗 그리드 (Pivot Mode)</h3>
+      <div class="demo-container">
+        <div class="toolbar">
+          <div class="toolbar-group">
+            <label>값 필드:</label>
+            <select id="valueSelect" onchange="updatePivotValue()">
+              <option value="sales">판매량</option>
+              <option value="profit">수익</option>
+              <option value="sales,profit">판매량 + 수익</option>
+            </select>
+          </div>
+          <div class="toolbar-divider"></div>
+          <div class="toolbar-group">
+            <button onclick="togglePivotFormatRow()" class="secondary" id="togglePivotBtn">formatRow 끄기</button>
+          </div>
+        </div>
+        <div id="pivotGrid"></div>
+        <div class="status-bar" id="pivotStatus">초기화 중...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 코드 예제 -->
+  <div class="code-example">
+    <h3>formatRow API 사용법</h3>
+    <pre><span class="comment">// PureSheet 생성 시 formatRow 옵션 전달</span>
+<span class="keyword">const</span> grid = <span class="keyword">new</span> <span class="function">PureSheet</span>(container, {
+  fields: [...],
+  data: [...],
+
+  <span class="comment">// formatRow 콜백 - 행이 렌더링될 때마다 호출</span>
+  <span class="property">formatRow</span>: (info) => {
+    <span class="comment">// Discriminated Union으로 타입 안전하게 처리</span>
+    <span class="keyword">switch</span> (info.type) {
+      <span class="keyword">case</span> <span class="string">'data'</span>:
+        <span class="keyword">const</span> { ctx } = info;
+        <span class="keyword">const</span> { data, rowElement, cells, rowState } = ctx;
+
+        <span class="comment">// 조건부 행 스타일링</span>
+        <span class="keyword">if</span> (data.price >= <span class="number">800</span>) {
+          rowElement.classList.add(<span class="string">'highlight-expensive'</span>);
+        }
+
+        <span class="comment">// 셀별 스타일링</span>
+        <span class="keyword">if</span> (cells.stock && data.stock &lt;= <span class="number">20</span>) {
+          cells.stock.element.classList.add(<span class="string">'low-stock-cell'</span>);
+        }
+
+        <span class="comment">// Dirty State 처리</span>
+        <span class="keyword">if</span> (rowState === <span class="string">'modified'</span>) {
+          <span class="comment">// 수정된 행 특별 처리</span>
+        }
+        <span class="keyword">break</span>;
+
+      <span class="keyword">case</span> <span class="string">'group-header'</span>:
+        <span class="keyword">const</span> { level, element, itemCount } = info.ctx;
+        <span class="comment">// 그룹 헤더 커스터마이징</span>
+        element.classList.add(<span class="string">`group-level-${level}`</span>);
+        <span class="keyword">break</span>;
+    }
+  },
+});
+
+<span class="comment">// 런타임에 formatRow 변경</span>
+grid.<span class="function">setFormatRow</span>(newFormatRowCallback);
+
+<span class="comment">// formatRow 해제</span>
+grid.<span class="function">setFormatRow</span>(<span class="keyword">null</span>);</pre>
+  </div>
+
+  <!-- FormatRowInfo 타입 설명 -->
+  <div class="code-example">
+    <h3>FormatRowInfo 타입 구조</h3>
+    <pre><span class="comment">// Discriminated Union - 타입 안전한 행 타입 구분</span>
+<span class="keyword">type</span> FormatRowInfo =
+  | { <span class="property">type</span>: <span class="string">'data'</span>;        <span class="property">ctx</span>: DataRowContext }
+  | { <span class="property">type</span>: <span class="string">'group-header'</span>; <span class="property">ctx</span>: GroupHeaderContext }
+  | { <span class="property">type</span>: <span class="string">'subtotal'</span>;     <span class="property">ctx</span>: SubtotalContext }
+  | { <span class="property">type</span>: <span class="string">'grand-total'</span>;  <span class="property">ctx</span>: SubtotalContext };
+
+<span class="comment">// DataRowContext - 데이터 행 정보</span>
+<span class="keyword">interface</span> DataRowContext {
+  <span class="property">viewIndex</span>: <span class="keyword">number</span>;           <span class="comment">// 화면상 인덱스</span>
+  <span class="property">dataIndex</span>: <span class="keyword">number</span>;           <span class="comment">// 데이터 인덱스</span>
+  <span class="property">rowId</span>?: <span class="keyword">string</span> | <span class="keyword">number</span>;    <span class="comment">// 행 ID (CRUD 안전)</span>
+  <span class="property">data</span>: Row;                    <span class="comment">// 행 데이터</span>
+  <span class="property">groupPath</span>: <span class="keyword">string</span>[];          <span class="comment">// 그룹 경로</span>
+  <span class="property">rowState</span>: RowState;           <span class="comment">// 'pristine' | 'added' | 'modified' | 'deleted'</span>
+  <span class="property">rowElement</span>: HTMLElement;      <span class="comment">// 행 DOM 요소</span>
+  <span class="property">cells</span>: Record&lt;<span class="keyword">string</span>, CellInfo&gt;; <span class="comment">// columnKey → CellInfo</span>
+}
+
+<span class="comment">// CellInfo - 셀 정보</span>
+<span class="keyword">interface</span> CellInfo {
+  <span class="property">element</span>: HTMLElement;         <span class="comment">// 셀 DOM 요소</span>
+  <span class="property">value</span>: CellValue;             <span class="comment">// 현재 값</span>
+  <span class="property">originalValue</span>?: CellValue;   <span class="comment">// 원본 값 (수정 시)</span>
+  <span class="property">isModified</span>: <span class="keyword">boolean</span>;          <span class="comment">// 수정 여부</span>
+}</pre>
+  </div>
+
+  <script type="module">
+    import { PureSheet } from '../../src/index.ts';
+
+    let flatGrid = null;
+    let pivotGrid = null;
+    let flatData = [];
+    let pivotData = [];
+    let nextId = 1000;
+
+    // =========================================================================
+    // 샘플 데이터 생성
+    // =========================================================================
+
+    const categories = ['전자제품', '의류', '식품', '가구', '스포츠'];
+    const statuses = ['판매중', '품절임박', '신상품'];
+    const products = ['노트북', '스마트폰', '태블릿', '모니터', '키보드', '마우스', '헤드폰', '스피커'];
+    const regions = ['서울', '부산', '대구', '인천'];
+    const months = ['1월', '2월', '3월', '4월', '5월', '6월'];
+
+    // Flat 그리드용 데이터
+    function generateFlatData() {
+      const data = [];
+      for (let i = 1; i <= 50; i++) {
+        data.push({
+          id: i,
+          name: `제품 ${i}`,
+          category: categories[Math.floor(Math.random() * categories.length)],
+          status: statuses[Math.floor(Math.random() * statuses.length)],
+          price: Math.floor(Math.random() * 900) + 100,
+          stock: Math.floor(Math.random() * 100),
+          profit: Math.floor(Math.random() * 800) - 200,
+        });
+      }
+      return data;
+    }
+
+    // Pivot 그리드용 데이터
+    function generatePivotData() {
+      const data = [];
+      let id = 1;
+      for (const product of products) {
+        for (const region of regions) {
+          for (const month of months) {
+            data.push({
+              id: id++,
+              product,
+              region,
+              month,
+              sales: Math.floor(Math.random() * 200) + 50,
+              profit: Math.floor(Math.random() * 100) - 20,
+            });
+          }
+        }
+      }
+      return data;
+    }
+
+    // =========================================================================
+    // Flat Grid formatRow
+    // =========================================================================
+
+    function flatFormatRow(info) {
+      if (info.type === 'data') {
+        const { data, rowElement, cells, rowState } = info.ctx;
+
+        // 이전 클래스 제거 (재사용되는 DOM 요소 대응)
+        rowElement.classList.remove('highlight-expensive', 'low-stock', 'high-profit');
+
+        // 고가 제품 하이라이트 (가격 >= 800)
+        if (data.price >= 800) {
+          rowElement.classList.add('highlight-expensive');
+        }
+
+        // 재고 부족 행 (재고 <= 20)
+        if (data.stock <= 20) {
+          rowElement.classList.add('low-stock');
+        }
+
+        // 높은 수익 행 (수익 >= 500)
+        if (data.profit >= 500) {
+          rowElement.classList.add('high-profit');
+        }
+
+        // 셀별 스타일링
+        // 재고 셀 - 부족하면 빨간색
+        if (cells.stock) {
+          cells.stock.element.classList.remove('low-stock-cell');
+          if (data.stock <= 20) {
+            cells.stock.element.classList.add('low-stock-cell');
+          }
+        }
+
+        // 수익 셀 - 음수/양수 색상
+        if (cells.profit) {
+          cells.profit.element.classList.remove('negative-value', 'positive-value', 'high-profit-cell');
+          if (data.profit < 0) {
+            cells.profit.element.classList.add('negative-value');
+          } else if (data.profit >= 500) {
+            cells.profit.element.classList.add('high-profit-cell');
+          } else {
+            cells.profit.element.classList.add('positive-value');
+          }
+        }
+
+        // Dirty State 표시 (이미 CSS로 기본 스타일 적용됨)
+        // 추가 커스터마이징이 필요하면 여기서 처리
+        if (rowState === 'added') {
+          // 새로 추가된 행 - 추가 처리 가능
+        } else if (rowState === 'modified') {
+          // 수정된 행 - 추가 처리 가능
+        }
+
+      } else if (info.type === 'group-header') {
+        const { level, element, itemCount } = info.ctx;
+
+        // 그룹 레벨별 스타일
+        element.classList.remove('group-header-level-0', 'group-header-level-1');
+        element.classList.add(`group-header-level-${level}`);
+      }
+    }
+
+    // =========================================================================
+    // Pivot Grid formatRow
+    // =========================================================================
+
+    function pivotFormatRow(info) {
+      if (info.type === 'data') {
+        const { data, rowElement, cells } = info.ctx;
+
+        // 이전 클래스 제거
+        rowElement.classList.remove('pivot-row-highlight');
+
+        // 주요 제품 하이라이트 (노트북, 스마트폰)
+        const product = data.product;
+        if (product === '노트북' || product === '스마트폰') {
+          rowElement.classList.add('pivot-row-highlight');
+        }
+
+        // 피벗 셀 값 기반 스타일링
+        for (const [columnKey, cellInfo] of Object.entries(cells)) {
+          // 피벗 값 컬럼만 처리 (product 제외)
+          if (columnKey === 'product') continue;
+
+          cellInfo.element.classList.remove('pivot-high-value', 'pivot-low-value');
+
+          const value = cellInfo.value;
+          if (typeof value === 'number') {
+            // 높은 값 하이라이트 (>=150)
+            if (value >= 150) {
+              cellInfo.element.classList.add('pivot-high-value');
+            }
+            // 낮은 값 표시 (<50)
+            else if (value < 50 && value > 0) {
+              cellInfo.element.classList.add('pivot-low-value');
+            }
+          }
+        }
+      }
+    }
+
+    // =========================================================================
+    // 초기화
+    // =========================================================================
+
+    async function initFlatGrid() {
+      const container = document.getElementById('flatGrid');
+      flatData = generateFlatData();
+
+      const fields = [
+        { key: 'id', header: 'ID', dataType: 'number', width: 60 },
+        { key: 'name', header: '제품명', dataType: 'string', width: 120 },
+        { key: 'category', header: '카테고리', dataType: 'string', width: 100 },
+        { key: 'status', header: '상태', dataType: 'string', width: 90 },
+        { key: 'price', header: '가격', dataType: 'number', width: 100 },
+        { key: 'stock', header: '재고', dataType: 'number', width: 80 },
+        { key: 'profit', header: '수익', dataType: 'number', width: 100 },
+      ];
+
+      flatGrid = new PureSheet(container, {
+        mode: 'flat',
+        fields,
+        data: flatData,
+        formatRow: flatFormatRow,
+        theme: 'light',
+      });
+
+      document.getElementById('flatStatus').textContent =
+        `${flatData.length}개 행 로드됨 - formatRow로 조건부 스타일링 적용`;
+    }
+
+    async function initPivotGrid() {
+      const container = document.getElementById('pivotGrid');
+      pivotData = generatePivotData();
+
+      const fields = [
+        { key: 'product', header: '제품', dataType: 'string' },
+        { key: 'region', header: '지역', dataType: 'string' },
+        { key: 'month', header: '월', dataType: 'string' },
+        { key: 'sales', header: '판매량', dataType: 'number', aggregate: 'sum' },
+        { key: 'profit', header: '수익', dataType: 'number', aggregate: 'sum' },
+      ];
+
+      pivotGrid = new PureSheet(container, {
+        mode: 'pivot',
+        fields,
+        rowFields: ['product'],
+        columnFields: ['month'],
+        valueFields: ['sales'],
+        formatRow: pivotFormatRow,
+        theme: 'light',
+      });
+
+      await pivotGrid.loadData(pivotData);
+
+      document.getElementById('pivotStatus').textContent =
+        `피벗 완료 - 높은 값(≥150) 녹색, 낮은 값(<50) 빨강 하이라이트`;
+    }
+
+    // =========================================================================
+    // 이벤트 핸들러
+    // =========================================================================
+
+    window.updateGrouping = function() {
+      if (!flatGrid) return;
+
+      const groupSelect = document.getElementById('groupSelect');
+      const groupValue = groupSelect.value;
+
+      if (groupValue) {
+        const columns = groupValue.split(',');
+        flatGrid.setGrouping({ columns });
+      } else {
+        flatGrid.setGrouping(null);
+      }
+    };
+
+    window.updatePivotValue = function() {
+      if (!pivotGrid) return;
+
+      const valueSelect = document.getElementById('valueSelect');
+      const values = valueSelect.value.split(',');
+
+      pivotGrid.setPivotConfig({
+        rowFields: ['product'],
+        columnFields: ['month'],
+        valueFields: values.map(v => ({
+          field: v,
+          aggregate: 'sum',
+          header: v === 'sales' ? '판매량' : '수익',
+        })),
+      });
+    };
+
+    window.addSampleRow = async function() {
+      if (!flatGrid) return;
+
+      const newRow = {
+        id: ++nextId,
+        name: `새 제품 ${nextId}`,
+        category: categories[Math.floor(Math.random() * categories.length)],
+        status: '신상품',
+        price: Math.floor(Math.random() * 500) + 500,
+        stock: Math.floor(Math.random() * 50),
+        profit: Math.floor(Math.random() * 300) + 200,
+      };
+
+      await flatGrid.addRow(newRow);
+      document.getElementById('flatStatus').textContent =
+        `행 추가됨 (ID: ${nextId}) - Dirty State: added`;
+    };
+
+    window.modifySampleRow = async function() {
+      if (!flatGrid) return;
+
+      // 첫 번째 행 수정
+      const firstRow = flatData[0];
+      if (firstRow) {
+        await flatGrid.updateRow(firstRow.id, {
+          price: firstRow.price + 100,
+          profit: firstRow.profit + 50,
+        });
+        document.getElementById('flatStatus').textContent =
+          `행 수정됨 (ID: ${firstRow.id}) - Dirty State: modified`;
+      }
+    };
+
+    // formatRow 토글 상태
+    let flatFormatRowEnabled = true;
+
+    window.toggleFlatFormatRow = function() {
+      if (!flatGrid) return;
+
+      flatFormatRowEnabled = !flatFormatRowEnabled;
+
+      if (flatFormatRowEnabled) {
+        flatGrid.setFormatRow(flatFormatRow);
+        document.getElementById('toggleFlatBtn').textContent = 'formatRow 끄기';
+        document.getElementById('flatStatus').textContent = 'formatRow 활성화됨';
+      } else {
+        flatGrid.setFormatRow(null);
+        document.getElementById('toggleFlatBtn').textContent = 'formatRow 켜기';
+        document.getElementById('flatStatus').textContent = 'formatRow 비활성화됨 - 조건부 스타일 없음';
+      }
+    };
+
+    // Pivot formatRow 토글 상태
+    let pivotFormatRowEnabled = true;
+
+    window.togglePivotFormatRow = function() {
+      if (!pivotGrid) return;
+
+      pivotFormatRowEnabled = !pivotFormatRowEnabled;
+
+      if (pivotFormatRowEnabled) {
+        pivotGrid.setFormatRow(pivotFormatRow);
+        document.getElementById('togglePivotBtn').textContent = 'formatRow 끄기';
+        document.getElementById('pivotStatus').textContent = '피벗 formatRow 활성화됨';
+      } else {
+        pivotGrid.setFormatRow(null);
+        document.getElementById('togglePivotBtn').textContent = 'formatRow 켜기';
+        document.getElementById('pivotStatus').textContent = '피벗 formatRow 비활성화됨 - 조건부 스타일 없음';
+      }
+    };
+
+    // 초기화 실행
+    Promise.all([
+      initFlatGrid(),
+      initPivotGrid(),
+    ]).catch(console.error);
+  </script>
+</body>
+</html>

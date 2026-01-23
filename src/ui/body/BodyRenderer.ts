@@ -10,13 +10,14 @@
  */
 
 import type { GridCore } from '../../core/GridCore';
-import type { Row as RowData, ColumnDef } from '../../types';
-import type { VirtualRow, GroupHeaderRow, DataRow, GroupingConfig, RowTemplate } from '../../types/grouping.types';
+import type { Row as RowData, ColumnDef, CellValue } from '../../types';
+import type { VirtualRow, GroupHeaderRow, DataRow, GroupingConfig, RowTemplate, RowState } from '../../types/grouping.types';
 import type { ColumnState, ColumnGroups, CellPosition } from '../types';
 import type { RowRenderContext, MergeInfoGetter } from '../row/types';
 import { VirtualScroller } from '../VirtualScroller';
 import { RowPool } from './RowPool';
 import { GroupManager } from '../grouping/GroupManager';
+import { VirtualRowBuilder } from '../row/VirtualRowBuilder';
 import { MultiRowRenderer } from '../multirow/MultiRowRenderer';
 import { Row } from '../row/Row';
 import type { MergeManager, CellMergeInfo } from '../merge/MergeManager';
@@ -30,6 +31,104 @@ export interface PinnedRowsConfig {
   /** 하단 고정 행 */
   bottom?: Row[];
 }
+
+// =============================================================================
+// formatRow API 타입
+// =============================================================================
+
+/**
+ * 셀 정보 (formatRow 컨텍스트용)
+ */
+export interface CellInfo {
+  /** 셀 DOM 요소 */
+  element: HTMLElement;
+  /** 셀 값 */
+  value: CellValue;
+  /** 원본 값 (modified일 때) */
+  originalValue?: CellValue;
+  /** 이 셀이 수정되었는지 */
+  isModified: boolean;
+}
+
+/**
+ * 데이터 행 포맷팅 컨텍스트
+ */
+export interface DataRowContext {
+  /** 뷰 인덱스 (가상화 기준) */
+  viewIndex: number;
+  /** 데이터 인덱스 (원본 데이터 기준) */
+  dataIndex: number;
+  /** 행 식별자 (불변, CRUD 안전) */
+  rowId?: string | number;
+  /** 행 데이터 */
+  data: RowData;
+  /** 그룹 경로 */
+  groupPath: string[];
+  /** 행 변경 상태 (Dirty State) */
+  rowState: RowState;
+  /** 원본 데이터 (modified일 때) */
+  originalData?: RowData;
+  /** 변경된 필드 목록 */
+  changedFields?: Set<string>;
+  /** 행 DOM 요소 */
+  rowElement: HTMLElement;
+  /** 셀 정보 맵 (columnKey → CellInfo) */
+  cells: Record<string, CellInfo>;
+}
+
+/**
+ * 그룹 헤더 포맷팅 컨텍스트
+ */
+export interface GroupHeaderContext {
+  /** 뷰 인덱스 */
+  viewIndex: number;
+  /** 그룹 ID */
+  groupId: string;
+  /** 그룹 컬럼 */
+  column: string;
+  /** 그룹 값 */
+  value: CellValue;
+  /** 그룹 레벨 */
+  level: number;
+  /** 하위 항목 수 */
+  itemCount: number;
+  /** 접힘 상태 */
+  collapsed: boolean;
+  /** 집계 값들 */
+  aggregates: Record<string, CellValue>;
+  /** 행 DOM 요소 */
+  element: HTMLElement;
+}
+
+/**
+ * 부분합 행 포맷팅 컨텍스트
+ */
+export interface SubtotalContext {
+  /** 뷰 인덱스 */
+  viewIndex: number;
+  /** 레벨 */
+  level: number;
+  /** 집계 값들 */
+  aggregates: Record<string, CellValue>;
+  /** 행 DOM 요소 */
+  element: HTMLElement;
+  /** 셀 정보 맵 */
+  cells: Record<string, CellInfo>;
+}
+
+/**
+ * 통합 포맷 정보 (Discriminated Union)
+ */
+export type FormatRowInfo =
+  | { type: 'data'; ctx: DataRowContext }
+  | { type: 'group-header'; ctx: GroupHeaderContext }
+  | { type: 'subtotal'; ctx: SubtotalContext }
+  | { type: 'grand-total'; ctx: SubtotalContext };
+
+/**
+ * formatRow 콜백 타입
+ */
+export type FormatRowCallback = (info: FormatRowInfo) => void;
 
 /**
  * MergeManager 설정
@@ -81,6 +180,8 @@ export interface BodyRendererOptions {
   onDragSelectionUpdate?: (position: CellPosition) => void;
   /** 드래그 선택 완료 콜백 */
   onDragSelectionEnd?: () => void;
+  /** 행 포맷팅 콜백 (Wijmo formatItem 대체) */
+  formatRow?: FormatRowCallback;
 }
 
 /**
@@ -117,6 +218,7 @@ export class BodyRenderer {
   private virtualScroller: VirtualScroller;
   private rowPool: RowPool;
   private groupManager: GroupManager;
+  private virtualRowBuilder: VirtualRowBuilder;
   private multiRowRenderer: MultiRowRenderer | null = null;
 
   // Multi-Row 설정
@@ -140,6 +242,7 @@ export class BodyRenderer {
   private onDragSelectionStart?: BodyRendererOptions['onDragSelectionStart'];
   private onDragSelectionUpdate?: BodyRendererOptions['onDragSelectionUpdate'];
   private onDragSelectionEnd?: BodyRendererOptions['onDragSelectionEnd'];
+  private formatRow?: FormatRowCallback;
 
   // 드래그 선택 상태
   private isDragging = false;
@@ -176,6 +279,7 @@ export class BodyRenderer {
     this.onDragSelectionStart = options.onDragSelectionStart;
     this.onDragSelectionUpdate = options.onDragSelectionUpdate;
     this.onDragSelectionEnd = options.onDragSelectionEnd;
+    this.formatRow = options.formatRow;
 
     // 이벤트 핸들러 바인딩
     this.boundHandleMouseMove = this.handleMouseMove.bind(this);
@@ -241,6 +345,9 @@ export class BodyRenderer {
     this.groupManager = new GroupManager({
       config: options.groupingConfig,
     });
+
+    // VirtualRowBuilder 초기화
+    this.virtualRowBuilder = new VirtualRowBuilder();
 
     // Multi-Row 템플릿이 있으면 MultiRowRenderer 및 RowPool 초기화
     if (options.rowTemplate) {
@@ -339,6 +446,11 @@ export class BodyRenderer {
       // 데이터 변경 시 MergeManager 캐시 무효화
       this.mergeManager.invalidateCache();
     }
+
+    // VirtualRowBuilder 캐시 무효화
+    // 데이터 변경 시 (특히 피벗 설정 변경 시) 캐시된 VirtualRows가
+    // 이전 데이터를 참조하는 것을 방지
+    this.virtualRowBuilder.invalidate();
 
     this.updateVirtualRows();
     this.renderVisibleRows();
@@ -456,6 +568,9 @@ export class BodyRenderer {
       this.groupManager.setGroupColumns([]);
     }
 
+    // VirtualRowBuilder 캐시 무효화
+    this.virtualRowBuilder.invalidate();
+
     // 헤더 indent CSS 변수 자동 업데이트
     this.updateGroupIndentCSS(config?.columns?.length ?? 0);
 
@@ -549,6 +664,24 @@ export class BodyRenderer {
    */
   getMultiRowRenderer(): MultiRowRenderer | null {
     return this.multiRowRenderer;
+  }
+
+  /**
+   * formatRow 콜백 설정
+   *
+   * 행이 렌더링될 때마다 호출되는 콜백을 설정합니다.
+   * Wijmo의 formatItem보다 효율적입니다 (셀 단위가 아닌 행 단위).
+   */
+  setFormatRow(callback: FormatRowCallback | undefined): void {
+    this.formatRow = callback;
+    this.refresh(); // 콜백 변경 시 다시 렌더링
+  }
+
+  /**
+   * formatRow 콜백 반환
+   */
+  getFormatRow(): FormatRowCallback | undefined {
+    return this.formatRow;
   }
 
   /**
@@ -779,13 +912,33 @@ export class BodyRenderer {
 
   /**
    * VirtualRows 업데이트
-   * 
+   *
    * 필터/정렬이 적용된 데이터를 기반으로 VirtualRows를 생성합니다.
+   * VirtualRowBuilder를 사용하여 통합된 방식으로 처리합니다.
    */
   private updateVirtualRows(): void {
     // 필터/정렬이 적용된 데이터 사용
     const data = this.gridCore.getVisibleData();
-    this.virtualRows = this.groupManager.flattenWithGroups(data);
+
+    // VirtualRowBuilder를 통해 VirtualRow[] 생성
+    if (this.groupManager.hasGrouping()) {
+      // 그룹화 모드
+      this.virtualRows = this.virtualRowBuilder.build({
+        type: 'grouped',
+        data,
+        groupTree: this.groupManager.buildTree(data),
+        collapsedSet: this.groupManager.getCollapsedSet(),
+        aggregates: this.groupManager.getAggregates(),
+        dataVersion: 1, // TODO: DataStore.version 연동
+      });
+    } else {
+      // Flat 모드
+      this.virtualRows = this.virtualRowBuilder.build({
+        type: 'flat',
+        data,
+        dataVersion: 1, // TODO: DataStore.version 연동
+      });
+    }
 
     // Multi-Row 모드에서는 총 행 수가 달라짐
     // (데이터 수가 아닌, 가상 행 수 × Multi-Row 템플릿 rowCount)
@@ -848,9 +1001,10 @@ export class BodyRenderer {
       // VirtualRow 타입에 따라 Row 인스턴스 생성 및 렌더링
       if (virtualRow.type === 'group-header') {
         this.renderGroupHeaderRow(rowElement, rowIndex, virtualRow, baseContext);
-      } else {
+      } else if (virtualRow.type === 'data') {
         this.renderDataRowWithRowClass(rowElement, rowIndex, virtualRow, baseContext);
       }
+      // TODO: group-footer, subtotal, grand-total 행 렌더링 (향후 구현)
     }
   }
 
@@ -1032,6 +1186,9 @@ export class BodyRenderer {
 
     // Row 클래스로 렌더링 위임
     row.render(rowElement, context);
+
+    // formatRow 콜백 호출
+    this.invokeFormatRowForGroupHeader(rowElement, rowIndex, groupRow);
   }
 
 
@@ -1054,7 +1211,9 @@ export class BodyRenderer {
     rowElement.dataset['rowIndex'] = String(rowIndex);
     rowElement.dataset['dataIndex'] = String(dataRow.dataIndex);
     rowElement.dataset['rowType'] = 'data';
-    const rowId = rowData['id'];
+    const rawRowId = rowData['id'];
+    // rowId는 string 또는 number만 유효 (boolean, Date, null 제외)
+    const rowId = typeof rawRowId === 'string' || typeof rawRowId === 'number' ? rawRowId : undefined;
     if (rowId !== undefined) {
       rowElement.dataset['rowId'] = String(rowId);
     }
@@ -1089,6 +1248,29 @@ export class BodyRenderer {
 
     // 셀에 dataIndex 부여 및 선택 상태 적용 (Row 렌더링 후)
     this.applyCellDataIndexAndSelection(rowElement, dataRow.dataIndex);
+
+    // Dirty State CSS 클래스 적용
+    this.applyRowStateClass(rowElement, dataRow.rowState);
+
+    // formatRow 콜백 호출
+    this.invokeFormatRowForData(rowElement, rowIndex, dataRow);
+  }
+
+  /**
+   * 행 상태에 따른 CSS 클래스 적용
+   */
+  private applyRowStateClass(rowElement: HTMLElement, rowState?: RowState): void {
+    // 기존 상태 클래스 제거
+    rowElement.classList.remove('ps-row-added', 'ps-row-modified', 'ps-row-deleted');
+
+    // 새 상태 클래스 적용
+    if (rowState === 'added') {
+      rowElement.classList.add('ps-row-added');
+    } else if (rowState === 'modified') {
+      rowElement.classList.add('ps-row-modified');
+    } else if (rowState === 'deleted') {
+      rowElement.classList.add('ps-row-deleted');
+    }
   }
 
   /**
@@ -1240,6 +1422,87 @@ export class BodyRenderer {
     right.sort(sortByOrder);
 
     return { left, center, right };
+  }
+
+  // ==========================================================================
+  // formatRow 호출
+  // ==========================================================================
+
+  /**
+   * 데이터 행에 대해 formatRow 콜백 호출
+   */
+  private invokeFormatRowForData(
+    rowElement: HTMLElement,
+    rowIndex: number,
+    dataRow: DataRow
+  ): void {
+    if (!this.formatRow) return;
+
+    // 셀 정보 수집
+    const cells: Record<string, CellInfo> = {};
+    const cellElements = rowElement.querySelectorAll('.ps-cell');
+
+    cellElements.forEach((cellEl) => {
+      const el = cellEl as HTMLElement;
+      const columnKey = el.dataset['columnKey'];
+      if (columnKey) {
+        const value = dataRow.data[columnKey];
+        const originalValue = dataRow.originalData?.[columnKey];
+        const isModified = dataRow.changedFields?.has(columnKey) ?? false;
+
+        cells[columnKey] = {
+          element: el,
+          value,
+          originalValue,
+          isModified,
+        };
+      }
+    });
+
+    // 그룹 경로를 string[]로 변환
+    const groupPath = dataRow.groupPath.map((g) => String(g.value));
+
+    // 컨텍스트 생성
+    const ctx: DataRowContext = {
+      viewIndex: rowIndex,
+      dataIndex: dataRow.dataIndex,
+      rowId: dataRow.rowId,
+      data: dataRow.data,
+      groupPath,
+      rowState: dataRow.rowState ?? 'pristine',
+      originalData: dataRow.originalData,
+      changedFields: dataRow.changedFields,
+      rowElement,
+      cells,
+    };
+
+    // 콜백 호출
+    this.formatRow({ type: 'data', ctx });
+  }
+
+  /**
+   * 그룹 헤더에 대해 formatRow 콜백 호출
+   */
+  private invokeFormatRowForGroupHeader(
+    rowElement: HTMLElement,
+    rowIndex: number,
+    groupRow: GroupHeaderRow
+  ): void {
+    if (!this.formatRow) return;
+
+    const ctx: GroupHeaderContext = {
+      viewIndex: rowIndex,
+      groupId: groupRow.groupId,
+      column: groupRow.column,
+      value: groupRow.value,
+      level: groupRow.level,
+      itemCount: groupRow.itemCount,
+      collapsed: groupRow.collapsed,
+      aggregates: groupRow.aggregates,
+      element: rowElement,
+    };
+
+    this.formatRow({ type: 'group-header', ctx });
   }
 
   /**

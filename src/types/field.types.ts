@@ -5,7 +5,8 @@
  * 피벗 그리드와 일반 그리드 모두 지원합니다.
  */
 
-import type { Row } from './data.types';
+import type { Row, CellValue } from './data.types';
+import type { RowState } from './grouping.types';
 
 // ============================================================================
 // 기본 타입
@@ -15,6 +16,109 @@ import type { Row } from './data.types';
  * 데이터 타입
  */
 export type DataType = 'string' | 'number' | 'boolean' | 'date';
+
+// ============================================================================
+// formatRow API 타입
+// ============================================================================
+
+/**
+ * 셀 정보 (formatRow 컨텍스트용)
+ */
+export interface CellInfo {
+  /** 셀 DOM 요소 */
+  element: HTMLElement;
+  /** 셀 값 */
+  value: CellValue;
+  /** 원본 값 (modified일 때) */
+  originalValue?: CellValue;
+  /** 이 셀이 수정되었는지 */
+  isModified: boolean;
+}
+
+/**
+ * 데이터 행 포맷팅 컨텍스트
+ */
+export interface DataRowContext {
+  /** 뷰 인덱스 (가상화 기준) */
+  viewIndex: number;
+  /** 데이터 인덱스 (원본 데이터 기준) */
+  dataIndex: number;
+  /** 행 식별자 (불변, CRUD 안전) */
+  rowId?: string | number;
+  /** 행 데이터 */
+  data: Row;
+  /** 그룹 경로 */
+  groupPath: string[];
+  /** 행 변경 상태 (Dirty State) */
+  rowState: RowState;
+  /** 원본 데이터 (modified일 때) */
+  originalData?: Row;
+  /** 변경된 필드 목록 */
+  changedFields?: Set<string>;
+  /** 행 DOM 요소 */
+  rowElement: HTMLElement;
+  /** 셀 정보 맵 (columnKey → CellInfo) */
+  cells: Record<string, CellInfo>;
+}
+
+/**
+ * 그룹 헤더 포맷팅 컨텍스트
+ */
+export interface GroupHeaderContext {
+  /** 뷰 인덱스 */
+  viewIndex: number;
+  /** 그룹 ID */
+  groupId: string;
+  /** 그룹 컬럼 */
+  column: string;
+  /** 그룹 값 */
+  value: CellValue;
+  /** 그룹 레벨 */
+  level: number;
+  /** 하위 항목 수 */
+  itemCount: number;
+  /** 접힘 상태 */
+  collapsed: boolean;
+  /** 집계 값들 */
+  aggregates: Record<string, CellValue>;
+  /** 행 DOM 요소 */
+  element: HTMLElement;
+}
+
+/**
+ * 부분합 행 포맷팅 컨텍스트
+ */
+export interface SubtotalContext {
+  /** 뷰 인덱스 */
+  viewIndex: number;
+  /** 레벨 */
+  level: number;
+  /** 집계 값들 */
+  aggregates: Record<string, CellValue>;
+  /** 행 DOM 요소 */
+  element: HTMLElement;
+  /** 셀 정보 맵 */
+  cells: Record<string, CellInfo>;
+}
+
+/**
+ * 통합 포맷 정보 (Discriminated Union)
+ */
+export type FormatRowInfo =
+  | { type: 'data'; ctx: DataRowContext }
+  | { type: 'group-header'; ctx: GroupHeaderContext }
+  | { type: 'subtotal'; ctx: SubtotalContext }
+  | { type: 'grand-total'; ctx: SubtotalContext };
+
+/**
+ * formatRow 콜백 타입
+ *
+ * Wijmo formatItem보다 효율적인 행 단위 포맷팅 콜백입니다.
+ * 1000행 × 20열 기준:
+ * - formatItem: 20,000회 호출
+ * - formatRow: 1,000회 호출 (20배 효율적)
+ */
+export type FormatRowCallback = (info: FormatRowInfo) => void;
 
 /**
  * 집계 함수
@@ -176,6 +280,34 @@ export interface PureSheetConfigBase {
   onRowClick?: (rowIndex: number, row: Row, event: MouseEvent) => void;
   onCellClick?: (position: { rowIndex: number; columnKey: string }, value: unknown, event: MouseEvent) => void;
   onGroupToggle?: (groupId: string, collapsed: boolean) => void;
+
+  // === formatRow 콜백 ===
+  /**
+   * 행 포맷팅 콜백
+   *
+   * 행이 렌더링될 때 호출됩니다.
+   * Wijmo의 formatItem보다 효율적입니다 (행 단위 vs 셀 단위).
+   *
+   * @example
+   * ```typescript
+   * formatRow: (info) => {
+   *   if (info.type === 'data') {
+   *     const { rowState, cells, rowElement } = info.ctx;
+   *
+   *     // 음수 금액 강조
+   *     if (cells['amount'].value < 0) {
+   *       cells['amount'].element.classList.add('negative');
+   *     }
+   *
+   *     // 삭제 예정 행 비활성화
+   *     if (rowState === 'deleted') {
+   *       rowElement.style.pointerEvents = 'none';
+   *     }
+   *   }
+   * }
+   * ```
+   */
+  formatRow?: FormatRowCallback;
 }
 
 /**

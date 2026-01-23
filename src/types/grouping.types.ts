@@ -2,9 +2,26 @@
  * 그룹화 및 Multi-Row 관련 타입 정의
  *
  * 행 그룹화와 Multi-Row 레이아웃을 위한 타입들을 정의합니다.
+ * VirtualRow 타입과 RowState도 포함합니다.
  */
 
 import type { CellValue, Row } from './data.types';
+
+// ============================================================================
+// 행 상태 타입 (Dirty State Pattern)
+// ============================================================================
+
+/**
+ * 행 변경 상태
+ *
+ * CRUD 작업 시 행의 현재 상태를 나타냅니다.
+ * commit() 호출 전까지는 원본 데이터에 반영되지 않습니다.
+ */
+export type RowState =
+  | 'pristine'   // 원본 그대로 (변경 없음)
+  | 'added'      // 새로 추가됨 (commit 전)
+  | 'modified'   // 수정됨 (commit 전)
+  | 'deleted';   // 삭제 예정 (commit 전)
 
 // ============================================================================
 // 집계 함수 타입
@@ -92,7 +109,10 @@ export interface DataRow {
   /** 행 타입: 데이터 */
   type: 'data';
 
-  /** 원본 데이터 인덱스 */
+  /** 행 식별자 (CRUD 안전, 불변) */
+  rowId?: string | number;
+
+  /** 원본 데이터 인덱스 (CRUD 시 변경될 수 있음) */
   dataIndex: number;
 
   /** 실제 데이터 */
@@ -100,15 +120,91 @@ export interface DataRow {
 
   /** 속한 그룹 경로 */
   groupPath: GroupIdentifier[];
+
+  /** 행 변경 상태 (Dirty State) */
+  rowState?: RowState;
+
+  /** 원본 데이터 (modified일 때 보관) */
+  originalData?: Row;
+
+  /** 변경된 필드 목록 */
+  changedFields?: Set<string>;
+}
+
+/**
+ * 그룹 푸터 행 (부분합)
+ *
+ * 그룹화된 데이터에서 그룹의 소계를 나타냅니다.
+ * 그룹의 아래에 배치됩니다.
+ */
+export interface GroupFooterRow {
+  /** 행 타입: 그룹 푸터 */
+  type: 'group-footer';
+
+  /** 그룹 고유 ID */
+  groupId: string;
+
+  /** 그룹 컬럼 키 */
+  column: string;
+
+  /** 그룹 값 */
+  value: CellValue;
+
+  /** 중첩 레벨 (0부터 시작) */
+  level: number;
+
+  /** 하위 아이템 개수 */
+  itemCount: number;
+
+  /** 집계 값들 */
+  aggregates: Record<string, CellValue>;
+}
+
+/**
+ * 부분합 행 (Pivot용)
+ *
+ * 피벗 테이블에서 부분합을 나타냅니다.
+ * 각 그룹의 아래에 배치됩니다.
+ */
+export interface SubtotalRow {
+  /** 행 타입: 부분합 */
+  type: 'subtotal';
+
+  /** 레벨 (0부터 시작) */
+  level: number;
+
+  /** 그룹 키 (식별용) */
+  groupKey?: string;
+
+  /** 집계 값들 */
+  aggregates: Record<string, CellValue>;
+}
+
+/**
+ * 총합계 행
+ *
+ * 전체 데이터의 합계를 나타냅니다.
+ */
+export interface GrandTotalRow {
+  /** 행 타입: 총합계 */
+  type: 'grand-total';
+
+  /** 집계 값들 */
+  aggregates: Record<string, CellValue>;
 }
 
 /**
  * 가상 행 (Virtual Row)
  *
- * 그룹 헤더 또는 데이터 행을 나타냅니다.
+ * 그룹 헤더, 데이터 행, 소계 행 등을 나타냅니다.
  * 가상화된 스크롤에서 렌더링할 행의 타입입니다.
  */
-export type VirtualRow = GroupHeaderRow | DataRow;
+export type VirtualRow =
+  | GroupHeaderRow
+  | DataRow
+  | GroupFooterRow
+  | SubtotalRow
+  | GrandTotalRow;
 
 // ============================================================================
 // 그룹 설정
