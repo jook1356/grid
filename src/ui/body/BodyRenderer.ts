@@ -16,12 +16,14 @@ import type { AddedRow, ModifiedRow } from '../../types/crud.types';
 import type { ColumnState, ColumnGroups, CellPosition } from '../types';
 import type { RowRenderContext, MergeInfoGetter } from '../row/types';
 import { VirtualScroller } from '../VirtualScroller';
+import { HorizontalVirtualScroller } from '../HorizontalVirtualScroller';
 import { RowPool } from './RowPool';
 import { GroupManager } from '../grouping/GroupManager';
 import { VirtualRowBuilder } from '../row/VirtualRowBuilder';
 import { MultiRowRenderer } from '../multirow/MultiRowRenderer';
 import { Row } from '../row/Row';
 import type { MergeManager, CellMergeInfo } from '../merge/MergeManager';
+import type { HorizontalVirtualRange } from '../types';
 
 /**
  * 고정 행 설정
@@ -140,6 +142,30 @@ export interface MergeManagerOptions {
 }
 
 /**
+ * 가로 가상화 설정
+ */
+export interface HorizontalVirtualizationOptions {
+  /**
+   * 가로 가상화 활성화 여부
+   * @default false (자동 활성화 임계값 이상이면 자동 활성화)
+   */
+  enabled?: boolean;
+
+  /**
+   * 자동 활성화 임계값 (Center 컬럼 수)
+   * 이 수 이상이면 자동으로 가상화 활성화
+   * @default 30
+   */
+  autoEnableThreshold?: number;
+
+  /**
+   * 좌우 추가 렌더링할 컬럼 수 (overscan)
+   * @default 2
+   */
+  overscan?: number;
+}
+
+/**
  * BodyRenderer 설정
  */
 export interface BodyRendererOptions {
@@ -167,6 +193,8 @@ export interface BodyRendererOptions {
   spacerY?: HTMLElement;
   /** 외부 가로 스페이서 (선택) - GridRenderer에서 전달 */
   spacerX?: HTMLElement;
+  /** 가로 가상화 설정 (선택) */
+  horizontalVirtualization?: HorizontalVirtualizationOptions;
   /** 행 클릭 콜백 (viewIndex, dataIndex 모두 전달) */
   onRowClick?: (viewIndex: number, row: RowData, event: MouseEvent, dataIndex?: number) => void;
   /** 셀 클릭 콜백 */
@@ -227,6 +255,7 @@ export class BodyRenderer {
 
   // 모듈
   private virtualScroller: VirtualScroller;
+  private horizontalVirtualScroller: HorizontalVirtualScroller;
   private rowPool: RowPool;
   private groupManager: GroupManager;
   private virtualRowBuilder: VirtualRowBuilder;
@@ -238,6 +267,9 @@ export class BodyRenderer {
   // 고정 행
   private pinnedTopRows: Row[] = [];
   private pinnedBottomRows: Row[] = [];
+
+  // 스크롤 동기화 플래그
+  private isSyncingHorizontalScroll = false;
 
   // 가상 행 (그룹화된 경우 그룹 헤더 포함)
   private virtualRows: VirtualRow[] = [];
@@ -360,6 +392,13 @@ export class BodyRenderer {
       estimatedRowHeight: this.rowHeight,
     });
 
+    // 가로 가상화 스크롤러 초기화
+    this.horizontalVirtualScroller = new HorizontalVirtualScroller({
+      enabled: options.horizontalVirtualization?.enabled,
+      autoEnableThreshold: options.horizontalVirtualization?.autoEnableThreshold,
+      overscan: options.horizontalVirtualization?.overscan,
+    });
+
     this.rowPool = new RowPool(this.rowContainer, this.columns.length);
 
     // GroupManager 초기화
@@ -387,13 +426,17 @@ export class BodyRenderer {
     // VirtualScroller 연결 (rowContainer도 전달하여 네이티브 스크롤 지원)
     this.virtualScroller.attach(this.scrollProxyY, this.viewport, this.spacerY, this.rowContainer);
 
+    // HorizontalVirtualScroller 연결
+    this.horizontalVirtualScroller.attach(this.scrollProxyX, this.viewport, this.spacerX);
+
     // 이벤트 바인딩
     this.virtualScroller.on('rangeChanged', this.onRangeChanged.bind(this));
+    this.horizontalVirtualScroller.on('rangeChanged', this.onHorizontalRangeChanged.bind(this));
     this.viewport.addEventListener('click', this.handleClick.bind(this));
     this.viewport.addEventListener('dblclick', this.handleDblClick.bind(this));
     this.viewport.addEventListener('mousedown', this.handleMouseDown.bind(this));
 
-    // 가로 스크롤 프록시 이벤트 바인딩
+    // 가로 스크롤 프록시 이벤트 바인딩 (가상화 비활성화 시에도 동기화 필요)
     this.scrollProxyX.addEventListener('scroll', this.handleProxyXScroll.bind(this), { passive: true });
     this.viewport.addEventListener('scroll', this.handleViewportScroll.bind(this), { passive: true });
 
@@ -418,6 +461,9 @@ export class BodyRenderer {
     // 가로 스페이서 너비 초기화
     this.updateHorizontalSpacerWidth();
 
+    // 가로 가상화: Center 컬럼 설정
+    this.updateHorizontalVirtualScroller();
+
     // 고정 행 렌더링
     this.renderPinnedRows();
   }
@@ -426,10 +472,18 @@ export class BodyRenderer {
    * 가로 프록시 스크롤바 스크롤 핸들러
    */
   private handleProxyXScroll(): void {
+    if (this.isSyncingHorizontalScroll) return;
+
     const scrollLeft = this.scrollProxyX.scrollLeft;
+
     // viewport와 고정 영역 동기화
     if (Math.abs(this.viewport.scrollLeft - scrollLeft) > 1) {
+      this.isSyncingHorizontalScroll = true;
       this.viewport.scrollLeft = scrollLeft;
+      // 다음 프레임에서 플래그 해제
+      requestAnimationFrame(() => {
+        this.isSyncingHorizontalScroll = false;
+      });
     }
     this.pinnedTopContainer.scrollLeft = scrollLeft;
     this.pinnedBottomContainer.scrollLeft = scrollLeft;
@@ -439,10 +493,18 @@ export class BodyRenderer {
    * Viewport 스크롤 핸들러 (가로 스크롤 프록시와 동기화)
    */
   private handleViewportScroll(): void {
+    if (this.isSyncingHorizontalScroll) return;
+
     const scrollLeft = this.viewport.scrollLeft;
+
     // 프록시 스크롤바와 동기화
     if (Math.abs(this.scrollProxyX.scrollLeft - scrollLeft) > 1) {
+      this.isSyncingHorizontalScroll = true;
       this.scrollProxyX.scrollLeft = scrollLeft;
+      // 다음 프레임에서 플래그 해제
+      requestAnimationFrame(() => {
+        this.isSyncingHorizontalScroll = false;
+      });
     }
     // 고정 영역 동기화
     this.pinnedTopContainer.scrollLeft = scrollLeft;
@@ -552,6 +614,7 @@ export class BodyRenderer {
     this.columns = columns;
     this.rowPool.updateColumnCount(columns.length);
     this.updateHorizontalSpacerWidth();
+    this.updateHorizontalVirtualScroller(); // 가로 가상화 컬럼 업데이트
     this.renderVisibleRows();
     this.renderPinnedRows(); // 고정 행도 다시 렌더링
   }
@@ -564,6 +627,47 @@ export class BodyRenderer {
       .filter(col => col.visible)
       .reduce((sum, col) => sum + col.width, 0);
     this.spacerX.style.width = `${totalWidth}px`;
+
+    // rowContainer와 고정 영역에도 전체 너비 설정 (가로 스크롤 범위 확보)
+    this.rowContainer.style.minWidth = `${totalWidth}px`;
+    this.pinnedTopContainer.style.minWidth = `${totalWidth}px`;
+    this.pinnedBottomContainer.style.minWidth = `${totalWidth}px`;
+  }
+
+  /**
+   * HorizontalVirtualScroller에 Center 컬럼 업데이트
+   */
+  private updateHorizontalVirtualScroller(): void {
+    const columnGroups = this.getColumnGroups();
+    this.horizontalVirtualScroller.setCenterColumns(columnGroups.center);
+  }
+
+  /**
+   * 가로 가상화 활성화/비활성화
+   */
+  setHorizontalVirtualizationEnabled(enabled: boolean): void {
+    this.horizontalVirtualScroller.setEnabled(enabled);
+  }
+
+  /**
+   * 가로 가상화 활성화 여부
+   */
+  isHorizontalVirtualizationEnabled(): boolean {
+    return this.horizontalVirtualScroller.isEnabled();
+  }
+
+  /**
+   * HorizontalVirtualScroller 인스턴스 반환
+   */
+  getHorizontalVirtualScroller(): HorizontalVirtualScroller {
+    return this.horizontalVirtualScroller;
+  }
+
+  /**
+   * 현재 가로 가상화 범위 반환
+   */
+  getHorizontalVisibleRange(): HorizontalVirtualRange | null {
+    return this.horizontalVirtualScroller.getVisibleRange();
   }
 
   /**
@@ -574,6 +678,8 @@ export class BodyRenderer {
     if (col) {
       col.width = width;
       this.updateHorizontalSpacerWidth();
+      // 가로 가상화 스크롤러에도 알림
+      this.horizontalVirtualScroller.updateColumnWidth(columnKey, width);
     }
   }
 
@@ -952,6 +1058,7 @@ export class BodyRenderer {
     this.stopAutoScroll();
 
     this.virtualScroller.destroy();
+    this.horizontalVirtualScroller.destroy();
     this.rowPool.destroy();
     this.container.innerHTML = '';
   }
@@ -1086,6 +1193,9 @@ export class BodyRenderer {
     // MergeManager가 사전 계산된 캐시를 가지므로 추가 캐시 불필요
     const getMergeInfo = this.createMergeInfoGetter(state.startIndex);
 
+    // 가로 가상화 범위 가져오기
+    const horizontalVirtualRange = this.horizontalVirtualScroller.getVisibleRange() ?? undefined;
+
     // 렌더링 컨텍스트 생성
     const baseContext: Omit<RowRenderContext, 'rowIndex' | 'dataIndex'> = {
       columns: this.columns,
@@ -1094,6 +1204,7 @@ export class BodyRenderer {
       rowHeight: this.rowHeight,
       gridCore: this.gridCore,
       getMergeInfo,
+      horizontalVirtualRange,
     };
 
     // 일반 모드
@@ -1171,12 +1282,14 @@ export class BodyRenderer {
    */
   private renderPinnedRows(): void {
     const columnGroups = this.getColumnGroups();
+    const horizontalVirtualRange = this.horizontalVirtualScroller.getVisibleRange() ?? undefined;
     const baseContext: Omit<RowRenderContext, 'rowIndex' | 'dataIndex'> = {
       columns: this.columns,
       columnGroups,
       columnDefs: this.columnDefs,
       rowHeight: this.rowHeight,
       gridCore: this.gridCore,
+      horizontalVirtualRange,
     };
 
     // 상단 고정 행 렌더링
@@ -1445,6 +1558,15 @@ export class BodyRenderer {
    */
   private onRangeChanged(_range: { startIndex: number; endIndex: number }): void {
     this.renderVisibleRows();
+  }
+
+  /**
+   * HorizontalVirtualScroller의 rangeChanged 이벤트 처리
+   */
+  private onHorizontalRangeChanged(_range: HorizontalVirtualRange): void {
+    // 가로 가상화 범위 변경 시 행 다시 렌더링
+    this.renderVisibleRows();
+    this.renderPinnedRows(); // 고정 행도 다시 렌더링
   }
 
   /**

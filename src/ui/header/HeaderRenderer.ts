@@ -12,7 +12,7 @@
 import type { GridCore } from '../../core/GridCore';
 import type { ColumnDef } from '../../types';
 import type { RowTemplate, RowLayoutItem } from '../../types/grouping.types';
-import type { ColumnState, ColumnGroups, SortState } from '../types';
+import type { ColumnState, ColumnGroups, SortState, HorizontalVirtualRange } from '../types';
 import { HeaderCell, CellPlacement } from './HeaderCell';
 
 /**
@@ -82,6 +82,9 @@ export class HeaderRenderer {
   private resizeStartWidth = 0;
   private resizeColumnKey = '';
 
+  // 가로 가상화 범위
+  private horizontalVirtualRange: HorizontalVirtualRange | null = null;
+
   constructor(container: HTMLElement, options: HeaderRendererOptions) {
     this.container = container;
     this.gridCore = options.gridCore;
@@ -147,6 +150,38 @@ export class HeaderRenderer {
   }
 
   /**
+   * 가로 가상화 범위 설정
+   *
+   * 범위가 변경되면 Center 영역을 다시 렌더링합니다.
+   * Multi-Row 모드에서는 가상화를 지원하지 않습니다.
+   */
+  setHorizontalVirtualRange(range: HorizontalVirtualRange | null): void {
+    // Multi-Row 모드에서는 가상화 미지원
+    if (this.rowTemplate) return;
+
+    const prevRange = this.horizontalVirtualRange;
+    this.horizontalVirtualRange = range;
+
+    // 범위가 변경되었는지 확인
+    if (
+      !prevRange && !range ||
+      prevRange?.startIndex === range?.startIndex && prevRange?.endIndex === range?.endIndex
+    ) {
+      return;
+    }
+
+    // Center 영역만 다시 렌더링
+    this.renderCenterHeader();
+  }
+
+  /**
+   * 현재 가로 가상화 범위 반환
+   */
+  getHorizontalVirtualRange(): HorizontalVirtualRange | null {
+    return this.horizontalVirtualRange;
+  }
+
+  /**
    * 리소스 해제
    */
   destroy(): void {
@@ -199,8 +234,22 @@ export class HeaderRenderer {
     const leftContainer = this.createCellsContainer('ps-cells-left', columnGroups.left);
     headerRow.appendChild(leftContainer);
 
-    // Center 영역
-    const centerContainer = this.createCellsContainer('ps-cells-center', columnGroups.center);
+    // Center 영역 (가로 가상화 적용)
+    let visibleCenterColumns = columnGroups.center;
+    let centerOffsetLeft = 0;
+
+    if (this.horizontalVirtualRange) {
+      visibleCenterColumns = columnGroups.center.slice(
+        this.horizontalVirtualRange.startIndex,
+        this.horizontalVirtualRange.endIndex
+      );
+      centerOffsetLeft = this.horizontalVirtualRange.offsetLeft;
+    }
+
+    const centerContainer = this.createCellsContainer('ps-cells-center', visibleCenterColumns);
+    if (this.horizontalVirtualRange) {
+      centerContainer.style.transform = `translateX(${centerOffsetLeft}px)`;
+    }
     headerRow.appendChild(centerContainer);
 
     // Right 영역
@@ -208,9 +257,57 @@ export class HeaderRenderer {
     headerRow.appendChild(rightContainer);
 
     this.container.appendChild(headerRow);
-    
+
     if (this.dropIndicator) {
       this.container.appendChild(this.dropIndicator);
+    }
+  }
+
+  /**
+   * Center 영역만 다시 렌더링 (가로 가상화 범위 변경 시)
+   */
+  private renderCenterHeader(): void {
+    const headerRow = this.container.querySelector('.ps-header-row') as HTMLElement | null;
+    if (!headerRow) return;
+
+    const columnGroups = this.getColumnGroups();
+    let oldCenterContainer = headerRow.querySelector('.ps-cells-center') as HTMLElement | null;
+
+    // 기존 Center 컨테이너의 헤더 셀 정리
+    if (oldCenterContainer) {
+      for (const col of columnGroups.center) {
+        const cell = this.headerCells.get(col.key);
+        if (cell) {
+          cell.destroy();
+          this.headerCells.delete(col.key);
+        }
+      }
+      oldCenterContainer.remove();
+    }
+
+    // 가로 가상화 적용
+    let visibleCenterColumns = columnGroups.center;
+    let centerOffsetLeft = 0;
+
+    if (this.horizontalVirtualRange) {
+      visibleCenterColumns = columnGroups.center.slice(
+        this.horizontalVirtualRange.startIndex,
+        this.horizontalVirtualRange.endIndex
+      );
+      centerOffsetLeft = this.horizontalVirtualRange.offsetLeft;
+    }
+
+    const centerContainer = this.createCellsContainer('ps-cells-center', visibleCenterColumns);
+    if (this.horizontalVirtualRange) {
+      centerContainer.style.transform = `translateX(${centerOffsetLeft}px)`;
+    }
+
+    // Left와 Right 사이에 삽입
+    const rightContainer = headerRow.querySelector('.ps-cells-right');
+    if (rightContainer) {
+      headerRow.insertBefore(centerContainer, rightContainer);
+    } else {
+      headerRow.appendChild(centerContainer);
     }
   }
 

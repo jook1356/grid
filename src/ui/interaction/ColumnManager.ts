@@ -262,6 +262,111 @@ export class ColumnManager extends SimpleEventEmitter<ColumnManagerEvents> {
   }
 
   // ===========================================================================
+  // Offset 관리 (가로 가상화용)
+  // ===========================================================================
+
+  /**
+   * 모든 컬럼의 offset 재계산
+   *
+   * 컬럼 너비나 순서가 변경된 후 호출합니다.
+   * 가로 가상화 시 어떤 컬럼이 viewport에 있는지 빠르게 판단하는 데 사용됩니다.
+   */
+  recalculateOffsets(): void {
+    const visibleColumns = this.getVisibleColumns();
+    let offset = 0;
+
+    for (const col of visibleColumns) {
+      col.offset = offset;
+      offset += col.width;
+    }
+  }
+
+  /**
+   * 주어진 X 범위에 해당하는 컬럼 인덱스 반환
+   *
+   * 이진 탐색으로 O(log n) 구현 - 가로 가상화 시 사용
+   *
+   * @param startX - 시작 X 좌표 (스크롤 위치)
+   * @param endX - 끝 X 좌표 (스크롤 위치 + viewport 너비)
+   * @returns 시작/끝 인덱스 (visible 컬럼 기준)
+   */
+  getColumnsInRange(startX: number, endX: number): { start: number; end: number } {
+    const visibleColumns = this.getVisibleColumns();
+    if (visibleColumns.length === 0) {
+      return { start: 0, end: 0 };
+    }
+
+    // offset이 계산되지 않았으면 먼저 계산
+    if (visibleColumns[0]?.offset === undefined) {
+      this.recalculateOffsets();
+    }
+
+    // 시작 컬럼 찾기 (이진 탐색)
+    let startIndex = this.binarySearchColumnStart(visibleColumns, startX);
+
+    // 끝 컬럼 찾기 (이진 탐색)
+    let endIndex = this.binarySearchColumnEnd(visibleColumns, endX);
+
+    return { start: startIndex, end: endIndex };
+  }
+
+  /**
+   * 이진 탐색 - startX 이하의 offset 중 가장 큰 인덱스
+   */
+  private binarySearchColumnStart(columns: ColumnState[], x: number): number {
+    let low = 0;
+    let high = columns.length - 1;
+
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2);
+      const offset = columns[mid]?.offset ?? 0;
+      if (offset <= x) {
+        low = mid;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    return low;
+  }
+
+  /**
+   * 이진 탐색 - endX 이상의 offset 중 가장 작은 인덱스
+   */
+  private binarySearchColumnEnd(columns: ColumnState[], x: number): number {
+    let low = 0;
+    let high = columns.length;
+
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      const col = columns[mid];
+      const offset = col?.offset ?? 0;
+      const width = col?.width ?? 0;
+      if (offset + width <= x) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+
+    return low;
+  }
+
+  /**
+   * 특정 컬럼의 offset 반환
+   */
+  getColumnOffset(columnKey: string): number | undefined {
+    return this.columnStates.get(columnKey)?.offset;
+  }
+
+  /**
+   * 전체 컬럼 너비 합계 반환
+   */
+  getTotalWidth(): number {
+    return this.getVisibleColumns().reduce((sum, col) => sum + col.width, 0);
+  }
+
+  // ===========================================================================
   // 상태 저장/복원
   // ===========================================================================
 

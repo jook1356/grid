@@ -429,17 +429,37 @@ export class Row {
    * 데이터 행 렌더링
    */
   private renderData(container: HTMLElement, context: RowRenderContext): void {
-    const { columnGroups, columnDefs, rowIndex, rowHeight, getMergeInfo } = context;
+    const { columnGroups, columnDefs, rowIndex, rowHeight, getMergeInfo, horizontalVirtualRange } = context;
 
     // 셀 컨테이너 가져오기 또는 생성
     const leftContainer = this.getOrCreateCellContainer(container, 'ps-cells-left');
     const centerContainer = this.getOrCreateCellContainer(container, 'ps-cells-center');
     const rightContainer = this.getOrCreateCellContainer(container, 'ps-cells-right');
 
+    // 가로 가상화: Center 컬럼 중 보이는 범위만 추출
+    let visibleCenterColumns = columnGroups.center;
+    let centerOffsetLeft = 0;
+
+    if (horizontalVirtualRange) {
+      // 가상화된 범위의 컬럼만 렌더링
+      visibleCenterColumns = columnGroups.center.slice(
+        horizontalVirtualRange.startIndex,
+        horizontalVirtualRange.endIndex
+      );
+      centerOffsetLeft = horizontalVirtualRange.offsetLeft;
+    }
+
     // 각 영역별 셀 렌더링 (merge 정보 포함) - 병합 앵커 여부 반환
     const hasLeftAnchor = this.renderCells(leftContainer, columnGroups.left, columnDefs, rowIndex, rowHeight, getMergeInfo);
-    const hasCenterAnchor = this.renderCells(centerContainer, columnGroups.center, columnDefs, rowIndex, rowHeight, getMergeInfo);
+    const hasCenterAnchor = this.renderCells(centerContainer, visibleCenterColumns, columnDefs, rowIndex, rowHeight, getMergeInfo);
     const hasRightAnchor = this.renderCells(rightContainer, columnGroups.right, columnDefs, rowIndex, rowHeight, getMergeInfo);
+
+    // 가로 가상화: Center 영역 위치 조정
+    if (horizontalVirtualRange) {
+      centerContainer.style.transform = `translateX(${centerOffsetLeft}px)`;
+    } else {
+      centerContainer.style.transform = '';
+    }
 
     // 병합 앵커가 있는 row에 클래스 추가 (z-index 처리용)
     // DOM 쿼리 없이 렌더링 결과로 판단
@@ -665,7 +685,7 @@ export class Row {
    * 집계 행 렌더링 (subtotal, grandtotal)
    */
   private renderAggregate(container: HTMLElement, context: RowRenderContext): void {
-    const { columnGroups, gridCore } = context;
+    const { columnGroups, gridCore, horizontalVirtualRange } = context;
 
     // 집계 클래스 추가
     container.classList.add(
@@ -680,10 +700,29 @@ export class Row {
     // 집계 값 계산 (필요한 경우)
     const aggregateValues = this.calculateAggregates(gridCore);
 
+    // 가로 가상화: Center 컬럼 중 보이는 범위만 추출
+    let visibleCenterColumns = columnGroups.center;
+    let centerOffsetLeft = 0;
+
+    if (horizontalVirtualRange) {
+      visibleCenterColumns = columnGroups.center.slice(
+        horizontalVirtualRange.startIndex,
+        horizontalVirtualRange.endIndex
+      );
+      centerOffsetLeft = horizontalVirtualRange.offsetLeft;
+    }
+
     // 각 영역별 셀 렌더링 (집계 값 사용)
     this.renderAggregateCells(leftContainer, columnGroups.left, aggregateValues);
-    this.renderAggregateCells(centerContainer, columnGroups.center, aggregateValues);
+    this.renderAggregateCells(centerContainer, visibleCenterColumns, aggregateValues);
     this.renderAggregateCells(rightContainer, columnGroups.right, aggregateValues);
+
+    // 가로 가상화: Center 영역 위치 조정
+    if (horizontalVirtualRange) {
+      centerContainer.style.transform = `translateX(${centerOffsetLeft}px)`;
+    } else {
+      centerContainer.style.transform = '';
+    }
   }
 
   /**

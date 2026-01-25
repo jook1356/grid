@@ -52,6 +52,8 @@ export interface ColumnState {
   visible: boolean;
   /** 표시 순서 */
   order: number;
+  /** 해당 컬럼의 시작 X 좌표 (가로 가상화용 캐싱) */
+  offset?: number;
 }
 
 // =============================================================================
@@ -178,6 +180,27 @@ export interface VirtualScrollState {
   scrollTop: number;
   /** 총 높이 (px) */
   totalHeight: number;
+}
+
+// =============================================================================
+// 가로 가상화 (Horizontal Virtualization)
+// =============================================================================
+
+/**
+ * 가로 가상화 범위
+ *
+ * 스크롤 위치에 따라 보이는 컬럼의 범위를 나타냅니다.
+ * Center 영역의 컬럼만 가상화되며, Left/Right 고정 컬럼은 항상 렌더링됩니다.
+ */
+export interface HorizontalVirtualRange {
+  /** 보이는 첫 번째 컬럼 인덱스 (Center 컬럼 기준) */
+  startIndex: number;
+  /** 보이는 마지막 컬럼 인덱스 (Center 컬럼 기준, exclusive) */
+  endIndex: number;
+  /** 시작 컬럼의 왼쪽 offset (px) - 가상 스크롤 위치 계산용 */
+  offsetLeft: number;
+  /** Center 컬럼 전체 너비 (px) */
+  totalWidth: number;
 }
 
 // =============================================================================

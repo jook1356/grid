@@ -8,7 +8,7 @@
  */
 
 import type { ColumnDef, CellValue } from '../../types';
-import type { ColumnState, ColumnGroups } from '../types';
+import type { ColumnState, ColumnGroups, HorizontalVirtualRange } from '../types';
 import type { GridCore } from '../../core/GridCore';
 import type { CellMergeInfo } from '../merge/MergeManager';
 
@@ -137,6 +137,14 @@ export interface RowRenderContext {
    * 호출 시 해당 셀의 병합 정보를 반환합니다.
    */
   getMergeInfo?: MergeInfoGetter;
+
+  /**
+   * 가로 가상화 범위 (선택)
+   *
+   * 설정된 경우 Center 영역의 컬럼 중 해당 범위만 렌더링합니다.
+   * Left/Right 고정 컬럼은 항상 모두 렌더링됩니다.
+   */
+  horizontalVirtualRange?: HorizontalVirtualRange;
 }
 
 // =============================================================================

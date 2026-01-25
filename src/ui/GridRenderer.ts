@@ -97,6 +97,9 @@ export class GridRenderer {
   // ResizeObserver
   private resizeObserver: ResizeObserver | null = null;
 
+  // 스크롤 동기화 플래그
+  private isSyncingHeaderScroll = false;
+
   constructor(container: HTMLElement, options: GridRendererOptions) {
     this.container = container;
     this.gridCore = options.gridCore;
@@ -560,6 +563,8 @@ export class GridRenderer {
 
     // 가로 프록시 스크롤바 스크롤 시 → 헤더 동기화
     scrollProxyX.addEventListener('scroll', () => {
+      if (this.isSyncingHeaderScroll) return;
+
       const scrollLeft = scrollProxyX.scrollLeft;
       // 피벗 모드일 때는 PivotHeaderRenderer의 updateScrollPosition 사용
       if (this.headerMode === 'pivot' && this.pivotHeaderRenderer) {
@@ -571,6 +576,8 @@ export class GridRenderer {
 
     // Viewport 스크롤 시 → 헤더도 스크롤
     viewport.addEventListener('scroll', () => {
+      if (this.isSyncingHeaderScroll) return;
+
       const scrollLeft = viewport.scrollLeft;
       // 피벗 모드일 때는 PivotHeaderRenderer의 updateScrollPosition 사용
       if (this.headerMode === 'pivot' && this.pivotHeaderRenderer) {
@@ -582,6 +589,9 @@ export class GridRenderer {
 
     // 헤더 스크롤 시 → Viewport와 프록시도 스크롤 (드래그 등으로 직접 스크롤할 경우)
     header.addEventListener('scroll', () => {
+      if (this.isSyncingHeaderScroll) return;
+
+      this.isSyncingHeaderScroll = true;
       const scrollLeft = header.scrollLeft;
       if (Math.abs(viewport.scrollLeft - scrollLeft) > 1) {
         viewport.scrollLeft = scrollLeft;
@@ -589,7 +599,22 @@ export class GridRenderer {
       if (Math.abs(scrollProxyX.scrollLeft - scrollLeft) > 1) {
         scrollProxyX.scrollLeft = scrollLeft;
       }
+      requestAnimationFrame(() => {
+        this.isSyncingHeaderScroll = false;
+      });
     }, { passive: true });
+
+    // 가로 가상화: BodyRenderer의 HorizontalVirtualScroller 범위 변경 → HeaderRenderer에 전달
+    const horizontalScroller = this.bodyRenderer.getHorizontalVirtualScroller();
+    horizontalScroller.on('rangeChanged', (range) => {
+      this.headerRenderer?.setHorizontalVirtualRange(range);
+    });
+
+    // 초기 범위 동기화
+    const initialRange = horizontalScroller.getVisibleRange();
+    if (initialRange) {
+      this.headerRenderer?.setHorizontalVirtualRange(initialRange);
+    }
   }
 
   /**
