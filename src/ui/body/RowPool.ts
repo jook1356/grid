@@ -22,7 +22,8 @@ export class RowPool {
   /** 행 컨테이너 */
   private container: HTMLElement;
 
-  /** 셀 수 (Left, Center, Right 컨테이너 생성용) - 향후 사용 */
+  /** 셀 수 (Left, Center, Right 컨테이너 생성용) */
+  // @ts-expect-error 향후 사용 예정
   private _columnCount: number;
 
   /** Multi-Row 템플릿 (null이면 Single-Row 모드) */

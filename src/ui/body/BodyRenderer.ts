@@ -250,7 +250,8 @@ export class BodyRenderer {
   private rowContainer: HTMLElement;
   private pinnedBottomContainer: HTMLElement;
 
-  // 외부 스크롤 프록시 여부 (향후 사용)
+  // 외부 스크롤 프록시 여부
+  // @ts-expect-error 향후 사용 예정
   private _externalScrollProxy: boolean = false;
 
   // 모듈
@@ -261,7 +262,8 @@ export class BodyRenderer {
   private virtualRowBuilder: VirtualRowBuilder;
   private multiRowRenderer: MultiRowRenderer | null = null;
 
-  // Multi-Row 설정 (향후 사용)
+  // Multi-Row 설정
+  // @ts-expect-error 향후 사용 예정
   private _rowTemplate: RowTemplate | null = null;
 
   // 고정 행

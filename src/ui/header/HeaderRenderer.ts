@@ -407,6 +407,7 @@ export class HeaderRenderer {
 
     for (let rowIdx = 0; rowIdx < template.layout.length; rowIdx++) {
       const layoutRow = template.layout[rowIdx];
+      if (!layoutRow) continue;
       let currentCol = 0;
 
       for (const item of layoutRow) {
@@ -430,7 +431,7 @@ export class HeaderRenderer {
         for (let r = rowIdx; r < rowIdx + rowSpan && r < rowCount; r++) {
           for (let c = currentCol; c < currentCol + colSpan; c++) {
             if (!occupied[r]) occupied[r] = [];
-            occupied[r][c] = true;
+            occupied[r]![c] = true;
           }
         }
 
@@ -461,6 +462,7 @@ export class HeaderRenderer {
 
     for (let rowIdx = 0; rowIdx < template.layout.length; rowIdx++) {
       const layoutRow = template.layout[rowIdx];
+      if (!layoutRow) continue;
       let currentCol = 0;
 
       for (const item of layoutRow) {
@@ -474,15 +476,16 @@ export class HeaderRenderer {
         for (let r = rowIdx; r < rowIdx + rowSpan && r < rowCount; r++) {
           for (let c = currentCol; c < currentCol + colSpan; c++) {
             if (!occupied[r]) occupied[r] = [];
-            occupied[r][c] = { key: item.key, colSpan };
+            occupied[r]![c] = { key: item.key, colSpan };
 
-            if (gridColumnInfos[c]) {
-              if (!gridColumnInfos[c].cellKeys.includes(item.key)) {
-                gridColumnInfos[c].cellKeys.push(item.key);
+            const colInfo = gridColumnInfos[c];
+            if (colInfo) {
+              if (!colInfo.cellKeys.includes(item.key)) {
+                colInfo.cellKeys.push(item.key);
               }
               // colSpan이 1인 셀을 primaryKey로 우선 선택
-              if (colSpan === 1 && !gridColumnInfos[c].primaryKey) {
-                gridColumnInfos[c].primaryKey = item.key;
+              if (colSpan === 1 && !colInfo.primaryKey) {
+                colInfo.primaryKey = item.key;
               }
             }
           }
@@ -495,7 +498,7 @@ export class HeaderRenderer {
     // primaryKey가 없는 그리드 컬럼은 첫 번째 셀 key 사용
     for (const info of gridColumnInfos) {
       if (!info.primaryKey && info.cellKeys.length > 0) {
-        info.primaryKey = info.cellKeys[0];
+        info.primaryKey = info.cellKeys[0] ?? '';
       }
     }
 

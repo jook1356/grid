@@ -48,6 +48,7 @@ export class GroupManager {
   // 그룹화 설정
   private groupColumns: string[] = [];
   private aggregates: Record<string, AggregateFn> = {};
+  // @ts-expect-error 향후 사용 예정
   private _defaultCollapsed: boolean = false;
 
   // 접힌 그룹 상태

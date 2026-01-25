@@ -62,10 +62,8 @@ export class HorizontalVirtualScroller extends SimpleEventEmitter<HorizontalVirt
   private scrollLeft = 0;
   private currentRange: HorizontalVirtualRange | null = null;
 
-  // DOM 요소
-  private scrollProxyX: HTMLElement | null = null;
+  // DOM 요소 (spacer 너비는 BodyRenderer에서 관리)
   private viewport: HTMLElement | null = null;
-  private spacerX: HTMLElement | null = null;
 
   // 이벤트 바인딩
   private boundOnScroll: () => void;
@@ -93,10 +91,8 @@ export class HorizontalVirtualScroller extends SimpleEventEmitter<HorizontalVirt
    *
    * 참고: spacer 너비는 BodyRenderer에서 관리합니다.
    */
-  attach(scrollProxyX: HTMLElement, viewport: HTMLElement, spacerX: HTMLElement): void {
-    this.scrollProxyX = scrollProxyX;
+  attach(_scrollProxyX: HTMLElement, viewport: HTMLElement, _spacerX: HTMLElement): void {
     this.viewport = viewport;
-    this.spacerX = spacerX;
 
     // viewport 스크롤 이벤트만 구독 (위치 추적용)
     viewport.addEventListener('scroll', this.boundOnScroll, { passive: true });
@@ -118,9 +114,7 @@ export class HorizontalVirtualScroller extends SimpleEventEmitter<HorizontalVirt
       this.viewport.removeEventListener('scroll', this.boundOnScroll);
     }
 
-    this.scrollProxyX = null;
     this.viewport = null;
-    this.spacerX = null;
   }
 
   /**

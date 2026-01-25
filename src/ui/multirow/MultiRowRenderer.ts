@@ -127,6 +127,7 @@ export class MultiRowRenderer {
 
     for (let rowIdx = 0; rowIdx < this.template.layout.length; rowIdx++) {
       const layoutRow = this.template.layout[rowIdx];
+      if (!layoutRow) continue;
       let currentCol = 0;
 
       for (const item of layoutRow) {
@@ -153,19 +154,20 @@ export class MultiRowRenderer {
         for (let r = rowIdx; r < rowIdx + rowSpan && r < rowCount; r++) {
           for (let c = currentCol; c < currentCol + colSpan; c++) {
             if (!occupied[r]) occupied[r] = [];
-            occupied[r][c] = { key: item.key, colSpan };
+            occupied[r]![c] = { key: item.key, colSpan };
 
             // 그리드 컬럼 정보 업데이트
-            if (this.gridColumnInfos[c]) {
-              if (!this.gridColumnInfos[c].cellKeys.includes(item.key)) {
-                this.gridColumnInfos[c].cellKeys.push(item.key);
+            const colInfo = this.gridColumnInfos[c];
+            if (colInfo) {
+              if (!colInfo.cellKeys.includes(item.key)) {
+                colInfo.cellKeys.push(item.key);
               }
               // colSpan이 1인 셀을 primaryKey로 우선 선택 (개별 리사이즈 가능)
-              if (colSpan === 1 && !this.gridColumnInfos[c].primaryKey) {
-                this.gridColumnInfos[c].primaryKey = item.key;
+              if (colSpan === 1 && !colInfo.primaryKey) {
+                colInfo.primaryKey = item.key;
               }
               if (colSpan > 1) {
-                this.gridColumnInfos[c].isPartOfColSpan = true;
+                colInfo.isPartOfColSpan = true;
               }
             }
           }
@@ -178,7 +180,7 @@ export class MultiRowRenderer {
     // primaryKey가 없는 그리드 컬럼은 첫 번째 셀 key 사용
     for (const info of this.gridColumnInfos) {
       if (!info.primaryKey && info.cellKeys.length > 0) {
-        info.primaryKey = info.cellKeys[0];
+        info.primaryKey = info.cellKeys[0] ?? '';
       }
     }
   }
@@ -340,7 +342,9 @@ export class MultiRowRenderer {
     for (let i = 0; i < requiredCellCount; i++) {
       const placement = this.cellPlacements[i];
       const cell = existingCells[i];
-      this.updateDataCell(cell, placement, rowData);
+      if (placement && cell) {
+        this.updateDataCell(cell, placement, rowData);
+      }
     }
   }
 
@@ -451,7 +455,7 @@ export class MultiRowRenderer {
     }
 
     if (colDef?.formatter) {
-      return colDef.formatter(value);
+      return colDef.formatter(value as import('../../types').CellValue);
     }
 
     if (typeof value === 'object') {
