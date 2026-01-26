@@ -5,7 +5,8 @@
       "Bash(npm run build:*)",
       "Bash(npm test:*)",
       "Bash(wc:*)",
-      "Bash(pnpm build:*)"
+      "Bash(pnpm build:*)",
+      "Bash(pnpm tsc:*)"
     ]
   }
 }

@@ -60,6 +60,7 @@ export function fieldToColumn(field: FieldDef): ColumnDef {
     filterable: field.filterable,
     editable: field.editable,
     hidden: field.hidden,
+    frozen: field.pinned,
     formatter: field.formatter,
   };
 }
@@ -68,47 +69,8 @@ export function fieldToColumn(field: FieldDef): ColumnDef {
  * PureSheetConfig를 내부 옵션으로 변환
  */
 export function configToInternalOptions(config: PureSheetConfig): InternalOptions {
-  // fields → columns 변환
+  // fields → columns 변환 (pinned 속성은 fieldToColumn에서 frozen으로 변환됨)
   const columns: ColumnDef[] = config.fields.map(fieldToColumn);
-
-  // Flat 모드인 경우 컬럼 순서 적용
-  if (isFlatMode(config)) {
-    const flatConfig = config as FlatModeConfig;
-    
-    // columns 배열이 있으면 해당 순서대로 재정렬
-    if (flatConfig.columns && flatConfig.columns.length > 0) {
-      const orderedColumns: ColumnDef[] = [];
-      const columnMap = new Map(columns.map(c => [c.key, c]));
-      
-      for (const key of flatConfig.columns) {
-        const col = columnMap.get(key);
-        if (col) {
-          orderedColumns.push(col);
-        }
-      }
-      
-      // columns 배열에 없는 컬럼은 뒤에 추가 (hidden 처리)
-      for (const col of columns) {
-        if (!flatConfig.columns.includes(col.key)) {
-          orderedColumns.push({ ...col, hidden: true });
-        }
-      }
-      
-      columns.length = 0;
-      columns.push(...orderedColumns);
-    }
-
-    // pinned 설정 적용
-    if (flatConfig.pinned) {
-      for (const col of columns) {
-        if (flatConfig.pinned.left?.includes(col.key)) {
-          col.frozen = 'left';
-        } else if (flatConfig.pinned.right?.includes(col.key)) {
-          col.frozen = 'right';
-        }
-      }
-    }
-  }
 
   // 행 높이 처리
   let rowHeight = config.rowHeight;

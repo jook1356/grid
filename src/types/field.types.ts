@@ -148,7 +148,8 @@ export type GridMode = 'flat' | 'pivot';
  * 필드 정의
  *
  * 데이터 필드의 메타데이터를 정의합니다.
- * `columns` 배열에서 이 필드의 key를 참조하여 컬럼 배치를 결정합니다.
+ * fields 배열의 순서대로 그리드에 컬럼이 표시됩니다.
+ * hidden 속성으로 특정 필드를 숨길 수 있습니다.
  *
  * @example
  * const fields: FieldDef[] = [
@@ -193,6 +194,9 @@ export interface FieldDef {
   /** 숨김 여부 @default false */
   hidden?: boolean;
 
+  /** 컬럼 고정 위치 */
+  pinned?: 'left' | 'right';
+
   /** 셀 값 포맷터 */
   formatter?: (value: unknown) => string;
 }
@@ -210,21 +214,6 @@ export interface GroupConfig {
 
   /** 소계 표시할 컬럼 (fields의 aggregate 함수 사용) */
   subtotals?: string[];
-}
-
-// ============================================================================
-// 컬럼 고정 설정
-// ============================================================================
-
-/**
- * 컬럼 고정 설정
- */
-export interface PinnedConfig {
-  /** 왼쪽 고정 컬럼 */
-  left?: string[];
-
-  /** 오른쪽 고정 컬럼 */
-  right?: string[];
 }
 
 // ============================================================================
@@ -316,12 +305,6 @@ export interface PureSheetConfigBase {
 export interface FlatModeConfig extends PureSheetConfigBase {
   /** 그리드 모드 */
   mode?: 'flat';
-
-  /** 표시할 컬럼 목록 (fields의 key 참조) - 지정하지 않으면 fields 순서 사용 */
-  columns?: string[];
-
-  /** 고정 컬럼 */
-  pinned?: PinnedConfig;
 
   /** 그룹핑 설정 */
   group?: GroupConfig;

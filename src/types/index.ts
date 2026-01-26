@@ -81,7 +81,6 @@ export type {
   GridMode,
   FieldDef,
   GroupConfig,
-  PinnedConfig,
   PureSheetConfigBase,
   FlatModeConfig,
   PivotModeConfig,
