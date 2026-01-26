@@ -80,14 +80,17 @@ export interface ColumnDef {
   /** 헤더에 표시할 이름 (label의 별칭) */
   header?: string;
 
-  /** 컬럼 너비 (픽셀) */
-  width?: number;
+  /** 컬럼 너비 - 숫자(픽셀) 또는 CSS 문자열('150px', '20rem', '15%', 'auto') */
+  width?: number | string;
 
-  /** 최소 너비 */
-  minWidth?: number;
+  /** 최소 너비 - 숫자(픽셀) 또는 CSS 문자열 */
+  minWidth?: number | string;
 
-  /** 최대 너비 */
-  maxWidth?: number;
+  /** 최대 너비 - 숫자(픽셀) 또는 CSS 문자열 */
+  maxWidth?: number | string;
+
+  /** flex 비율 - 남은 공간을 비율로 분배 (드래그 리사이즈 시 자동 제거) */
+  flex?: number;
 
   /** 정렬 가능 여부 (기본값: true) */
   sortable?: boolean;

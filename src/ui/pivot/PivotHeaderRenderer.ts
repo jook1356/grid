@@ -20,6 +20,7 @@
 
 import type { ColumnDef } from '../../types';
 import type { PivotHeaderNode } from '../../types/pivot.types';
+import { DEFAULT_COLUMN_WIDTH } from '../utils/cssUtils';
 
 /**
  * PivotHeaderRenderer 설정
@@ -66,7 +67,7 @@ export class PivotHeaderRenderer {
 
     // 컬럼 너비 초기화
     for (const col of options.dataColumns) {
-      this.columnWidths.set(col.key, col.width || 100);
+      this.columnWidths.set(col.key, DEFAULT_COLUMN_WIDTH);
     }
 
     // DOM 구조 생성
@@ -211,7 +212,7 @@ export class PivotHeaderRenderer {
     `;
 
     for (const col of rowHeaderColumns) {
-      const cell = this.createHeaderCell(col.header || col.key, col.width || 150, totalHeight);
+      const cell = this.createHeaderCell(col.header || col.key, DEFAULT_COLUMN_WIDTH, totalHeight);
       cell.style.borderRight = '1px solid var(--ps-border-color, #e0e0e0)';
       rowWrapper.appendChild(cell);
     }

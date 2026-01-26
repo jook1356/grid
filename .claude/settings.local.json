@@ -6,7 +6,9 @@
       "Bash(npm test:*)",
       "Bash(wc:*)",
       "Bash(pnpm build:*)",
-      "Bash(pnpm tsc:*)"
+      "Bash(pnpm tsc:*)",
+      "Bash(pnpm run build:*)",
+      "Bash(git diff:*)"
     ]
   }
 }

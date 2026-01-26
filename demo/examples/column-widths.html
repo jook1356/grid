@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>컬럼 너비 & Flex (Column Widths & Flex) - PureSheet Demo</title>
+    <link rel="stylesheet" href="../shared/styles.css">
+    <link rel="stylesheet" href="../../src/ui/style/default.css">
+    <style>
+        .width-info {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .width-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .width-table th,
+        .width-table td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .width-table th {
+            background: var(--bg);
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        .width-table code {
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 12px;
+        }
+
+        .width-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .width-badge.px {
+            background: #e3f2fd;
+            color: #1565c0;
+        }
+
+        .width-badge.rem {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+
+        .width-badge.percent {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .width-badge.auto {
+            background: #fff3e0;
+            color: #e65100;
+        }
+
+        .width-badge.flex {
+            background: #fce4ec;
+            color: #c2185b;
+        }
+
+        .section-divider {
+            margin: 24px 0;
+            border-top: 2px dashed var(--border);
+        }
+
+        .measured-widths {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 12px;
+        }
+
+        .measured-item {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 6px 10px;
+            font-size: 12px;
+        }
+
+        .measured-item .key {
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        .measured-item .value {
+            color: var(--primary);
+            font-family: 'Monaco', 'Consolas', monospace;
+        }
+
+        #flexGrid {
+            height: 600px;
+            overflow: hidden;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- 네비게이션 -->
+    <nav class="demo-nav">
+        <a href="../index.html">🏠 홈</a>
+        <a href="pinning.html">📌 행/컬럼 고정</a>
+        <a href="multi-row.html">📑 Multi-Row</a>
+        <a href="grouping.html">📂 행 그룹화</a>
+        <a href="merge.html">🔗 셀 병합</a>
+        <a href="selection-modes.html">🎯 선택 모드</a>
+        <a href="pivot.html">📊 피벗</a>
+        <a href="format-row.html">🎨 formatRow</a>
+        <a href="crud.html">✏️ CRUD</a>
+        <a href="column-visibility.html">👁️ 필드 선택</a>
+        <a href="column-widths.html" class="active">📏 컬럼 너비</a>
+    </nav>
+
+    <!-- 헤더 -->
+    <div class="demo-header">
+        <h1>📏 컬럼 너비 & Flex (Column Widths & Flex)</h1>
+        <span class="badge badge-implemented">구현됨</span>
+    </div>
+
+    <!-- 설명 -->
+    <div class="demo-description">
+        <p>
+            컬럼 너비를 <strong>숫자(px)</strong> 뿐만 아니라 <strong>CSS 문자열</strong>로도 지정할 수 있습니다.
+            <code>'150px'</code>, <code>'20rem'</code>, <code>'15%'</code>, <code>'auto'</code> 등 다양한 단위를 지원합니다.
+        </p>
+        <p style="margin-top: 8px;">
+            <strong>flex</strong> 옵션을 사용하면 남은 공간을 비율로 분배할 수 있습니다.
+            드래그로 컬럼 리사이즈 시 flex가 자동으로 해제되어 고정 너비로 전환됩니다.
+        </p>
+    </div>
+
+    <div class="demo-container">
+        <!-- 너비 설정 정보 -->
+        <div class="width-info">
+            <h3 style="margin-top: 0; margin-bottom: 12px;">📊 컬럼 너비 설정</h3>
+            <table class="width-table">
+                <thead>
+                    <tr>
+                        <th>컬럼</th>
+                        <th>width</th>
+                        <th>minWidth</th>
+                        <th>maxWidth</th>
+                        <th>타입</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>ID</td>
+                        <td><code>60</code></td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td><span class="width-badge px">숫자(px)</span></td>
+                    </tr>
+                    <tr>
+                        <td>이름</td>
+                        <td><code>'150px'</code></td>
+                        <td><code>100</code></td>
+                        <td><code>200</code></td>
+                        <td><span class="width-badge px">문자열(px)</span></td>
+                    </tr>
+                    <tr>
+                        <td>부서</td>
+                        <td><code>'8rem'</code></td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td><span class="width-badge rem">rem</span></td>
+                    </tr>
+                    <tr>
+                        <td>급여</td>
+                        <td><code>'15%'</code></td>
+                        <td><code>80</code></td>
+                        <td><code>200</code></td>
+                        <td><span class="width-badge percent">%</span></td>
+                    </tr>
+                    <tr>
+                        <td>보너스</td>
+                        <td><code>'auto'</code></td>
+                        <td><code>60</code></td>
+                        <td><code>150</code></td>
+                        <td><span class="width-badge auto">auto</span></td>
+                    </tr>
+                    <tr>
+                        <td>성과</td>
+                        <td><code>120</code></td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td><span class="width-badge px">숫자(px)</span></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h4 style="margin-top: 16px; margin-bottom: 8px;">📐 측정된 실제 너비 (CSS 변수)</h4>
+            <div class="measured-widths" id="measuredWidths">
+                <span style="color: var(--text-muted); font-size: 12px;">로딩 중...</span>
+            </div>
+        </div>
+
+        <!-- 툴바 -->
+        <div class="toolbar">
+            <div class="toolbar-group">
+                <label>📊 데이터:</label>
+                <button onclick="loadData(100)">100개</button>
+                <button onclick="loadData(1000)">1,000개</button>
+                <button onclick="loadData(10000)">10,000개</button>
+            </div>
+            <div class="toolbar-divider"></div>
+            <div class="toolbar-group">
+                <button onclick="measureWidths()" class="success">너비 측정</button>
+                <button onclick="resetWidths()" class="secondary">너비 초기화</button>
+            </div>
+        </div>
+
+        <div id="grid"></div>
+
+        <div class="status-bar" id="status">
+            준비됨 - 컬럼 헤더를 드래그하여 리사이즈할 수 있습니다
+        </div>
+
+        <div class="section-divider"></div>
+
+        <!-- Flex 설정 정보 -->
+        <div class="width-info">
+            <h3 style="margin-top: 0; margin-bottom: 12px;">🔄 Flex 컬럼 설정</h3>
+            <p style="margin-bottom: 12px; color: var(--text-muted); font-size: 13px;">
+                flex 값이 있는 컬럼은 남은 공간을 비율로 분배합니다. 헤더를 드래그하여 리사이즈하면 flex가 해제됩니다.
+            </p>
+            <table class="width-table">
+                <thead>
+                    <tr>
+                        <th>컬럼</th>
+                        <th>width</th>
+                        <th>flex</th>
+                        <th>minWidth</th>
+                        <th>maxWidth</th>
+                        <th>설명</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>ID</td>
+                        <td><code>60</code></td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>고정 너비</td>
+                    </tr>
+                    <tr>
+                        <td>이름</td>
+                        <td>-</td>
+                        <td><code>1</code></td>
+                        <td><code>100</code></td>
+                        <td><code>300</code></td>
+                        <td><span class="width-badge flex">flex: 1</span></td>
+                    </tr>
+                    <tr>
+                        <td>부서</td>
+                        <td>-</td>
+                        <td><code>1</code></td>
+                        <td><code>80</code></td>
+                        <td><code>200</code></td>
+                        <td><span class="width-badge flex">flex: 1</span></td>
+                    </tr>
+                    <tr>
+                        <td>급여</td>
+                        <td>-</td>
+                        <td><code>2</code></td>
+                        <td><code>100</code></td>
+                        <td>-</td>
+                        <td><span class="width-badge flex">flex: 2</span> (2배 공간)</td>
+                    </tr>
+                    <tr>
+                        <td>보너스</td>
+                        <td><code>100</code></td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>고정 너비</td>
+                    </tr>
+                    <tr>
+                        <td>성과</td>
+                        <td>-</td>
+                        <td><code>1</code></td>
+                        <td><code>80</code></td>
+                        <td><code>150</code></td>
+                        <td><span class="width-badge flex">flex: 1</span></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h4 style="margin-top: 16px; margin-bottom: 8px;">📐 측정된 실제 너비 (Flex Grid)</h4>
+            <div class="measured-widths" id="measuredFlexWidths">
+                <span style="color: var(--text-muted); font-size: 12px;">로딩 중...</span>
+            </div>
+        </div>
+
+        <!-- Flex 툴바 -->
+        <div class="toolbar">
+            <div class="toolbar-group">
+                <label>🔄 Flex Grid:</label>
+                <button onclick="loadFlexData(100)">100개</button>
+                <button onclick="loadFlexData(1000)">1,000개</button>
+            </div>
+            <div class="toolbar-divider"></div>
+            <div class="toolbar-group">
+                <button onclick="measureFlexWidths()" class="success">Flex 너비 측정</button>
+                <button onclick="resetFlexGrid()" class="secondary">Flex 초기화</button>
+            </div>
+        </div>
+
+        <div id="flexGrid"></div>
+
+        <div class="status-bar" id="flexStatus">
+            Flex Grid - 컬럼 헤더를 드래그하면 flex가 해제되고 고정 너비로 전환됩니다
+        </div>
+    </div>
+
+    <!-- 코드 예제 -->
+    <div class="code-example">
+        <h3>너비 단위 사용 예시</h3>
+        <pre><span class="keyword">const</span> grid = <span class="keyword">new</span> <span class="function">PureSheet</span>(container, {
+  <span class="property">fields</span>: [
+    <span class="comment">// 숫자 (픽셀)</span>
+    { <span class="property">key</span>: <span class="string">'id'</span>, <span class="property">header</span>: <span class="string">'ID'</span>, <span class="property">width</span>: <span class="number">60</span> },
+
+    <span class="comment">// 문자열 (px)</span>
+    { <span class="property">key</span>: <span class="string">'name'</span>, <span class="property">header</span>: <span class="string">'이름'</span>, <span class="property">width</span>: <span class="string">'150px'</span> },
+
+    <span class="comment">// rem 단위</span>
+    { <span class="property">key</span>: <span class="string">'dept'</span>, <span class="property">header</span>: <span class="string">'부서'</span>, <span class="property">width</span>: <span class="string">'8rem'</span> },
+
+    <span class="comment">// 퍼센트 (부모 기준)</span>
+    { <span class="property">key</span>: <span class="string">'salary'</span>, <span class="property">header</span>: <span class="string">'급여'</span>, <span class="property">width</span>: <span class="string">'15%'</span>, <span class="property">minWidth</span>: <span class="number">80</span>, <span class="property">maxWidth</span>: <span class="number">200</span> },
+
+    <span class="comment">// auto (내용에 맞춤)</span>
+    { <span class="property">key</span>: <span class="string">'bonus'</span>, <span class="property">header</span>: <span class="string">'보너스'</span>, <span class="property">width</span>: <span class="string">'auto'</span>, <span class="property">minWidth</span>: <span class="number">60</span>, <span class="property">maxWidth</span>: <span class="number">150</span> },
+  ],
+});</pre>
+    </div>
+
+    <!-- Flex 코드 예제 -->
+    <div class="code-example">
+        <h3>Flex 사용 예시</h3>
+        <pre><span class="keyword">const</span> grid = <span class="keyword">new</span> <span class="function">PureSheet</span>(container, {
+  <span class="property">fields</span>: [
+    <span class="comment">// 고정 너비</span>
+    { <span class="property">key</span>: <span class="string">'id'</span>, <span class="property">header</span>: <span class="string">'ID'</span>, <span class="property">width</span>: <span class="number">60</span> },
+
+    <span class="comment">// flex: 1 - 남은 공간을 1:1:2:1 비율로 분배</span>
+    { <span class="property">key</span>: <span class="string">'name'</span>, <span class="property">header</span>: <span class="string">'이름'</span>, <span class="property">flex</span>: <span class="number">1</span>, <span class="property">minWidth</span>: <span class="number">100</span>, <span class="property">maxWidth</span>: <span class="number">300</span> },
+    { <span class="property">key</span>: <span class="string">'dept'</span>, <span class="property">header</span>: <span class="string">'부서'</span>, <span class="property">flex</span>: <span class="number">1</span>, <span class="property">minWidth</span>: <span class="number">80</span> },
+
+    <span class="comment">// flex: 2 - 다른 flex 컬럼의 2배 공간</span>
+    { <span class="property">key</span>: <span class="string">'salary'</span>, <span class="property">header</span>: <span class="string">'급여'</span>, <span class="property">flex</span>: <span class="number">2</span>, <span class="property">minWidth</span>: <span class="number">100</span> },
+
+    <span class="comment">// 고정 너비 (flex 없음)</span>
+    { <span class="property">key</span>: <span class="string">'bonus'</span>, <span class="property">header</span>: <span class="string">'보너스'</span>, <span class="property">width</span>: <span class="number">100</span> },
+
+    <span class="comment">// flex: 1 + minWidth/maxWidth 제약</span>
+    { <span class="property">key</span>: <span class="string">'perf'</span>, <span class="property">header</span>: <span class="string">'성과'</span>, <span class="property">flex</span>: <span class="number">1</span>, <span class="property">minWidth</span>: <span class="number">80</span>, <span class="property">maxWidth</span>: <span class="number">150</span> },
+  ],
+});</pre>
+    </div>
+
+    <!-- 핵심 개념 -->
+    <div class="info-panel">
+        <h3>💡 동작 원리</h3>
+        <ol style="margin: 0; padding-left: 20px; line-height: 1.8;">
+            <li><strong>헤더 셀</strong>에 인라인 스타일로 <code>width</code>, <code>minWidth</code>, <code>maxWidth</code>,
+                <code>flex</code> 적용
+            </li>
+            <li>브라우저가 CSS에 따라 <strong>실제 너비 계산</strong> (%, rem, auto, flex 등 처리)</li>
+            <li>렌더링 후 <code>offsetWidth</code>로 <strong>실제 픽셀 값 측정</strong></li>
+            <li>측정된 값을 <strong>CSS 변수</strong>에 설정: <code>--col-컬럼명-width</code></li>
+            <li>모든 데이터 셀이 <strong>CSS 변수 참조</strong>하여 동일한 너비 유지</li>
+        </ol>
+    </div>
+
+    <!-- Flex 동작 원리 -->
+    <div class="info-panel">
+        <h3>🔄 Flex 동작 원리</h3>
+        <ol style="margin: 0; padding-left: 20px; line-height: 1.8;">
+            <li><code>flex: 숫자</code>가 <strong>.ps-header-cell</strong>과 <strong>.ps-cell</strong>에 적용됨</li>
+            <li>flex 컬럼들은 남은 공간을 <strong>비율로 분배</strong> (flex: 2는 flex: 1의 2배)</li>
+            <li><code>minWidth</code>/<code>maxWidth</code>로 flex 범위 제한 가능</li>
+            <li>헤더를 <strong>드래그하여 리사이즈</strong>하면 <strong>flex가 자동 해제</strong>됨</li>
+            <li>해제 후에는 고정 픽셀 너비로 동작</li>
+        </ol>
+    </div>
+
+    <script type="module">
+        const { PureSheet } = await import('../../src/index.ts');
+
+        let grid = null;
+        let flexGrid = null;
+        const columnKeys = ['id', 'name', 'department', 'salary', 'bonus', 'performance'];
+
+        function updateStatus(msg) {
+            document.getElementById('status').textContent = msg;
+        }
+
+        function updateFlexStatus(msg) {
+            document.getElementById('flexStatus').textContent = msg;
+        }
+
+        // 샘플 데이터 생성
+        function generateData(count) {
+            const names = ['김철수', '이영희', '박민수', '정수진', '최동현', '강미영', '윤서준', '장하늘'];
+            const departments = ['개발팀', '마케팅', '영업팀', '인사팀', '재무팀', '기획팀'];
+
+            return Array.from({ length: count }, (_, i) => ({
+                id: i + 1,
+                name: names[i % names.length] + (i + 1),
+                department: departments[i % departments.length],
+                salary: 3000 + Math.floor(Math.random() * 7000),
+                bonus: 100 + Math.floor(Math.random() * 900),
+                performance: Math.floor(Math.random() * 100),
+            }));
+        }
+
+        // 너비 측정 함수
+        window.measureWidths = function () {
+            const container = document.getElementById('measuredWidths');
+            const gridContainer = document.querySelector('.ps-grid-container');
+
+            if (!gridContainer) {
+                container.innerHTML = '<span style="color: #f44336;">그리드를 찾을 수 없습니다</span>';
+                return;
+            }
+
+            const widths = columnKeys.map(key => {
+                const cssVar = getComputedStyle(gridContainer).getPropertyValue(`--col-${key}-width`);
+                return { key, value: cssVar.trim() || '측정 안됨' };
+            });
+
+            container.innerHTML = widths.map(w =>
+                `<div class="measured-item"><span class="key">${w.key}:</span> <span class="value">${w.value}</span></div>`
+            ).join('');
+
+            updateStatus('CSS 변수 너비 측정 완료');
+        };
+
+        // 데이터 로드
+        window.loadData = async function (count) {
+            if (!grid) return;
+
+            updateStatus(`${count.toLocaleString()}개 데이터 생성 중...`);
+            const data = generateData(count);
+
+            const start = performance.now();
+            await grid.loadData(data);
+            const elapsed = performance.now() - start;
+
+            updateStatus(`${count.toLocaleString()}개 행 로드 완료 (${elapsed.toFixed(0)}ms)`);
+
+            // 로드 후 너비 측정
+            setTimeout(measureWidths, 100);
+        };
+
+        // 너비 초기화 (그리드 재생성)
+        window.resetWidths = async function () {
+            const currentData = grid?.getAllData() || [];
+            await initGrid();
+            if (currentData.length > 0) {
+                await grid.loadData([...currentData]);
+            }
+            setTimeout(measureWidths, 100);
+            updateStatus('컬럼 너비가 초기화되었습니다');
+        };
+
+        // Flex 너비 측정 함수
+        window.measureFlexWidths = function () {
+            const container = document.getElementById('measuredFlexWidths');
+            const gridContainer = document.querySelector('#flexGrid .ps-grid-container');
+
+            if (!gridContainer) {
+                container.innerHTML = '<span style="color: #f44336;">Flex 그리드를 찾을 수 없습니다</span>';
+                return;
+            }
+
+            const widths = columnKeys.map(key => {
+                const cssVar = getComputedStyle(gridContainer).getPropertyValue(`--col-${key}-width`);
+                return { key, value: cssVar.trim() || '측정 안됨' };
+            });
+
+            container.innerHTML = widths.map(w =>
+                `<div class="measured-item"><span class="key">${w.key}:</span> <span class="value">${w.value}</span></div>`
+            ).join('');
+
+            updateFlexStatus('Flex Grid CSS 변수 너비 측정 완료');
+        };
+
+        // Flex 데이터 로드
+        window.loadFlexData = async function (count) {
+            if (!flexGrid) return;
+
+            updateFlexStatus(`${count.toLocaleString()}개 데이터 생성 중...`);
+            const data = generateData(count);
+
+            const start = performance.now();
+            await flexGrid.loadData(data);
+            const elapsed = performance.now() - start;
+
+            updateFlexStatus(`Flex Grid: ${count.toLocaleString()}개 행 로드 완료 (${elapsed.toFixed(0)}ms)`);
+
+            // 로드 후 너비 측정
+            setTimeout(measureFlexWidths, 100);
+        };
+
+        // Flex 그리드 초기화
+        window.resetFlexGrid = async function () {
+            const currentData = flexGrid?.getAllData() || [];
+            await initFlexGrid();
+            if (currentData.length > 0) {
+                await flexGrid.loadData([...currentData]);
+            }
+            setTimeout(measureFlexWidths, 100);
+            updateFlexStatus('Flex 컬럼이 초기화되었습니다');
+        };
+
+        // Flex 그리드 초기화
+        async function initFlexGrid() {
+            const container = document.getElementById('flexGrid');
+            container.innerHTML = '';
+
+            // flex 사용 컬럼 설정
+            const fields = [
+                {
+                    key: 'id',
+                    header: 'ID',
+                    dataType: 'number',
+                    width: 60,  // 고정 너비
+                },
+                {
+                    key: 'name',
+                    header: '이름',
+                    dataType: 'string',
+                    flex: 1,  // flex: 1
+                    minWidth: 100,
+                    maxWidth: 300,
+                },
+                {
+                    key: 'department',
+                    header: '부서',
+                    dataType: 'string',
+                    flex: 1,  // flex: 1
+                    minWidth: 80,
+                    maxWidth: 200,
+                },
+                {
+                    key: 'salary',
+                    header: '급여',
+                    dataType: 'number',
+                    flex: 2,  // flex: 2 (2배 공간)
+                    minWidth: 100,
+                    formatter: v => '₩' + (v * 10000).toLocaleString(),
+                },
+                {
+                    key: 'bonus',
+                    header: '보너스',
+                    dataType: 'number',
+                    width: 100,  // 고정 너비
+                    formatter: v => '₩' + (v * 10000).toLocaleString(),
+                },
+                {
+                    key: 'performance',
+                    header: '성과',
+                    dataType: 'number',
+                    flex: 1,  // flex: 1
+                    minWidth: 80,
+                    maxWidth: 150,
+                    formatter: v => v + '%',
+                },
+            ];
+
+            flexGrid = new PureSheet(container, {
+                mode: 'flat',
+                fields,
+                rowHeight: 36,
+                headerHeight: 40,
+                resizableColumns: true,
+                selectionMode: 'all',
+                theme: 'light',
+            });
+
+            return flexGrid;
+        }
+
+        // 그리드 초기화
+        async function initGrid() {
+            const container = document.getElementById('grid');
+            container.innerHTML = '';
+
+            // 다양한 width 단위 사용
+            const fields = [
+                {
+                    key: 'id',
+                    header: 'ID',
+                    dataType: 'number',
+                    width: 60,  // 숫자 (px)
+                },
+                {
+                    key: 'name',
+                    header: '이름',
+                    dataType: 'string',
+                    width: '150px',  // 문자열 (px)
+                    minWidth: 100,
+                    maxWidth: 200,
+                },
+                {
+                    key: 'department',
+                    header: '부서',
+                    dataType: 'string',
+                    width: '12rem',  // rem 단위
+                },
+                {
+                    key: 'salary',
+                    header: '급여',
+                    dataType: 'number',
+                    width: '20%',  // 퍼센트
+                    minWidth: '10%',
+                    maxWidth: '30%',
+                    formatter: v => '₩' + (v * 10000).toLocaleString(),
+                },
+                {
+                    key: 'bonus',
+                    header: '보너스',
+                    dataType: 'number',
+                    width: 'auto',  // auto
+                    minWidth: 'auto',
+                    maxWidth: 150,
+                    formatter: v => '₩' + (v * 10000).toLocaleString(),
+                },
+                {
+                    key: 'performance',
+                    header: '성과',
+                    dataType: 'number',
+                    width: 120,  // 숫자 (px)
+                    formatter: v => v + '%',
+                },
+            ];
+
+            grid = new PureSheet(container, {
+                mode: 'flat',
+                fields,
+                rowHeight: 36,
+                headerHeight: 40,
+                resizableColumns: true,
+                selectionMode: 'all',
+                theme: 'light',
+            });
+
+            return grid;
+        }
+
+        // 초기화
+        async function init() {
+            await initGrid();
+            await loadData(100);
+
+            // Flex 그리드도 초기화
+            await initFlexGrid();
+            await loadFlexData(100);
+        }
+
+        init().catch(console.error);
+    </script>
+</body>
+
+</html>

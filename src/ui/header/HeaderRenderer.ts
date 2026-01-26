@@ -37,6 +37,8 @@ export interface HeaderRendererOptions {
   onColumnResize?: (columnKey: string, width: number) => void;
   /** 컬럼 순서 변경 콜백 */
   onColumnReorder?: (order: string[]) => void;
+  /** 헤더 셀 리사이즈 콜백 (Passive) */
+  onHeaderCellResize?: (columnKey: string, width: number) => void;
 }
 
 /**
@@ -75,6 +77,7 @@ export class HeaderRenderer {
   private onSortChange?: HeaderRendererOptions['onSortChange'];
   private onColumnResize?: HeaderRendererOptions['onColumnResize'];
   private onColumnReorder?: HeaderRendererOptions['onColumnReorder'];
+  private onHeaderCellResize?: HeaderRendererOptions['onHeaderCellResize'];
 
   // 리사이즈 상태
   private resizing = false;
@@ -84,6 +87,9 @@ export class HeaderRenderer {
 
   // 가로 가상화 범위
   private horizontalVirtualRange: HorizontalVirtualRange | null = null;
+
+  // 헤더 셀 너비 감시용 단일 ResizeObserver
+  private headerResizeObserver: ResizeObserver | null = null;
 
   constructor(container: HTMLElement, options: HeaderRendererOptions) {
     this.container = container;
@@ -96,6 +102,7 @@ export class HeaderRenderer {
     this.onSortChange = options.onSortChange;
     this.onColumnResize = options.onColumnResize;
     this.onColumnReorder = options.onColumnReorder;
+    this.onHeaderCellResize = options.onHeaderCellResize;
 
     // 컬럼 정의 맵 생성
     for (const col of this.gridCore.getColumns()) {
@@ -108,6 +115,9 @@ export class HeaderRenderer {
       this.dropIndicator.className = 'ps-drop-indicator';
       this.dropIndicator.style.display = 'none';
     }
+
+    // 헤더 셀 너비 감시용 ResizeObserver 설정
+    this.setupHeaderResizeObserver();
 
     // 초기 렌더링
     this.render();
@@ -189,11 +199,89 @@ export class HeaderRenderer {
     document.removeEventListener('mousemove', this.handleResizeMove);
     document.removeEventListener('mouseup', this.handleResizeEnd);
 
+    // ResizeObserver 정리
+    if (this.headerResizeObserver) {
+      this.headerResizeObserver.disconnect();
+      this.headerResizeObserver = null;
+    }
+
     for (const cell of this.headerCells.values()) {
       cell.destroy();
     }
     this.headerCells.clear();
     this.container.innerHTML = '';
+  }
+
+  // ===========================================================================
+  // ResizeObserver (Private)
+  // ===========================================================================
+
+  /**
+   * 헤더 셀 너비 감시용 단일 ResizeObserver 설정
+   *
+   * 모든 헤더 셀을 하나의 ResizeObserver로 관찰합니다.
+   * flex, %, rem, em 등 가변 단위 컬럼의 너비 변경을 감지합니다.
+   * 고정 px 컬럼은 변경이 없으므로 콜백 내에서 빠르게 스킵됩니다.
+   */
+  private setupHeaderResizeObserver(): void {
+    this.headerResizeObserver = new ResizeObserver((entries) => {
+      // 배치 처리: 한 번의 rAF에서 모든 CSS 변수 업데이트
+      requestAnimationFrame(() => {
+        const gridContainer = this.container.closest('.ps-grid-container') as HTMLElement;
+        if (!gridContainer) return;
+
+        for (const entry of entries) {
+          const cell = entry.target as HTMLElement;
+          const columnKey = cell.dataset['columnKey'];
+          if (!columnKey) continue;
+
+          // borderBoxSize 사용 (더 정확함)
+          const width = Math.round(
+            entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width
+          );
+          if (width <= 0) continue;
+
+          // 기존 너비와 비교하여 변경된 경우에만 업데이트 (성능 최적화)
+          const state = this.columns.find((c) => c.key === columnKey);
+          if (state && state.width === width) continue;
+
+          // CSS 변수 업데이트
+          gridContainer.style.setProperty(`--col-${columnKey}-width`, `${width}px`);
+
+          // 상태 업데이트
+          if (state) {
+            state.width = width;
+          }
+
+          // columnDef도 업데이트
+          const colDef = this.columnDefs.get(columnKey);
+          if (colDef) {
+            colDef.width = width;
+          }
+
+          // 부모에게 너비 변경 알림 (GridRenderer.options.columns 동기화용)
+          this.onHeaderCellResize?.(columnKey, width);
+        }
+      });
+    });
+  }
+
+  /**
+   * 헤더 셀을 ResizeObserver에 등록
+   */
+  private observeHeaderCell(cell: HTMLElement): void {
+    if (this.headerResizeObserver) {
+      this.headerResizeObserver.observe(cell);
+    }
+  }
+
+  /**
+   * 헤더 셀을 ResizeObserver에서 해제
+   */
+  private unobserveHeaderCell(cell: HTMLElement): void {
+    if (this.headerResizeObserver) {
+      this.headerResizeObserver.unobserve(cell);
+    }
   }
 
   // ===========================================================================
@@ -204,8 +292,9 @@ export class HeaderRenderer {
    * 헤더 렌더링 (모드에 따라 분기)
    */
   private render(): void {
-    // 기존 셀 정리
+    // 기존 셀 정리 (ResizeObserver 해제 포함)
     for (const cell of this.headerCells.values()) {
+      this.unobserveHeaderCell(cell.getElement());
       cell.destroy();
     }
     this.headerCells.clear();
@@ -273,11 +362,12 @@ export class HeaderRenderer {
     const columnGroups = this.getColumnGroups();
     let oldCenterContainer = headerRow.querySelector('.ps-cells-center') as HTMLElement | null;
 
-    // 기존 Center 컨테이너의 헤더 셀 정리
+    // 기존 Center 컨테이너의 헤더 셀 정리 (ResizeObserver 해제 포함)
     if (oldCenterContainer) {
       for (const col of columnGroups.center) {
         const cell = this.headerCells.get(col.key);
         if (cell) {
+          this.unobserveHeaderCell(cell.getElement());
           cell.destroy();
           this.headerCells.delete(col.key);
         }
@@ -336,8 +426,8 @@ export class HeaderRenderer {
     // 각 셀 렌더링
     for (const placement of cellPlacements) {
       const cell = this.createMultiRowHeaderCell(
-        placement, 
-        gridColumnCount, 
+        placement,
+        gridColumnCount,
         template.rowCount,
         gridColumnInfos
       );
@@ -371,10 +461,16 @@ export class HeaderRenderer {
         onDragStart: this.handleDragStart.bind(this),
         onDragOver: this.handleDragOver.bind(this),
         onDrop: this.handleDrop.bind(this),
+        onResize: this.handleHeaderCellResize.bind(this, colState.key),
       });
 
       this.headerCells.set(colState.key, headerCell);
-      container.appendChild(headerCell.getElement());
+
+      const cellElement = headerCell.getElement();
+      container.appendChild(cellElement);
+
+      // 모든 헤더 셀을 ResizeObserver에 등록 (flex, %, rem 등 가변 너비 감시)
+      this.observeHeaderCell(cellElement);
     }
 
     return container;
@@ -447,7 +543,7 @@ export class HeaderRenderer {
    */
   private calculateGridColumnInfos(template: RowTemplate): GridColumnInfo[] {
     const rowCount = template.rowCount;
-    const occupied: Array<Array<{ key: string; colSpan: number } | null>> = 
+    const occupied: Array<Array<{ key: string; colSpan: number } | null>> =
       Array.from({ length: rowCount }, () => []);
 
     // 그리드 컬럼 수 계산
@@ -457,7 +553,7 @@ export class HeaderRenderer {
     }
 
     // 그리드 컬럼 정보 초기화
-    const gridColumnInfos: GridColumnInfo[] = 
+    const gridColumnInfos: GridColumnInfo[] =
       Array.from({ length: gridColumnCount }, () => ({ primaryKey: '', cellKeys: [] }));
 
     for (let rowIdx = 0; rowIdx < template.layout.length; rowIdx++) {
@@ -576,6 +672,7 @@ export class HeaderRenderer {
       resizeColumnKey,
       onSortClick: this.handleSortClick.bind(this),
       onResizeStart: this.handleResizeStart.bind(this),
+      onResize: this.handleHeaderCellResize.bind(this, resizeColumnKey),
     });
 
     this.headerCells.set(item.key, headerCell);
@@ -626,6 +723,20 @@ export class HeaderRenderer {
     document.addEventListener('mouseup', this.handleResizeEnd);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
+  }
+
+  /**
+   * 헤더 셀 리사이즈 처리 (Passive)
+   * HeaderCell의 ResizeObserver에서 호출됨
+   */
+  private handleHeaderCellResize(columnKey: string, width: number): void {
+    // 내부 상태 업데이트
+    const state = this.columns.find((c) => c.key === columnKey);
+    if (state) {
+      state.width = width;
+    }
+    // 부모(GridRenderer)에게 알림
+    this.onHeaderCellResize?.(columnKey, width);
   }
 
   /**

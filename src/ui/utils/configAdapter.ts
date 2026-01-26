@@ -38,24 +38,19 @@ export interface InternalOptions {
 
 /**
  * FieldDef를 ColumnDef로 변환
+ *
+ * width/minWidth/maxWidth는 변환 없이 그대로 전달합니다.
+ * 실제 CSS 스타일 적용은 HeaderCell에서 처리합니다.
  */
 export function fieldToColumn(field: FieldDef): ColumnDef {
-  // style에서 width 파싱
-  let width = field.width;
-  if (!width && field.style) {
-    const widthMatch = field.style.match(/width:\s*(\d+)px/);
-    if (widthMatch) {
-      width = parseInt(widthMatch[1], 10);
-    }
-  }
-
   return {
     key: field.key,
     type: field.dataType,
     label: field.header,
-    width: width ?? 150,
+    width: field.width,
     minWidth: field.minWidth,
     maxWidth: field.maxWidth,
+    flex: field.flex,
     sortable: field.sortable,
     filterable: field.filterable,
     editable: field.editable,

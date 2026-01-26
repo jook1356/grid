@@ -15,6 +15,7 @@ import type { InternalOptions } from './utils/configAdapter';
 import { BodyRenderer } from './body/BodyRenderer';
 import { HeaderRenderer } from './header/HeaderRenderer';
 import { PivotHeaderRenderer } from './pivot/PivotHeaderRenderer';
+import { DEFAULT_COLUMN_WIDTH, toCSSValue } from './utils/cssUtils';
 
 // CSS 스타일 삽입 여부 추적
 let styleInjected = false;
@@ -147,14 +148,47 @@ export class GridRenderer {
 
   /**
    * 컬럼 너비 설정
+   *
+   * CSS 변수를 업데이트한 후 헤더 셀의 실제 너비를 측정합니다.
+   * 이를 통해 minWidth/maxWidth 제약이 자동으로 적용됩니다.
+   * (%, rem, em 등 모든 단위의 minWidth/maxWidth 지원)
    */
   setColumnWidth(columnKey: string, width: number): void {
     const state = this.columnStates.find((c) => c.key === columnKey);
     if (state) {
-      state.width = Math.max(50, width);
-      this.updateColumnWidthCSS(columnKey, state.width);
-      this.headerRenderer?.updateColumnWidth(columnKey, state.width);
-      this.bodyRenderer?.updateColumnWidth(columnKey, state.width);
+      // 0. flex 속성 제거 (드래그 리사이즈 시 flex 비활성화)
+      const columnDef = this.options.columns.find((c) => c.key === columnKey);
+      if (columnDef?.flex !== undefined) {
+        columnDef.flex = undefined;
+        // 헤더 셀의 flex 스타일 제거
+        const headerCell = this.headerElement?.querySelector<HTMLElement>(
+          `.ps-header-cell[data-column-key="${columnKey}"]`
+        );
+        if (headerCell) {
+          headerCell.style.flex = '';
+        }
+        // 바디 셀들은 flex 스타일을 사용하지 않으므로 순회 불필요
+      }
+
+      // 1. CSS 변수 업데이트
+      this.updateColumnWidthCSS(columnKey, width);
+
+      // 2. 헤더 셀의 실제 너비 측정 (minWidth/maxWidth가 적용된 값)
+      const headerCell = this.headerElement?.querySelector<HTMLElement>(
+        `.ps-header-cell[data-column-key="${columnKey}"]`
+      );
+
+      // 헤더 셀이 있으면 실제 측정된 너비 사용, 없으면 요청된 너비 사용
+      const actualWidth = headerCell?.offsetWidth ?? width;
+
+      // 3. 측정된 값으로 상태 및 CSS 변수 업데이트
+      state.width = actualWidth;
+      if (actualWidth !== width) {
+        this.updateColumnWidthCSS(columnKey, actualWidth);
+      }
+
+      this.headerRenderer?.updateColumnWidth(columnKey, actualWidth);
+      this.bodyRenderer?.updateColumnWidth(columnKey, actualWidth);
     }
   }
 
@@ -348,6 +382,7 @@ export class GridRenderer {
       onSortChange: this.handleSortChange.bind(this),
       onColumnResize: this.handleColumnResize.bind(this),
       onColumnReorder: this.handleColumnReorder.bind(this),
+      onHeaderCellResize: this.handleHeaderCellResize.bind(this),
     });
 
     // BodyRenderer 컬럼 복원
@@ -365,13 +400,13 @@ export class GridRenderer {
 
   /**
    * 컬럼 상태 직접 업데이트 (피벗 모드에서 사용)
-   * 
+   *
    * @param columns - 새 컬럼 정의
    */
   updateColumnStates(columns: ColumnDef[]): void {
     this.columnStates = columns.map((col, index) => ({
       key: col.key,
-      width: col.width ?? 100,
+      width: DEFAULT_COLUMN_WIDTH,
       pinned: col.pinned ?? col.frozen ?? 'none',
       visible: col.hidden !== true,
       order: index,
@@ -415,12 +450,16 @@ export class GridRenderer {
 
   /**
    * 컬럼 상태 초기화
+   *
+   * 초기 width는 기본값을 사용합니다.
+   * 실제 픽셀값은 렌더링 후 measureColumnWidths()에서 측정됩니다.
    */
   private initializeColumnStates(): void {
     const columns = this.gridCore.getColumns();
     this.columnStates = columns.map((col, index) => ({
       key: col.key,
-      width: col.width ?? 100,
+      // 초기값은 기본값, 렌더링 후 measureColumnWidths에서 실제 값으로 업데이트
+      width: DEFAULT_COLUMN_WIDTH,
       pinned: col.frozen ?? 'none',
       visible: col.hidden !== true,
       order: index,
@@ -523,6 +562,7 @@ export class GridRenderer {
       onSortChange: this.handleSortChange.bind(this),
       onColumnResize: this.handleColumnResize.bind(this),
       onColumnReorder: this.handleColumnReorder.bind(this),
+      onHeaderCellResize: this.handleHeaderCellResize.bind(this),
     });
 
     // BodyRenderer 초기화 (외부 스크롤 프록시 전달)
@@ -615,6 +655,9 @@ export class GridRenderer {
     if (initialRange) {
       this.headerRenderer?.setHorizontalVirtualRange(initialRange);
     }
+
+    // 렌더링 후 헤더 셀의 clientWidth를 측정하여 CSS 변수 업데이트
+    this.measureColumnWidths();
   }
 
   /**
@@ -658,18 +701,62 @@ export class GridRenderer {
     this.onColumnReorder?.(order);
   }
 
+  /**
+   * 헤더 셀 리사이즈 처리 (Passive)
+   * HeaderCell -> HeaderRenderer -> GridRenderer
+   *
+   * flex 컬럼의 실시간 너비 변경을 options.columns에도 반영합니다.
+   */
+  private handleHeaderCellResize(columnKey: string, width: number): void {
+    // options.columns의 columnDef.width 업데이트 (flex 컬럼 실시간 동기화)
+    const columnDef = this.options.columns.find((c) => c.key === columnKey);
+    if (columnDef) {
+      columnDef.width = width;
+    }
+
+    // columnState도 업데이트
+    const state = this.columnStates.find((c) => c.key === columnKey);
+    if (state) {
+      state.width = width;
+    }
+
+    // BodyRenderer에 알림 (Spacer 업데이트 등)
+    this.bodyRenderer?.updateColumnWidth(columnKey, width);
+    // 총 너비 CSS 변수 업데이트
+    this.updateTotalColumnWidthCSS();
+  }
+
   // ===========================================================================
   // 헬퍼 (Private)
   // ===========================================================================
 
   /**
    * 컬럼 너비 CSS 변수 초기화
+   *
+   * width, minWidth, maxWidth를 CSS 변수로 설정합니다.
+   * 데이터 셀에서 이 CSS 변수를 참조하여 헤더와 동일한 제약을 적용합니다.
    */
   private initializeColumnWidthCSS(): void {
     if (!this.gridContainer) return;
 
+    const columns = this.options.columns;
+
     for (const col of this.columnStates) {
       this.gridContainer.style.setProperty(`--col-${col.key}-width`, `${col.width}px`);
+
+      // minWidth, maxWidth CSS 변수 설정
+      const colDef = columns.find((c) => c.key === col.key);
+      if (colDef) {
+        const minWidthValue = toCSSValue(colDef.minWidth);
+        const maxWidthValue = toCSSValue(colDef.maxWidth);
+
+        if (minWidthValue) {
+          this.gridContainer.style.setProperty(`--col-${col.key}-min-width`, minWidthValue);
+        }
+        if (maxWidthValue) {
+          this.gridContainer.style.setProperty(`--col-${col.key}-max-width`, maxWidthValue);
+        }
+      }
     }
 
     // 총 컬럼 너비 계산하여 CSS 변수로 저장 (그룹 헤더 너비 동기화용)
@@ -701,5 +788,51 @@ export class GridRenderer {
       .reduce((sum, col) => sum + col.width, 0);
 
     this.gridContainer.style.setProperty('--ps-row-width', `${totalWidth}px`);
+  }
+
+  /**
+   * 헤더 셀의 clientWidth를 측정하여 CSS 변수 업데이트
+   *
+   * 헤더 셀에 적용된 width/minWidth/maxWidth/flex 인라인 스타일에 의해
+   * 실제로 렌더링된 너비를 측정하고, 이 값을 CSS 변수로 설정합니다.
+   * 이를 통해 데이터 셀들도 헤더와 동일한 너비를 갖게 됩니다.
+   */
+  private measureColumnWidths(): void {
+    if (!this.headerElement || !this.gridContainer) return;
+
+    // columnStates를 Map으로 변환 (O(1) 조회)
+    const stateMap = new Map(this.columnStates.map((s) => [s.key, s]));
+
+    // 렌더링이 완료된 후 측정 (브라우저가 레이아웃을 계산한 후)
+    requestAnimationFrame(() => {
+      const headerCells = this.headerElement!.querySelectorAll<HTMLElement>('.ps-header-cell');
+
+      headerCells.forEach((cell) => {
+        const columnKey = cell.dataset['columnKey'];
+        if (!columnKey) return;
+
+        // 실제 렌더링된 너비 측정 (offsetWidth = border 포함)
+        const measuredWidth = cell.offsetWidth;
+        if (measuredWidth <= 0) return;
+
+        // ColumnState 업데이트 (Map 조회로 O(1))
+        const state = stateMap.get(columnKey);
+        if (state) {
+          state.width = measuredWidth;
+        }
+
+        // CSS 변수 설정 (헤더와 데이터 셀 동기화)
+        this.gridContainer!.style.setProperty(
+          `--col-${columnKey}-width`,
+          `${measuredWidth}px`
+        );
+      });
+
+      // 총 너비 업데이트
+      this.updateTotalColumnWidthCSS();
+
+      // BodyRenderer에 컬럼 너비 변경 알림
+      this.bodyRenderer?.updateColumns(this.columnStates);
+    });
   }
 }

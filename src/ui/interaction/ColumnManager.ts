@@ -7,6 +7,7 @@
 import { SimpleEventEmitter } from '../../core/SimpleEventEmitter';
 import type { ColumnDef } from '../../types';
 import type { ColumnState, PinPosition } from '../types';
+import { DEFAULT_COLUMN_WIDTH } from '../utils/cssUtils';
 
 /**
  * ColumnManager 이벤트 타입
@@ -452,7 +453,7 @@ export class ColumnManager extends SimpleEventEmitter<ColumnManagerEvents> {
     columns.forEach((col, index) => {
       this.columnStates.set(col.key, {
         key: col.key,
-        width: col.width ?? 100,
+        width: DEFAULT_COLUMN_WIDTH,
         pinned: (col.pinned as PinPosition) ?? 'none',
         visible: col.visible !== false,
         order: index,

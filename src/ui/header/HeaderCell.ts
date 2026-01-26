@@ -10,6 +10,7 @@
 
 import type { ColumnDef } from '../../types';
 import type { ColumnState, SortState } from '../types';
+import { toCSSValue, DEFAULT_COLUMN_WIDTH } from '../utils/cssUtils';
 
 // SortState는 ../types에서 re-export
 
@@ -58,7 +59,10 @@ export interface HeaderCellOptions {
   /** 드래그 오버 콜백 */
   onDragOver?: (columnKey: string, event: DragEvent) => void;
   /** 드롭 콜백 */
+  /** 드롭 콜백 */
   onDrop?: (columnKey: string, event: DragEvent) => void;
+  /** 리사이즈 콜백 (Passive) */
+  onResize?: (width: number) => void;
 }
 
 /**
@@ -133,8 +137,9 @@ export class HeaderCell {
     if (placement) {
       this.applyMultiRowStyles(cell, placement);
     } else {
-      // 일반 모드: CSS 변수로 너비 설정
-      cell.style.width = `var(--col-${columnState.key}-width, ${columnState.width}px)`;
+      // 일반 모드: 인라인 스타일로 너비 설정
+      // 렌더링 후 clientWidth를 측정하여 CSS 변수로 동기화
+      this.applyWidthStyles(cell, columnDef);
     }
 
     // 드래그 앤 드롭 설정 (Multi-Row 모드에서는 비활성화)
@@ -181,6 +186,35 @@ export class HeaderCell {
     }
 
     return cell;
+  }
+
+  /**
+   * 너비 관련 인라인 스타일 적용
+   *
+   * 헤더 셀에 width/minWidth/maxWidth/flex를 인라인 스타일로 적용합니다.
+   * 렌더링 후 clientWidth를 측정하여 CSS 변수로 설정됩니다.
+   */
+  private applyWidthStyles(cell: HTMLElement, columnDef: ColumnDef): void {
+    // width: 숫자면 px, 문자열이면 그대로
+    const widthValue = toCSSValue(columnDef.width) ?? `${DEFAULT_COLUMN_WIDTH}px`;
+    cell.style.width = widthValue;
+
+    // minWidth
+    const minWidthValue = toCSSValue(columnDef.minWidth);
+    if (minWidthValue) {
+      cell.style.minWidth = minWidthValue;
+    }
+
+    // maxWidth
+    const maxWidthValue = toCSSValue(columnDef.maxWidth);
+    if (maxWidthValue) {
+      cell.style.maxWidth = maxWidthValue;
+    }
+
+    // flex: 남은 공간 비율 분배
+    if (columnDef.flex !== undefined) {
+      cell.style.flex = String(columnDef.flex);
+    }
   }
 
   /**
@@ -275,3 +309,4 @@ export class HeaderCell {
     this.element.classList.remove('ps-dragging');
   }
 }
+

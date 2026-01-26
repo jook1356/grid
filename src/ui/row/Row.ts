@@ -532,6 +532,8 @@ export class Row {
       const colDef = columnDefs.get(column.key);
 
       // 너비 설정 (CSS 변수 사용)
+      // minWidth/maxWidth/flex는 헤더 셀에서 계산된 후 CSS 변수에 반영되므로
+      // 데이터 셀에서는 width만 설정하면 됨
       cell.style.width = `var(--col-${column.key}-width, ${column.width}px)`;
 
       // 데이터 속성
@@ -723,9 +725,10 @@ export class Row {
     }
 
     // 각 영역별 셀 렌더링 (집계 값 사용)
-    this.renderAggregateCells(leftContainer, columnGroups.left, aggregateValues);
-    this.renderAggregateCells(centerContainer, visibleCenterColumns, aggregateValues);
-    this.renderAggregateCells(rightContainer, columnGroups.right, aggregateValues);
+    const { columnDefs } = context;
+    this.renderAggregateCells(leftContainer, columnGroups.left, aggregateValues, columnDefs);
+    this.renderAggregateCells(centerContainer, visibleCenterColumns, aggregateValues, columnDefs);
+    this.renderAggregateCells(rightContainer, columnGroups.right, aggregateValues, columnDefs);
 
     // 가로 가상화: Center 영역 위치 조정
     if (horizontalVirtualRange) {
@@ -741,7 +744,8 @@ export class Row {
   private renderAggregateCells(
     container: HTMLElement,
     columns: ColumnState[],
-    aggregateValues: Map<string, CellValue>
+    aggregateValues: Map<string, CellValue>,
+    _columnDefs: Map<string, ColumnDef>
   ): void {
     // 필요한 셀 수 맞추기
     while (container.children.length > columns.length) {
