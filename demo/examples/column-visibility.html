@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>컬럼 숨기기 (Column Visibility) - PureSheet Demo</title>
+    <link rel="stylesheet" href="../shared/styles.css">
+    <link rel="stylesheet" href="../../src/ui/style/default.css">
+    <style>
+        /* 컬럼 제어 패널 스타일 */
+        .column-panel {
+            background: #f8f9fa;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .panel-header h3 {
+            margin: 0;
+            font-size: 1rem;
+            color: #333;
+        }
+
+        .panel-actions button {
+            font-size: 0.85rem;
+            padding: 4px 8px;
+        }
+
+        .column-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 8px;
+        }
+
+        .column-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.9rem;
+            padding: 4px;
+            border-radius: 4px;
+        }
+
+        .column-item:hover {
+            background: #e9ecef;
+        }
+
+        .column-item label {
+            cursor: pointer;
+            user-select: none;
+            flex: 1;
+        }
+
+        /* 그리드 높이 */
+        #grid {
+            height: 500px;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- 네비게이션 -->
+    <nav class="demo-nav">
+        <a href="../index.html">🏠 홈</a>
+        <a href="pinning.html">📌 행/컬럼 고정</a>
+        <a href="multi-row.html">📑 Multi-Row</a>
+        <a href="grouping.html">📂 행 그룹화</a>
+        <a href="merge.html">🔗 셀 병합</a>
+        <a href="selection-modes.html">🎯 선택 모드</a>
+        <a href="pivot.html">📊 피벗</a>
+        <a href="format-row.html">🎨 formatRow</a>
+        <a href="crud.html">✏️ CRUD</a>
+        <a href="column-visibility.html" class="active">👁️ 필드 선택</a>
+    </nav>
+
+    <!-- 헤더 -->
+    <div class="demo-header">
+        <h1>👁️ 컬럼 숨기기/표시 (Column Visibility)</h1>
+        <span class="badge badge-implemented">구현됨</span>
+    </div>
+
+    <!-- 설명 -->
+    <div class="demo-description">
+        <p>
+            <strong>컬럼 가시성 제어</strong> 기능을 통해 사용자에게 필요한 정보만 선별하여 보여줄 수 있습니다.
+            <code>hidden: true</code> 속성으로 초기 숨김 상태를 설정하거나,
+            <code>setColumnHidden()</code> API로 동적으로 제어할 수 있습니다.
+        </p>
+    </div>
+
+    <div class="demo-container">
+        <!-- 컬럼 제어 패널 -->
+        <div class="column-panel">
+            <div class="panel-header">
+                <h3>표시할 컬럼 선택</h3>
+                <div class="panel-actions">
+                    <button onclick="showAllColumns()" class="success">모두 표시</button>
+                    <button onclick="hideAllColumns()" class="secondary">모두 숨기기</button>
+                </div>
+            </div>
+            <div class="column-list" id="columnList">
+                <!-- 체크박스가 JS로 생성됨 -->
+            </div>
+        </div>
+
+        <div id="grid"></div>
+
+        <div class="status-bar" id="status">
+            그리드 준비 완료
+        </div>
+    </div>
+
+    <!-- 코드 예제 -->
+    <div class="code-example">
+        <h3>API 사용법</h3>
+        <pre><span class="comment">// 1. 초기 숨김 설정</span>
+<span class="keyword">const</span> sheet = <span class="keyword">new</span> <span class="function">PureSheet</span>(container, {
+  fields: [
+    { key: <span class="string">'id'</span>, header: <span class="string">'ID'</span> },
+    { key: <span class="string">'secret'</span>, header: <span class="string">'비밀값'</span>, <span class="property">hidden</span>: <span class="keyword">true</span> } <span class="comment">// 처음부터 숨김</span>
+  ],
+  <span class="comment">// ...</span>
+});
+
+<span class="comment">// 2. 동적 제어</span>
+sheet.<span class="function">setColumnHidden</span>(<span class="string">'email'</span>, <span class="keyword">true</span>);  <span class="comment">// 숨기기</span>
+sheet.<span class="function">setColumnHidden</span>(<span class="string">'email'</span>, <span class="keyword">false</span>); <span class="comment">// 보이기</span>
+
+<span class="comment">// 3. 토글</span>
+sheet.<span class="function">toggleColumn</span>(<span class="string">'email'</span>);</pre>
+    </div>
+
+    <script type="module">
+        import { PureSheet } from '../../src/index.ts';
+
+        let sheet = null;
+
+        // 데이터 생성
+        function generateData(count) {
+            const departments = ['Engineering', 'Sales', 'Marketing', 'HR', 'Finance', 'Legal', 'Operations'];
+            const statuses = ['Active', 'Inactive', 'Pending', 'Suspended'];
+            const positions = ['Manager', 'Developer', 'Designer', 'Analyst', 'Director', 'Intern'];
+            const locations = ['Seoul', 'New York', 'London', 'Tokyo', 'Singapore', 'Berlin'];
+
+            return Array.from({ length: count }, (_, i) => ({
+                id: i + 1,
+                name: `User ${i + 1}`,
+                email: `user${i + 1}@example.com`,
+                phone: `010-${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}-${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`,
+                department: departments[i % departments.length],
+                position: positions[i % positions.length],
+                status: statuses[i % statuses.length],
+                location: locations[i % locations.length],
+                salary: Math.floor(50000 + Math.random() * 100000),
+                bonus: Math.floor(1000 + Math.random() * 20000),
+                rating: (Math.random() * 5).toFixed(1),
+                joinDate: `202${Math.floor(i % 5)}-${String((i % 12) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}`,
+                notes: `Note for user ${i + 1} with some long text to test column width...`,
+            }));
+        }
+
+        // 필드 정의
+        const fields = [
+            { key: 'id', header: 'ID', dataType: 'number', width: 60, pinned: 'left' },
+            { key: 'name', header: 'Name', dataType: 'string', width: 120, pinned: 'left' },
+
+            // 사용자 상세 정보
+            { key: 'email', header: 'Email', dataType: 'string', width: 200 },
+            { key: 'phone', header: 'Phone', dataType: 'string', width: 130, hidden: true }, // 초기 숨김
+
+            // 업무 정보
+            { key: 'department', header: 'Department', dataType: 'string', width: 120 },
+            { key: 'position', header: 'Position', dataType: 'string', width: 120 },
+            { key: 'location', header: 'Location', dataType: 'string', width: 100 },
+
+            // 급여 및 평가 (민감 정보 - 초기 숨김 가능)
+            { key: 'salary', header: 'Salary', dataType: 'number', width: 100, formatter: v => '$' + v.toLocaleString() },
+            { key: 'bonus', header: 'Bonus', dataType: 'number', width: 100, formatter: v => '$' + v.toLocaleString(), hidden: true }, // 초기 숨김
+            { key: 'rating', header: 'Rating', dataType: 'number', width: 80 },
+
+            // 기타
+            { key: 'status', header: 'Status', dataType: 'string', width: 90 },
+            { key: 'joinDate', header: 'Join Date', dataType: 'string', width: 100 },
+            { key: 'notes', header: 'Notes', dataType: 'string', width: 300, hidden: true }, // 초기 숨김
+        ];
+
+        async function init() {
+            const container = document.getElementById('grid');
+
+            sheet = new PureSheet(container, {
+                mode: 'flat',
+                fields,
+                rowHeight: 36,
+                headerHeight: 40,
+                resizableColumns: true,
+                theme: 'light',
+            });
+
+            // 데이터 로드
+            await sheet.loadData(generateData(100));
+
+            // UI 초기화
+            initColumnControl();
+
+            document.getElementById('status').textContent = '100개 행 로드됨. 체크박스로 컬럼을 제어해보세요.';
+        }
+
+        // 컬럼 제어 패널 초기화
+        function initColumnControl() {
+            const list = document.getElementById('columnList');
+            list.innerHTML = '';
+
+            fields.forEach(field => {
+                const div = document.createElement('div');
+                div.className = 'column-item';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = `col-${field.key}`;
+                checkbox.checked = !field.hidden; // 초기 상태 반영
+
+                // 체크박스 이벤트
+                checkbox.addEventListener('change', (e) => {
+                    const isVisible = e.target.checked;
+                    sheet.setColumnHidden(field.key, !isVisible);
+
+                    const action = isVisible ? '표시' : '숨김';
+                    document.getElementById('status').textContent = `'${field.header}' 컬럼 ${action}`;
+                });
+
+                const label = document.createElement('label');
+                label.htmlFor = `col-${field.key}`;
+                label.textContent = field.header;
+
+                // 중요 컬럼/숨겨진 컬럼 스타일 힌트
+                if (field.pinned) {
+                    label.style.fontWeight = 'bold';
+                    label.innerHTML += ' 📌';
+                }
+
+                div.appendChild(checkbox);
+                div.appendChild(label);
+                list.appendChild(div);
+            });
+        }
+
+        // 전역 함수
+        window.showAllColumns = function () {
+            if (!sheet) return;
+
+            fields.forEach(field => {
+                sheet.setColumnHidden(field.key, false);
+            });
+
+            // 체크박스 상태 동기화
+            document.querySelectorAll('.column-list input[type="checkbox"]').forEach(cb => {
+                cb.checked = true;
+            });
+            document.getElementById('status').textContent = '모든 컬럼 표시';
+        };
+
+        window.hideAllColumns = function () {
+            if (!sheet) return;
+
+            // ID와 Name은 남겨두기 (사용성을 위해)
+            const keepColumns = ['id', 'name'];
+
+            fields.forEach(field => {
+                if (!keepColumns.includes(field.key)) {
+                    sheet.setColumnHidden(field.key, true);
+                }
+            });
+
+            // 체크박스 상태 동기화
+            document.querySelectorAll('.column-list input[type="checkbox"]').forEach(cb => {
+                const key = cb.id.replace('col-', '');
+                cb.checked = keepColumns.includes(key);
+            });
+            document.getElementById('status').textContent = '최소 컬럼만 표시';
+        };
+
+        init().catch(console.error);
+    </script>
+</body>
+
+</html>

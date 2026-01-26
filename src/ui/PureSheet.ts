@@ -156,6 +156,13 @@ export class PureSheet {
       onColumnReorder: this.handleColumnReorder.bind(this),
     });
 
+    // 초기 컬럼 가시성 설정 (GridRenderer는 초기화 시 visible 속성을 읽지만, 만약 동적으로 변경된 경우를 대비)
+    this.options.columns.forEach(col => {
+      if (col.hidden) {
+        this.gridRenderer.setColumnVisible(col.key, false);
+      }
+    });
+
     // SelectionManager 초기화
     this.selectionManager = new SelectionManager({
       gridCore: this.gridCore,
@@ -595,6 +602,32 @@ export class PureSheet {
       pinned: 'top',
     });
     return this.pinRowTop(row);
+  }
+
+  /**
+   * 컬럼 숨기기/보이기 설정
+   * @param key 컬럼 키
+   * @param hidden 숨김 여부 (true: 숨김, false: 보이기)
+   */
+  setColumnHidden(key: string, hidden: boolean): void {
+    const colDef = this.options.columns.find(c => c.key === key);
+    if (!colDef) return;
+
+    colDef.hidden = hidden;
+    this.gridRenderer.setColumnVisible(key, !hidden);
+  }
+
+  /**
+   * 컬럼 숨기기/보이기 토글
+   * @param key 컬럼 키
+   */
+  toggleColumn(key: string): void {
+    const colDef = this.options.columns.find(c => c.key === key);
+    if (!colDef) return;
+
+    // 현재 hidden 상태의 반대로 설정
+    // hidden이 undefined이면 false로 간주하여 토글 시 true(숨김)가 됨
+    this.setColumnHidden(key, !colDef.hidden);
   }
 
   // ===========================================================================
