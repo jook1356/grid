@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,7 +14,7 @@
       gap: 16px;
       margin: 24px 0;
     }
-    
+
     .mode-card {
       background: #fff;
       border: 2px solid #e0e0e0;
@@ -22,37 +23,37 @@
       cursor: pointer;
       transition: all 0.2s;
     }
-    
+
     .mode-card:hover {
       border-color: #1976d2;
       box-shadow: 0 4px 12px rgba(25, 118, 210, 0.15);
     }
-    
+
     .mode-card.active {
       border-color: #1976d2;
       background: #e3f2fd;
     }
-    
+
     .mode-card h4 {
       margin: 0 0 8px 0;
       color: #333;
       font-size: 1.1rem;
     }
-    
+
     .mode-card p {
       margin: 0 0 12px 0;
       color: #666;
       font-size: 0.9rem;
       line-height: 1.4;
     }
-    
+
     .mode-card code {
       background: #f5f5f5;
       padding: 2px 6px;
       border-radius: 4px;
       font-size: 0.85rem;
     }
-    
+
     .mode-card .data-preview {
       background: #f8f9fa;
       border-radius: 4px;
@@ -61,13 +62,13 @@
       font-size: 0.8rem;
       color: #555;
     }
-    
+
     .selection-info {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 16px;
     }
-    
+
     .selection-info pre {
       margin: 0;
       background: #1e1e1e;
@@ -78,13 +79,13 @@
       overflow-x: auto;
       max-height: 200px;
     }
-    
+
     .selection-info h4 {
       margin: 0 0 8px 0;
       color: #333;
       font-size: 0.95rem;
     }
-    
+
     .instructions {
       background: #fff3e0;
       border-left: 4px solid #ff9800;
@@ -92,17 +93,18 @@
       margin: 16px 0;
       border-radius: 0 4px 4px 0;
     }
-    
+
     .instructions ul {
       margin: 8px 0 0 0;
       padding-left: 20px;
     }
-    
+
     .instructions li {
       margin: 4px 0;
     }
   </style>
 </head>
+
 <body>
   <!-- 네비게이션 -->
   <nav class="demo-nav">
@@ -113,14 +115,16 @@
     <a href="merge.html">🔗 셀 병합</a>
     <a href="selection-modes.html" class="active">🎯 선택 모드</a>
     <a href="pivot.html">📊 피벗</a>
+    <a href="format-row.html">🎨 formatRow</a>
+    <a href="crud.html">✏️ CRUD</a>
   </nav>
-  
+
   <!-- 헤더 -->
   <div class="demo-header">
     <h1>🎯 선택 모드 (Selection Modes)</h1>
     <span class="badge badge-implemented">구현됨</span>
   </div>
-  
+
   <!-- 설명 -->
   <div class="demo-description">
     <p>
@@ -128,7 +132,7 @@
       용도에 맞게 행 선택, 셀 선택, 또는 둘 다 활성화할 수 있습니다.
     </p>
   </div>
-  
+
   <!-- 모드 선택 카드 -->
   <div class="mode-cards">
     <div class="mode-card" data-mode="none" onclick="changeMode('none')">
@@ -140,7 +144,7 @@
         selectedRows: []
       </div>
     </div>
-    
+
     <div class="mode-card" data-mode="row" onclick="changeMode('row')">
       <h4>📋 row</h4>
       <p>행 단위 선택. 클릭하면 행 전체가 선택됩니다. 데이터 관리에 적합합니다.</p>
@@ -150,7 +154,7 @@
         selectedRows: [1, 2, 3]
       </div>
     </div>
-    
+
     <div class="mode-card" data-mode="range" onclick="changeMode('range')">
       <h4>📊 range</h4>
       <p>셀 단위 선택. 드래그로 범위 선택 가능. 스프레드시트에 적합합니다.</p>
@@ -160,7 +164,7 @@
         selectedRows: []
       </div>
     </div>
-    
+
     <div class="mode-card active" data-mode="all" onclick="changeMode('all')">
       <h4>✨ all</h4>
       <p>셀+행 동시 선택. 셀 선택 시 해당 행도 자동으로 선택됩니다.</p>
@@ -171,7 +175,7 @@
       </div>
     </div>
   </div>
-  
+
   <!-- 조작 안내 -->
   <div class="instructions">
     <strong>🖱️ 선택 조작 방법</strong>
@@ -183,35 +187,35 @@
       <li><strong>Ctrl + 드래그</strong>: 기존 선택 유지하며 추가 선택</li>
     </ul>
   </div>
-  
+
   <div class="demo-container">
     <div class="toolbar">
       <div class="toolbar-group">
         <button onclick="loadData(1000)">1,000 행</button>
         <button onclick="loadData(10000)">10,000 행</button>
       </div>
-      
+
       <div class="toolbar-divider"></div>
-      
+
       <div class="toolbar-group">
         <button onclick="selectAll()" class="success">전체 선택</button>
         <button onclick="clearSelection()" class="secondary">선택 해제</button>
       </div>
-      
+
       <div class="toolbar-divider"></div>
-      
+
       <div class="toolbar-group">
         <span id="currentMode" style="font-weight: bold; color: #1976d2;">현재 모드: all</span>
       </div>
     </div>
-    
+
     <div id="grid"></div>
-    
+
     <div class="status-bar" id="status">
       준비됨 - 위에서 선택 모드를 선택하세요
     </div>
   </div>
-  
+
   <!-- 선택 정보 -->
   <div class="info-panel">
     <h3>📊 선택 상태</h3>
@@ -226,18 +230,18 @@
       </div>
     </div>
   </div>
-  
+
   <script type="module">
     import { PureSheet } from '../../src/index.ts';
-    
+
     let sheet = null;
     let currentMode = 'all';
-    
+
     // 데이터 생성
     function generateData(count) {
       const departments = ['Engineering', 'Sales', 'Marketing', 'HR', 'Finance'];
       const statuses = ['Active', 'Inactive', 'Pending', 'Suspended'];
-      
+
       return Array.from({ length: count }, (_, i) => ({
         id: i + 1,
         name: `User ${i + 1}`,
@@ -248,35 +252,35 @@
         joinDate: `2020-${String((i % 12) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}`,
       }));
     }
-    
+
     // 상태 업데이트
     function updateStatus(message) {
       document.getElementById('status').textContent = message;
     }
-    
+
     function updateSelectionInfo(state) {
-      document.getElementById('selectedRows').textContent = 
+      document.getElementById('selectedRows').textContent =
         JSON.stringify(state.selectedRows || [], null, 2);
-      document.getElementById('selectedCells').textContent = 
+      document.getElementById('selectedCells').textContent =
         JSON.stringify(state.selectedCells || [], null, 2);
     }
-    
+
     // 모드 변경
-    window.changeMode = async function(mode) {
+    window.changeMode = async function (mode) {
       currentMode = mode;
-      
+
       // UI 업데이트
       document.querySelectorAll('.mode-card').forEach(card => {
         card.classList.toggle('active', card.dataset.mode === mode);
       });
       document.getElementById('currentMode').textContent = `현재 모드: ${mode}`;
-      
+
       // 그리드 재생성
       const container = document.getElementById('grid');
       if (sheet) {
         sheet.destroy();
       }
-      
+
       // 새 Config API: fields 사용
       const fields = [
         { key: 'id', header: 'ID', dataType: 'number', width: 60 },
@@ -287,12 +291,11 @@
         { key: 'salary', header: 'Salary', dataType: 'number', width: 100, formatter: (v) => '$' + v.toLocaleString() },
         { key: 'joinDate', header: 'Join Date', dataType: 'string', width: 120 },
       ];
-      
+
       // 새 Config API로 PureSheet 생성
       sheet = new PureSheet(container, {
         mode: 'flat',
         fields,
-        columns: ['id', 'name', 'email', 'department', 'status', 'salary', 'joinDate'],
         rowHeight: 36,
         headerHeight: 40,
         selectionMode: mode,
@@ -300,18 +303,18 @@
         resizableColumns: true,
         theme: 'light',
       });
-      
+
       // 이벤트 리스너
       sheet.on('selection:changed', (state) => {
         updateSelectionInfo(state);
       });
-      
+
       // 데이터 로드
       await sheet.loadData(generateData(1000));
       updateSelectionInfo({ selectedRows: [], selectedCells: [] });
       updateStatus(`모드 변경: ${mode} - ${getModeDescription(mode)}`);
     };
-    
+
     function getModeDescription(mode) {
       const descriptions = {
         'none': '선택 비활성화',
@@ -321,33 +324,33 @@
       };
       return descriptions[mode] || '';
     }
-    
+
     // 전역 함수
-    window.loadData = async function(count) {
+    window.loadData = async function (count) {
       if (!sheet) return;
       updateStatus(`${count.toLocaleString()}개 데이터 로드 중...`);
       await sheet.loadData(generateData(count));
       updateStatus(`${count.toLocaleString()}개 행 로드 완료`);
     };
-    
-    window.selectAll = function() {
+
+    window.selectAll = function () {
       if (sheet) {
         sheet.selectAll();
         updateStatus('전체 선택됨');
       }
     };
-    
-    window.clearSelection = function() {
+
+    window.clearSelection = function () {
       if (sheet) {
         sheet.clearSelection();
         updateSelectionInfo({ selectedRows: [], selectedCells: [] });
         updateStatus('선택 해제됨');
       }
     };
-    
+
     // 초기화
     changeMode('all');
   </script>
 </body>
-</html>
 
+</html>

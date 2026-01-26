@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
   <link rel="stylesheet" href="../shared/styles.css">
   <link rel="stylesheet" href="../../src/ui/style/default.css">
 </head>
+
 <body>
   <!-- 네비게이션 -->
   <nav class="demo-nav">
@@ -17,14 +19,16 @@
     <a href="merge.html">🔗 셀 병합</a>
     <a href="selection-modes.html">🎯 선택 모드</a>
     <a href="pivot.html">📊 피벗</a>
+    <a href="format-row.html">🎨 formatRow</a>
+    <a href="crud.html">✏️ CRUD</a>
   </nav>
-  
+
   <!-- 헤더 -->
   <div class="demo-header">
     <h1>📂 행 그룹화 (Row Grouping)</h1>
     <span class="badge badge-implemented">구현됨</span>
   </div>
-  
+
   <!-- 설명 -->
   <div class="demo-description">
     <p>
@@ -33,7 +37,7 @@
       그룹 헤더를 클릭하여 접기/펼치기를 테스트해보세요.
     </p>
   </div>
-  
+
   <div class="demo-container">
     <div class="toolbar">
       <div class="toolbar-group">
@@ -45,9 +49,9 @@
           <option value="department,status">부서 → 상태 (다중)</option>
         </select>
       </div>
-      
+
       <div class="toolbar-divider"></div>
-      
+
       <div class="toolbar-group">
         <button onclick="expandAll()">📂 모두 펼치기</button>
         <button onclick="collapseAll()" class="secondary">📁 모두 접기</button>
@@ -72,7 +76,7 @@
         </select>
       </div>
     </div>
-    
+
     <!-- 필터/정렬 툴바 -->
     <div class="toolbar" style="border-top: none; padding-top: 0;">
       <div class="toolbar-group">
@@ -87,9 +91,9 @@
         </select>
         <button onclick="clearFilter()" class="secondary" style="padding: 4px 8px;">✕</button>
       </div>
-      
+
       <div class="toolbar-divider"></div>
-      
+
       <div class="toolbar-group">
         <label>↕️ 정렬:</label>
         <select id="sortColumnSelect" onchange="applySort()">
@@ -107,14 +111,14 @@
         </select>
       </div>
     </div>
-    
+
     <div id="grid"></div>
-    
+
     <div class="status-bar" id="status">
       준비됨 - 그룹 헤더를 클릭하여 접기/펼치기
     </div>
   </div>
-  
+
   <!-- 코드 예제 -->
   <div class="code-example">
     <h3>API 사용법 (그룹화 + 필터/정렬)</h3>
@@ -164,7 +168,7 @@ grid.<span class="function">setGrouping</span>({ columns: [<span class="string">
 grid.<span class="function">expandAllGroups</span>();
 grid.<span class="function">collapseAllGroups</span>();</pre>
   </div>
-  
+
   <!-- 그룹 상태 -->
   <div class="info-panel">
     <h3>📊 현재 그룹 상태</h3>
@@ -173,18 +177,18 @@ grid.<span class="function">collapseAllGroups</span>();</pre>
   "aggregate": "sum"
 }</pre>
   </div>
-  
+
   <script type="module">
     // PureSheet import
     const { PureSheet } = await import('../../src/index.ts');
-    
+
     let renderer = null;
-    
+
     // 100개 샘플 데이터 생성
     const names = ['김철수', '이영희', '박민수', '정수진', '최동현', '한지민', '강호동', '유재석', '신동엽', '송혜교'];
     const departments = ['Engineering', 'Marketing', 'Sales', 'HR', 'Finance'];
     const statuses = ['Active', 'Inactive', 'Pending'];
-    
+
     const sampleData = Array.from({ length: 100 }, (_, i) => ({
       id: i + 1,
       name: names[i % names.length] + (Math.floor(i / 10) || ''),
@@ -193,25 +197,25 @@ grid.<span class="function">collapseAllGroups</span>();</pre>
       salary: 50000 + Math.floor(Math.random() * 50000),
       joinDate: `202${Math.floor(i % 5)}-${String((i % 12) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}`
     }));
-    
+
     function updateStatus(message) {
       document.getElementById('status').textContent = message;
     }
-    
+
     function updateGroupStateDisplay() {
       const groupBy = document.getElementById('groupBySelect').value;
       const aggregate = document.getElementById('aggregateSelect').value;
-      
+
       const state = {
         columns: groupBy === 'none' ? [] : groupBy.split(','),
         aggregate: aggregate,
       };
-      
+
       document.getElementById('groupState').textContent = JSON.stringify(state, null, 2);
     }
-    
+
     // 그룹화 적용 (PureSheet.setGroupingConfig 사용)
-    window.applyGrouping = function() {
+    window.applyGrouping = function () {
       const groupBy = document.getElementById('groupBySelect').value;
       const aggregate = document.getElementById('aggregateSelect').value;
 
@@ -235,9 +239,9 @@ grid.<span class="function">collapseAllGroups</span>();</pre>
 
       updateGroupStateDisplay();
     };
-    
+
     // 모든 그룹 펼치기
-    window.expandAll = function() {
+    window.expandAll = function () {
       if (!renderer) return;
       const bodyRenderer = renderer;
       if (bodyRenderer) {
@@ -245,9 +249,9 @@ grid.<span class="function">collapseAllGroups</span>();</pre>
         updateStatus('모든 그룹 펼침');
       }
     };
-    
+
     // 모든 그룹 접기
-    window.collapseAll = function() {
+    window.collapseAll = function () {
       if (!renderer) return;
       const bodyRenderer = renderer;
       if (bodyRenderer) {
@@ -257,7 +261,7 @@ grid.<span class="function">collapseAllGroups</span>();</pre>
     };
 
     // 전체 선택
-    window.selectAllRows = function() {
+    window.selectAllRows = function () {
       if (!renderer) return;
       renderer.selectAll();
       updateSelectionCount();
@@ -265,7 +269,7 @@ grid.<span class="function">collapseAllGroups</span>();</pre>
     };
 
     // 선택 해제
-    window.clearSelection = function() {
+    window.clearSelection = function () {
       if (!renderer) return;
       renderer.clearSelection();
       updateSelectionCount();
@@ -280,34 +284,34 @@ grid.<span class="function">collapseAllGroups</span>();</pre>
 
       document.getElementById('selectionCount').textContent = `선택: ${rowCount}행`;
     }
-    
+
     // 필터 컬럼 변경 시 값 목록 업데이트
-    document.getElementById('filterColumnSelect').addEventListener('change', function() {
+    document.getElementById('filterColumnSelect').addEventListener('change', function () {
       const column = this.value;
       const valueSelect = document.getElementById('filterValueSelect');
-      
+
       if (!column) {
         valueSelect.innerHTML = '<option value="">값 선택</option>';
         valueSelect.disabled = true;
         clearFilter();
         return;
       }
-      
+
       // 해당 컬럼의 유니크 값 추출
       const uniqueValues = [...new Set(sampleData.map(row => row[column]))].sort();
-      
-      valueSelect.innerHTML = '<option value="">전체</option>' + 
+
+      valueSelect.innerHTML = '<option value="">전체</option>' +
         uniqueValues.map(v => `<option value="${v}">${v}</option>`).join('');
       valueSelect.disabled = false;
     });
-    
+
     // 필터 적용
-    window.applyFilter = async function() {
+    window.applyFilter = async function () {
       if (!renderer) return;
-      
+
       const column = document.getElementById('filterColumnSelect').value;
       const value = document.getElementById('filterValueSelect').value;
-      
+
       if (!column || !value) {
         await renderer.filter([]);
         updateStatus('필터 해제됨');
@@ -315,31 +319,31 @@ grid.<span class="function">collapseAllGroups</span>();</pre>
         await renderer.filter([{ columnKey: column, operator: 'eq', value }]);
         updateStatus(`필터 적용: ${column} = "${value}"`);
       }
-      
+
       // 그룹화가 설정되어 있으면 다시 적용
       applyGrouping();
     };
-    
+
     // 필터 해제
-    window.clearFilter = async function() {
+    window.clearFilter = async function () {
       document.getElementById('filterColumnSelect').value = '';
       document.getElementById('filterValueSelect').innerHTML = '<option value="">값 선택</option>';
       document.getElementById('filterValueSelect').disabled = true;
-      
+
       if (renderer) {
         await renderer.filter([]);
         updateStatus('필터 해제됨');
         applyGrouping();
       }
     };
-    
+
     // 정렬 적용
-    window.applySort = async function() {
+    window.applySort = async function () {
       if (!renderer) return;
-      
+
       const column = document.getElementById('sortColumnSelect').value;
       const direction = document.getElementById('sortDirectionSelect').value;
-      
+
       if (!column) {
         await renderer.sort([]);
         updateStatus('정렬 해제됨');
@@ -347,15 +351,15 @@ grid.<span class="function">collapseAllGroups</span>();</pre>
         await renderer.sort([{ columnKey: column, direction }]);
         updateStatus(`정렬 적용: ${column} ${direction === 'asc' ? '오름차순' : '내림차순'}`);
       }
-      
+
       // 그룹화가 설정되어 있으면 다시 적용
       applyGrouping();
     };
-    
+
     // 초기화
     async function init() {
       const container = document.getElementById('grid');
-      
+
       // 새로운 Config API: fields 사용
       const fields = [
         { key: 'id', header: 'ID', dataType: 'number', width: 60 },
@@ -365,13 +369,12 @@ grid.<span class="function">collapseAllGroups</span>();</pre>
         { key: 'salary', header: 'Salary', dataType: 'number', width: 120, aggregate: 'sum', formatter: (v) => '$' + (v?.toLocaleString() || '0') },
         { key: 'joinDate', header: 'Join Date', dataType: 'string', width: 120 },
       ];
-      
+
       // PureSheet 사용 (새 Config API)
       renderer = new PureSheet(container, {
         mode: 'flat',
         fields,
         data: sampleData,
-        columns: ['id', 'name', 'department', 'status', 'salary', 'joinDate'],
         rowHeight: 36,
         headerHeight: 40,
         resizableColumns: true,
@@ -402,8 +405,9 @@ grid.<span class="function">collapseAllGroups</span>();</pre>
       updateGroupStateDisplay();
       updateStatus('100개 행 로드 완료 - 그룹 헤더를 클릭하여 접기/펼치기');
     }
-    
+
     init().catch(console.error);
   </script>
 </body>
+
 </html>

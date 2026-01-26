@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
   <link rel="stylesheet" href="../shared/styles.css">
   <link rel="stylesheet" href="../../src/ui/style/default.css">
 </head>
+
 <body>
   <!-- 네비게이션 -->
   <nav class="demo-nav">
@@ -17,14 +19,16 @@
     <a href="merge.html" class="active">🔗 셀 병합</a>
     <a href="selection-modes.html">🎯 선택 모드</a>
     <a href="pivot.html">📊 피벗</a>
+    <a href="format-row.html">🎨 formatRow</a>
+    <a href="crud.html">✏️ CRUD</a>
   </nav>
-  
+
   <!-- 헤더 -->
   <div class="demo-header">
     <h1>🔗 셀 병합 (Cell Merging)</h1>
     <span class="badge badge-implemented">구현됨</span>
   </div>
-  
+
   <!-- 설명 -->
   <div class="demo-description">
     <p>
@@ -33,7 +37,7 @@
       병합 방식을 선택하고 어떤 컬럼을 병합할지 설정해보세요.
     </p>
   </div>
-  
+
   <div class="demo-container">
     <div class="toolbar">
       <div class="toolbar-group">
@@ -45,9 +49,9 @@
           <option value="custom">커스텀 병합</option>
         </select>
       </div>
-      
+
       <div class="toolbar-divider"></div>
-      
+
       <div class="toolbar-group">
         <label>병합 컬럼:</label>
         <select id="mergeColumnSelect" onchange="applyMerge()">
@@ -57,9 +61,9 @@
           <option value="all">모든 컬럼</option>
         </select>
       </div>
-      
+
       <div class="toolbar-divider"></div>
-      
+
       <div class="toolbar-group">
         <label>정렬:</label>
         <select id="sortSelect" onchange="applySort()">
@@ -70,14 +74,14 @@
         </select>
       </div>
     </div>
-    
+
     <div id="grid"></div>
-    
+
     <div class="status-bar" id="status">
       준비됨 - 병합 방식을 선택하세요
     </div>
   </div>
-  
+
   <!-- 코드 예제 -->
   <div class="code-example">
     <h3>API 사용법</h3>
@@ -101,7 +105,7 @@ grid.<span class="function">setMergeManager</span>(<span class="keyword">new</sp
 <span class="comment">// 4. 병합 해제</span>
 grid.<span class="function">setMergeManager</span>(<span class="keyword">null</span>);</pre>
   </div>
-  
+
   <!-- 병합 정보 -->
   <div class="info-panel">
     <h3>📊 병합 정보</h3>
@@ -111,7 +115,7 @@ grid.<span class="function">setMergeManager</span>(<span class="keyword">null</s
   "description": "같은 값을 가진 연속된 셀 병합"
 }</pre>
   </div>
-  
+
   <!-- 사용 팁 -->
   <div class="info-panel">
     <h3>💡 병합 방식 설명</h3>
@@ -121,19 +125,19 @@ grid.<span class="function">setMergeManager</span>(<span class="keyword">null</s
       <li><strong>커스텀 병합</strong>: 사용자 정의 함수로 병합 범위 직접 지정</li>
     </ul>
   </div>
-  
+
   <script type="module">
     // PureSheet import
     const { PureSheet, ContentMergeManager, HierarchicalMergeManager, CustomMergeManager } = await import('../../src/index.ts');
-    
+
     let grid = null;
     let currentData = [];
-    
+
     // 100개 샘플 데이터 생성 (부서별로 정렬됨)
     const names = ['김철수', '이영희', '박민수', '정수진', '최동현', '한지민', '강호동', '유재석', '신동엽', '송혜교'];
     const departments = ['Engineering', 'Engineering', 'Marketing', 'Marketing', 'Sales', 'Sales', 'HR', 'HR', 'Finance', 'Finance'];
     const statuses = ['Active', 'Active', 'Inactive', 'Active', 'Pending'];
-    
+
     // 병합 효과가 잘 보이도록 정렬된 데이터 생성
     currentData = [];
     departments.forEach((dept, deptIndex) => {
@@ -150,11 +154,11 @@ grid.<span class="function">setMergeManager</span>(<span class="keyword">null</s
         });
       }
     });
-    
+
     function updateStatus(message) {
       document.getElementById('status').textContent = message;
     }
-    
+
     function updateMergeInfoDisplay(type, columns) {
       const descriptions = {
         none: '병합 없음',
@@ -162,91 +166,91 @@ grid.<span class="function">setMergeManager</span>(<span class="keyword">null</s
         hierarchical: '상위 컬럼 범위 내에서 계층적 병합',
         custom: '커스텀 로직으로 병합 (예: 짝수 행끼리 병합)',
       };
-      
+
       const info = {
         type,
         columns: columns === 'all' ? ['department', 'status', 'salary', 'joinDate'] : columns.split(','),
         description: descriptions[type],
       };
-      
+
       document.getElementById('mergeInfo').textContent = JSON.stringify(info, null, 2);
     }
-    
+
     // 병합 적용
-    window.applyMerge = function() {
+    window.applyMerge = function () {
       const mergeType = document.getElementById('mergeTypeSelect').value;
       const columnValue = document.getElementById('mergeColumnSelect').value;
-      
+
       if (!grid) return;
-      
-      let columns = columnValue === 'all' 
-        ? ['department', 'status'] 
+
+      let columns = columnValue === 'all'
+        ? ['department', 'status']
         : columnValue.split(',');
-      
+
       switch (mergeType) {
         case 'none':
           grid.setMergeManager(null);
           updateStatus('병합 해제됨');
           break;
-          
+
         case 'content':
           grid.setMergeManager(new ContentMergeManager(columns));
           updateStatus(`같은 값 병합 적용: ${columns.join(', ')}`);
           break;
-          
+
         case 'hierarchical':
           grid.setMergeManager(new HierarchicalMergeManager(columns));
           updateStatus(`계층적 병합 적용: ${columns.join(' → ')}`);
           break;
-          
+
         case 'custom':
           // 커스텀 병합: 같은 부서 내에서 짝수 인덱스 행끼리 병합
           grid.setMergeManager(new CustomMergeManager((rowIndex, columnKey, data) => {
             if (columnKey !== 'department') return null;
-            
+
             const currentDept = data[rowIndex]?.department;
             if (!currentDept) return null;
-            
+
             // 같은 부서의 시작과 끝 찾기
             let startRow = rowIndex;
             let endRow = rowIndex;
-            
+
             while (startRow > 0 && data[startRow - 1]?.department === currentDept) {
               startRow--;
             }
             while (endRow < data.length - 1 && data[endRow + 1]?.department === currentDept) {
               endRow++;
             }
-            
+
             if (startRow === endRow) return null;
-            
+
             return { startRow, endRow, startCol: 0, endCol: 0 };
           }));
           updateStatus('커스텀 병합 적용: 부서별 전체 병합');
           break;
       }
-      
+
       updateMergeInfoDisplay(mergeType, columnValue);
     };
-    
+
     // 정렬 적용
-    window.applySort = async function() {
+    window.applySort = async function () {
       const sortBy = document.getElementById('sortSelect').value;
-      
+
       if (!grid) return;
-      
+
       await grid.sort([{ columnKey: sortBy, direction: 'asc' }]);
-      
+
       // 정렬 후 병합 다시 적용 (데이터 순서가 바뀌면 병합 범위도 바뀜)
       applyMerge();
-      
+
       updateStatus(`${sortBy} 기준 정렬 완료`);
     };
-    
+
     // 초기화
     async function init() {
       const container = document.getElementById('grid');
-      
+
       // 필드 정의
       const fields = [
         { key: 'id', header: 'ID', dataType: 'number', width: 60 },
@@ -256,29 +260,29 @@ grid.<span class="function">setMergeManager</span>(<span class="keyword">null</s
         { key: 'salary', header: 'Salary', dataType: 'number', width: 120, formatter: (v) => '$' + (v?.toLocaleString() || '0') },
         { key: 'joinDate', header: 'Join Date', dataType: 'string', width: 120 },
       ];
-      
+
       // PureSheet 생성
       grid = new PureSheet(container, {
         mode: 'flat',
         fields,
         data: currentData,
-        columns: ['id', 'name', 'department', 'status', 'salary', 'joinDate'],
         rowHeight: 36,
         headerHeight: 40,
         resizableColumns: true,
         theme: 'light',
       });
-      
+
       // 초기 정렬 (부서순)
       await grid.sort([{ columnKey: 'department', direction: 'asc' }]);
-      
+
       // 초기 병합 적용
       applyMerge();
-      
+
       updateStatus('100개 행 로드 완료 - 병합 방식을 선택하세요');
     }
-    
+
     init().catch(console.error);
   </script>
 </body>
+
 </html>

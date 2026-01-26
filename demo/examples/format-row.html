@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -119,7 +120,7 @@
       width: 20px;
       height: 20px;
       border-radius: 4px;
-      border: 1px solid rgba(0,0,0,0.1);
+      border: 1px solid rgba(0, 0, 0, 0.1);
     }
 
     @media (max-width: 1200px) {
@@ -129,6 +130,7 @@
     }
   </style>
 </head>
+
 <body>
   <!-- 네비게이션 -->
   <nav class="demo-nav">
@@ -140,6 +142,7 @@
     <a href="selection-modes.html">🎯 선택 모드</a>
     <a href="pivot.html">📊 피벗</a>
     <a href="format-row.html" class="active">🎨 formatRow</a>
+    <a href="crud.html">✏️ CRUD</a>
   </nav>
 
   <!-- 헤더 -->
@@ -534,7 +537,7 @@ grid.<span class="function">setFormatRow</span>(<span class="keyword">null</span
     // 이벤트 핸들러
     // =========================================================================
 
-    window.updateGrouping = function() {
+    window.updateGrouping = function () {
       if (!flatGrid) return;
 
       const groupSelect = document.getElementById('groupSelect');
@@ -548,7 +551,7 @@ grid.<span class="function">setFormatRow</span>(<span class="keyword">null</span
       }
     };
 
-    window.updatePivotValue = function() {
+    window.updatePivotValue = function () {
       if (!pivotGrid) return;
 
       const valueSelect = document.getElementById('valueSelect');
@@ -565,7 +568,7 @@ grid.<span class="function">setFormatRow</span>(<span class="keyword">null</span
       });
     };
 
-    window.addSampleRow = async function() {
+    window.addSampleRow = async function () {
       if (!flatGrid) return;
 
       const newRow = {
@@ -583,7 +586,7 @@ grid.<span class="function">setFormatRow</span>(<span class="keyword">null</span
         `행 추가됨 (ID: ${nextId}) - Dirty State: added`;
     };
 
-    window.modifySampleRow = async function() {
+    window.modifySampleRow = async function () {
       if (!flatGrid) return;
 
       // 첫 번째 행 수정
@@ -601,7 +604,7 @@ grid.<span class="function">setFormatRow</span>(<span class="keyword">null</span
     // formatRow 토글 상태
     let flatFormatRowEnabled = true;
 
-    window.toggleFlatFormatRow = function() {
+    window.toggleFlatFormatRow = function () {
       if (!flatGrid) return;
 
       flatFormatRowEnabled = !flatFormatRowEnabled;
@@ -620,7 +623,7 @@ grid.<span class="function">setFormatRow</span>(<span class="keyword">null</span
     // Pivot formatRow 토글 상태
     let pivotFormatRowEnabled = true;
 
-    window.togglePivotFormatRow = function() {
+    window.togglePivotFormatRow = function () {
       if (!pivotGrid) return;
 
       pivotFormatRowEnabled = !pivotFormatRowEnabled;
@@ -643,4 +646,5 @@ grid.<span class="function">setFormatRow</span>(<span class="keyword">null</span
     ]).catch(console.error);
   </script>
 </body>
+
 </html>

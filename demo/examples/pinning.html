@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -17,21 +18,25 @@
       gap: 32px;
       flex-wrap: wrap;
     }
+
     .preview-section {
       display: flex;
       align-items: center;
       gap: 8px;
     }
+
     .preview-label {
       font-size: 12px;
       color: var(--text-muted);
       font-weight: 500;
     }
+
     .preview-items {
       display: flex;
       gap: 6px;
       flex-wrap: wrap;
     }
+
     .preview-item {
       background: var(--bg);
       border: 1px dashed var(--border);
@@ -40,12 +45,29 @@
       font-size: 11px;
       color: var(--text-muted);
     }
-    .preview-item.top { border-color: #4CAF50; background: rgba(76, 175, 80, 0.1); }
-    .preview-item.bottom { border-color: #2196F3; background: rgba(33, 150, 243, 0.1); }
-    .preview-item.left { border-color: #FF9800; background: rgba(255, 152, 0, 0.1); }
-    .preview-item.right { border-color: #9C27B0; background: rgba(156, 39, 176, 0.1); }
+
+    .preview-item.top {
+      border-color: #4CAF50;
+      background: rgba(76, 175, 80, 0.1);
+    }
+
+    .preview-item.bottom {
+      border-color: #2196F3;
+      background: rgba(33, 150, 243, 0.1);
+    }
+
+    .preview-item.left {
+      border-color: #FF9800;
+      background: rgba(255, 152, 0, 0.1);
+    }
+
+    .preview-item.right {
+      border-color: #9C27B0;
+      background: rgba(156, 39, 176, 0.1);
+    }
   </style>
 </head>
+
 <body>
   <!-- 네비게이션 -->
   <nav class="demo-nav">
@@ -56,14 +78,16 @@
     <a href="merge.html">🔗 셀 병합</a>
     <a href="selection-modes.html">🎯 선택 모드</a>
     <a href="pivot.html">📊 피벗</a>
+    <a href="format-row.html">🎨 formatRow</a>
+    <a href="crud.html">✏️ CRUD</a>
   </nav>
-  
+
   <!-- 헤더 -->
   <div class="demo-header">
     <h1>📌 행/컬럼 고정 (Row & Column Pinning)</h1>
     <span class="badge badge-implemented">구현됨</span>
   </div>
-  
+
   <!-- 설명 -->
   <div class="demo-description">
     <p>
@@ -72,7 +96,7 @@
       <strong style="color: #4CAF50;">집계 행은 데이터 변경 시 자동으로 재계산됩니다!</strong>
     </p>
   </div>
-  
+
   <div class="demo-container">
     <!-- 현재 고정 상태 미리보기 -->
     <div class="preview-panel">
@@ -121,9 +145,9 @@
         <button onclick="addTopRow()" class="success">추가</button>
         <button onclick="clearTop()" class="secondary">제거</button>
       </div>
-      
+
       <div class="toolbar-divider"></div>
-      
+
       <div class="toolbar-group">
         <label>⬇️ 하단 행:</label>
         <select id="bottomRowType">
@@ -154,21 +178,21 @@
         <button onclick="pinColumnRight()" class="success">오른쪽 고정 →</button>
         <button onclick="unpinColumn()" class="secondary">고정 해제</button>
       </div>
-      
+
       <div class="toolbar-divider"></div>
-      
+
       <div class="toolbar-group">
         <button onclick="resetAll()" class="warning">전체 초기화</button>
       </div>
     </div>
-    
+
     <div id="grid"></div>
-    
+
     <div class="status-bar" id="status">
       준비됨 - 행과 컬럼을 고정해보세요
     </div>
   </div>
-  
+
   <!-- 현재 상태 -->
   <div class="info-panel">
     <h3>📊 현재 고정 상태</h3>
@@ -177,7 +201,7 @@
   "columns": { "left": ["id"], "right": [] }
 }</pre>
   </div>
-  
+
   <!-- 코드 예제 -->
   <div class="code-example">
     <h3>API 사용법</h3>
@@ -202,25 +226,25 @@ pureSheet.<span class="function">pinRowBottom</span>(totalRow);
 <span class="keyword">await</span> pureSheet.<span class="function">loadData</span>(newData);
 pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집계 행도 자동 재계산!</span></pre>
   </div>
-  
+
   <script type="module">
     const { PureSheet, Row } = await import('../../src/index.ts');
-    
+
     let renderer = null;
     let pinnedRowCounter = 0;
-    
+
     // 데이터 생성 웹 워커 (백그라운드에서 대량 데이터 생성)
     const dataWorker = new Worker(
       new URL('../dataWorker.ts', import.meta.url),
       { type: 'module' }
     );
-    
+
     // 워커 메시지 핸들러 (Promise로 래핑)
     function generateDataInWorker(count) {
       return new Promise((resolve) => {
         const handler = (event) => {
           const message = event.data;
-          
+
           if (message.type === 'progress') {
             updateStatus(`${count.toLocaleString()}개 데이터 생성 중... ${message.percent}%`);
           } else if (message.type === 'complete') {
@@ -228,31 +252,31 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
             resolve({ data: message.data, time: message.time });
           }
         };
-        
+
         dataWorker.addEventListener('message', handler);
         dataWorker.postMessage({ type: 'generate', count });
       });
     }
-    
+
     // 상태 추적
     let columnPinState = {
       leftPinned: ['id'],
       center: ['name', 'department', 'salary', 'bonus', 'performance'],
       rightPinned: []
     };
-    
+
     const columnHeaders = {
       id: 'ID', name: 'Name', department: 'Department',
       salary: 'Salary', bonus: 'Bonus', performance: 'Performance'
     };
-    
+
     function updateStatus(msg) {
       document.getElementById('status').textContent = msg;
     }
-    
+
     function updatePinStateDisplay() {
       const { top, bottom } = renderer ? renderer.getPinnedRows() : { top: [], bottom: [] };
-      
+
       const state = {
         rows: {
           top: top.map(r => r.variant),
@@ -265,13 +289,13 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
       };
       document.getElementById('pinState').textContent = JSON.stringify(state, null, 2);
     }
-    
+
     function updatePinnedPreview() {
       if (!renderer) return;
-      
+
       const { top, bottom } = renderer.getPinnedRows();
       const preview = document.getElementById('pinnedPreview');
-      
+
       if (top.length === 0 && bottom.length === 0) {
         preview.innerHTML = '<span class="preview-item" style="border-style: solid; opacity: 0.5;">없음</span>';
       } else {
@@ -282,7 +306,7 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
       }
       updatePinStateDisplay();
     }
-    
+
     function updateColumnPreview() {
       const preview = document.getElementById('columnPreview');
       if (columnPinState.leftPinned.length === 0 && columnPinState.rightPinned.length === 0) {
@@ -295,50 +319,50 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
       }
       updatePinStateDisplay();
     }
-    
+
     // 행 생성 함수들 - 새로운 팩토리 메서드 사용 (자동 재계산!)
     function createAggregateRow(type, position) {
       const id = `${type}-${position}-${++pinnedRowCounter}`;
-      
+
       // 집계 설정 - 데이터 변경 시 자동 재계산됨
       const aggregates = [
-        { 
-          columnKey: 'salary', 
+        {
+          columnKey: 'salary',
           func: type === 'count' ? 'count' : type === 'grandtotal' ? 'sum' : type,
           formatter: v => '$' + (v?.toLocaleString() || '0')
         },
-        { 
-          columnKey: 'bonus', 
+        {
+          columnKey: 'bonus',
           func: type === 'count' ? 'count' : type === 'grandtotal' ? 'sum' : type,
           formatter: v => '$' + (v?.toLocaleString() || '0')
         },
-        { 
-          columnKey: 'performance', 
+        {
+          columnKey: 'performance',
           func: type === 'count' ? 'count' : type === 'sum' || type === 'grandtotal' ? 'sum' : 'avg',
           formatter: v => (v?.toFixed?.(1) || v) + '%'
         },
       ];
-      
+
       const label = type === 'sum' ? '합계' : type === 'avg' ? '평균' : type === 'count' ? '개수' : '총합계';
-      
+
       // 팩토리 메서드 사용 (데이터 변경 시 자동 재계산!)
       if (type === 'grandtotal') {
-        return Row.createGrandTotalRow(aggregates, { 
-          id, 
+        return Row.createGrandTotalRow(aggregates, {
+          id,
           pinned: position,
           labelColumn: 'name',
           label: '총합계'
         });
       } else {
-        return Row.createSubtotalRow(aggregates, { 
-          id, 
+        return Row.createSubtotalRow(aggregates, {
+          id,
           pinned: position,
           labelColumn: 'name',
           label
         });
       }
     }
-    
+
     function createFilterRow(position) {
       return new Row({
         id: `filter-${position}-${++pinnedRowCounter}`,
@@ -367,7 +391,7 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
         },
       });
     }
-    
+
     function createCustomRow(position) {
       return new Row({
         id: `custom-${position}-${++pinnedRowCounter}`,
@@ -395,27 +419,27 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
         },
       });
     }
-    
+
     // 데이터 로드 함수 (웹 워커 사용)
-    window.loadData = async function(count) {
+    window.loadData = async function (count) {
       if (!renderer) return;
-      
+
       updateStatus(`${count.toLocaleString()}개 데이터 생성 중...`);
-      
+
       // 웹 워커에서 데이터 생성 (UI 블로킹 없음)
       const { data, time: genTime } = await generateDataInWorker(count);
-      
+
       updateStatus(`데이터 로드 중...`);
-      
+
       const loadStart = performance.now();
       await renderer.loadData(data);
       const loadTime = performance.now() - loadStart;
-      
+
       updateStatus(`${count.toLocaleString()}개 행 로드 완료 (생성: ${genTime.toFixed(0)}ms, 로드: ${loadTime.toFixed(0)}ms)`);
     };
-    
+
     // 행 고정 함수
-    window.addTopRow = function() {
+    window.addTopRow = function () {
       if (!renderer) return;
       const type = document.getElementById('topRowType').value;
       const row = type === 'filter' ? createFilterRow('top') : type === 'custom' ? createCustomRow('top') : createAggregateRow(type, 'top');
@@ -423,8 +447,8 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
       updatePinnedPreview();
       updateStatus(`상단에 ${type} 행 추가됨`);
     };
-    
-    window.addBottomRow = function() {
+
+    window.addBottomRow = function () {
       if (!renderer) return;
       const type = document.getElementById('bottomRowType').value;
       const row = type === 'custom' ? createCustomRow('bottom') : createAggregateRow(type, 'bottom');
@@ -432,23 +456,23 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
       updatePinnedPreview();
       updateStatus(`하단에 ${type} 행 추가됨`);
     };
-    
-    window.clearTop = function() {
+
+    window.clearTop = function () {
       if (!renderer) return;
       renderer.getPinnedRows().top.forEach(r => renderer.unpinRow(r.id));
       updatePinnedPreview();
       updateStatus('상단 고정 행 제거됨');
     };
-    
-    window.clearBottom = function() {
+
+    window.clearBottom = function () {
       if (!renderer) return;
       renderer.getPinnedRows().bottom.forEach(r => renderer.unpinRow(r.id));
       updatePinnedPreview();
       updateStatus('하단 고정 행 제거됨');
     };
-    
+
     // 컬럼 고정 함수
-    window.pinColumnLeft = function() {
+    window.pinColumnLeft = function () {
       const key = document.getElementById('columnSelect').value;
       columnPinState.leftPinned = columnPinState.leftPinned.filter(k => k !== key);
       columnPinState.center = columnPinState.center.filter(k => k !== key);
@@ -458,8 +482,8 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
       updateColumnPreview();
       updateStatus(`"${columnHeaders[key]}" 왼쪽 고정됨`);
     };
-    
-    window.pinColumnRight = function() {
+
+    window.pinColumnRight = function () {
       const key = document.getElementById('columnSelect').value;
       columnPinState.leftPinned = columnPinState.leftPinned.filter(k => k !== key);
       columnPinState.center = columnPinState.center.filter(k => k !== key);
@@ -469,8 +493,8 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
       updateColumnPreview();
       updateStatus(`"${columnHeaders[key]}" 오른쪽 고정됨`);
     };
-    
-    window.unpinColumn = function() {
+
+    window.unpinColumn = function () {
       const key = document.getElementById('columnSelect').value;
       if (!columnPinState.leftPinned.includes(key) && !columnPinState.rightPinned.includes(key)) {
         updateStatus(`"${columnHeaders[key]}" 컬럼은 고정되어 있지 않습니다`);
@@ -483,21 +507,21 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
       updateColumnPreview();
       updateStatus(`"${columnHeaders[key]}" 고정 해제됨`);
     };
-    
-    window.resetAll = function() {
+
+    window.resetAll = function () {
       if (renderer) renderer.clearPinnedRows();
-      
+
       const allCols = ['id', 'name', 'department', 'salary', 'bonus', 'performance'];
       allCols.forEach(k => renderer?.unpinColumn(k));
       columnPinState = { leftPinned: [], center: allCols, rightPinned: [] };
-      
+
       updatePinnedPreview();
       updateColumnPreview();
       updateStatus('모든 고정 상태 초기화됨');
     };
-    
+
     // 데이터 수정 함수들 (집계 자동 재계산 테스트용)
-    window.randomizeSalaries = async function() {
+    window.randomizeSalaries = async function () {
       if (!renderer) return;
       // 모든 급여를 랜덤하게 변경
       const currentData = [...renderer.getAllData()];
@@ -506,13 +530,13 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
         salary: 30000 + Math.floor(Math.random() * 70000),
         bonus: 500 + Math.floor(Math.random() * 15000),
       }));
-      
+
       await renderer.loadData(newData);
-      
+
       updateStatus('급여 랜덤화 완료 - 집계 값 자동 업데이트됨!');
     };
-    
-    window.addRandomRow = async function() {
+
+    window.addRandomRow = async function () {
       if (!renderer) return;
       const currentData = [...renderer.getAllData()];
       const newId = currentData.length + 1;
@@ -526,57 +550,52 @@ pureSheet.<span class="function">refresh</span>();  <span class="comment">// 집
         bonus: 1000 + Math.floor(Math.random() * 9000),
         performance: Math.floor(Math.random() * 100),
       };
-      
+
       currentData.push(newRow);
       await renderer.loadData(currentData);
-      
+
       updateStatus(`행 추가됨 (ID: ${newId}) - 집계 값 자동 업데이트!`);
     };
-    
+
     // 초기화
     async function init() {
       const container = document.getElementById('grid');
-      
+
       // 새 Config API: fields 사용
       const fields = [
-        { key: 'id', header: 'ID', dataType: 'number', width: 60 },
+        { key: 'id', header: 'ID', dataType: 'number', width: 60, pinned: 'left' },
         { key: 'name', header: 'Name', dataType: 'string', width: 150 },
         { key: 'department', header: 'Department', dataType: 'string', width: 120 },
         { key: 'salary', header: 'Salary', dataType: 'number', width: 120, aggregate: 'sum', formatter: v => '$' + (v?.toLocaleString() || '0') },
         { key: 'bonus', header: 'Bonus', dataType: 'number', width: 100, aggregate: 'sum', formatter: v => '$' + (v?.toLocaleString() || '0') },
         { key: 'performance', header: 'Performance', dataType: 'number', width: 100, aggregate: 'avg', formatter: v => v + '%' },
       ];
-      
+
       // PureSheet 사용 (새 Config API)
       renderer = new PureSheet(container, {
         mode: 'flat',
         fields,
-        columns: ['id', 'name', 'department', 'salary', 'bonus', 'performance'],
-        pinned: {
-          left: ['id'],
-          right: [],
-        },
-        rowHeight: 36, 
-        headerHeight: 40, 
-        resizableColumns: true, 
+        rowHeight: 36,
+        headerHeight: 40,
+        resizableColumns: true,
         reorderableColumns: true,
         selectionMode: 'all',
         multiSelect: true,
-        theme: 'light' 
+        theme: 'light'
       });
-      
+
       // 초기 데이터 로드 (1,000개)
       await loadData(1000);
-      
+
       // 기본 하단 합계 행 추가
       renderer.pinRowBottom(createAggregateRow('sum', 'bottom'));
-      
+
       updatePinnedPreview();
       updateColumnPreview();
     }
-    
+
     init().catch(console.error);
   </script>
 </body>
-</html>
 
+</html>

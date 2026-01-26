@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -15,13 +16,13 @@
       margin-bottom: 16px;
       font-size: 14px;
     }
-    
+
     .layout-info code {
       background: #e8e8e8;
       padding: 2px 6px;
       border-radius: 3px;
     }
-    
+
     /* 레이아웃 다이어그램 */
     .layout-diagram {
       display: flex;
@@ -29,40 +30,42 @@
       margin-top: 20px;
       flex-wrap: wrap;
     }
-    
+
     .diagram-item {
       flex: 1;
       min-width: 300px;
     }
-    
+
     .diagram-item h4 {
       margin-bottom: 12px;
       font-size: 14px;
       color: #666;
     }
-    
+
     .diagram-table {
       width: 100%;
       border-collapse: collapse;
       font-size: 13px;
     }
-    
-    .diagram-table td, .diagram-table th {
+
+    .diagram-table td,
+    .diagram-table th {
       border: 1px solid #ccc;
       padding: 8px 12px;
       text-align: center;
     }
-    
+
     .diagram-table th {
       background: #f0f0f0;
       font-weight: 500;
     }
-    
+
     .diagram-table .span-cell {
       background: #e3f2fd;
     }
   </style>
 </head>
+
 <body>
   <!-- 네비게이션 -->
   <nav class="demo-nav">
@@ -73,14 +76,16 @@
     <a href="merge.html">🔗 셀 병합</a>
     <a href="selection-modes.html">🎯 선택 모드</a>
     <a href="pivot.html">📊 피벗</a>
+    <a href="format-row.html">🎨 formatRow</a>
+    <a href="crud.html">✏️ CRUD</a>
   </nav>
-  
+
   <!-- 헤더 -->
   <div class="demo-header">
     <h1>📑 Multi-Row 레이아웃</h1>
     <span class="badge badge-success">구현됨</span>
   </div>
-  
+
   <!-- 설명 -->
   <div class="demo-description">
     <p>
@@ -89,7 +94,7 @@
       <code>rowTemplate</code>에서 <code>colSpan</code>과 <code>rowSpan</code>을 지정하여 셀 병합도 가능합니다.
     </p>
   </div>
-  
+
   <div class="demo-container">
     <div class="toolbar">
       <div class="toolbar-group">
@@ -98,19 +103,19 @@
         <button onclick="applyNormalLayout()" class="secondary">단일 행 (기본)</button>
       </div>
     </div>
-    
+
     <div class="layout-info" id="layoutInfo">
       현재 레이아웃: <code>레이아웃 1 (2줄)</code> - ID와 Salary가 rowSpan=2, Email이 colSpan=2 (5개 그리드 컬럼)
     </div>
-    
+
     <!-- 그리드 영역 -->
     <div id="grid" style="height: 500px;"></div>
-    
+
     <div class="status-bar" id="status">
       100개 데이터 로드됨
     </div>
   </div>
-  
+
   <!-- 레이아웃 다이어그램 -->
   <div class="info-panel">
     <h3>📐 레이아웃 구조</h3>
@@ -131,7 +136,7 @@
           </tr>
         </table>
       </div>
-      
+
       <div class="diagram-item">
         <h4>레이아웃 2: 3줄 레이아웃</h4>
         <table class="diagram-table">
@@ -151,7 +156,7 @@
       </div>
     </div>
   </div>
-  
+
   <!-- 코드 예제 -->
   <div class="code-example">
     <h3>API 사용법 (새 Config API)</h3>
@@ -184,10 +189,10 @@
   },
 });</pre>
   </div>
-  
+
   <script type="module">
     import { PureSheet } from '../../src/index.ts';
-    
+
     // 새 Config API: fields 사용
     const fields = [
       { key: 'id', header: 'ID', dataType: 'number', width: 60 },
@@ -198,7 +203,7 @@
       { key: 'salary', header: 'Salary', dataType: 'string', width: 100 },
       { key: 'joinDate', header: 'Join Date', dataType: 'string', width: 100 },
     ];
-    
+
     // 레이아웃 정의
     // 
     // Multi-Row 레이아웃은 CSS Grid 기반입니다.
@@ -230,7 +235,7 @@
         ],
       ],
     };
-    
+
     // 레이아웃 2: 4개 그리드 컬럼
     // ┌────┬─────────────────────┬──────────┐
     // │    │   Name (colSpan=2)  │  Email   │  <- Row 1
@@ -260,12 +265,12 @@
         ],
       ],
     };
-    
+
     // 샘플 데이터 생성
     const names = ['김철수', '이영희', '박민수', '정수진', '최동현', '한지민', '강호동', '유재석', '신동엽', '송혜교'];
     const depts = ['Engineering', 'Marketing', 'Sales', 'HR', 'Finance'];
     const statuses = ['Active', 'Inactive', 'Pending'];
-    
+
     const sampleData = Array.from({ length: 100 }, (_, i) => ({
       id: i + 1,
       name: names[i % names.length] + (Math.floor(i / 10) || ''),
@@ -275,54 +280,54 @@
       salary: `$${(50000 + Math.floor(Math.random() * 50000)).toLocaleString()}`,
       joinDate: `202${Math.floor(i % 5)}-${String((i % 12) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}`
     }));
-    
+
     // PureSheet 초기화
     let renderer = null;
     const gridContainer = document.getElementById('grid');
-    
+
     async function createRenderer(rowTemplate) {
       // 기존 렌더러 제거
       if (renderer) {
         renderer.destroy();
       }
-      
+
       // 새 PureSheet 생성 (새 Config API)
       renderer = new PureSheet(gridContainer, {
         mode: 'flat',
         fields,
         data: sampleData,
-        columns: ['id', 'name', 'email', 'dept', 'status', 'salary', 'joinDate'],
         rowHeight: 36,
         rowTemplate: rowTemplate || undefined,
       });
     }
-    
+
     // 레이아웃 1 적용
-    window.applyLayout1 = async function() {
+    window.applyLayout1 = async function () {
       await createRenderer(layout1);
-      document.getElementById('layoutInfo').innerHTML = 
+      document.getElementById('layoutInfo').innerHTML =
         '현재 레이아웃: <code>레이아웃 1 (2줄)</code> - ID와 Salary가 rowSpan=2, Email이 colSpan=2';
       document.getElementById('status').textContent = '레이아웃 1 적용됨 (2줄 레이아웃)';
     };
-    
+
     // 레이아웃 2 적용
-    window.applyLayout2 = async function() {
+    window.applyLayout2 = async function () {
       await createRenderer(layout2);
-      document.getElementById('layoutInfo').innerHTML = 
+      document.getElementById('layoutInfo').innerHTML =
         '현재 레이아웃: <code>레이아웃 2 (3줄)</code> - ID가 rowSpan=3, 각 줄에 colSpan 적용';
       document.getElementById('status').textContent = '레이아웃 2 적용됨 (3줄 레이아웃)';
     };
-    
+
     // 일반 레이아웃 적용
-    window.applyNormalLayout = async function() {
+    window.applyNormalLayout = async function () {
       await createRenderer(null);
-      document.getElementById('layoutInfo').innerHTML = 
+      document.getElementById('layoutInfo').innerHTML =
         '현재 레이아웃: <code>단일 행 (기본)</code> - 일반 그리드 레이아웃';
       document.getElementById('status').textContent = '단일 행 레이아웃 적용됨';
     };
-    
+
     // 초기 렌더링
     await createRenderer(layout1);
   </script>
 </body>
+
 </html>
