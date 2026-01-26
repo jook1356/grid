@@ -532,6 +532,12 @@ export class BodyRenderer {
       this.mergeManager.invalidateCache();
     }
 
+    // 컬럼 정의 최신화 (피벗 등 동적 컬럼 변경 대응)
+    this.columnDefs.clear();
+    for (const col of this.gridCore.getColumns()) {
+      this.columnDefs.set(col.key, col);
+    }
+
     // VirtualRowBuilder 캐시 무효화
     // 데이터 변경 시 (특히 피벗 설정 변경 시) 캐시된 VirtualRows가
     // 이전 데이터를 참조하는 것을 방지
@@ -1260,9 +1266,15 @@ export class BodyRenderer {
       const offsetY = this.virtualScroller.getRowOffsetInChunk(rowIndex);
 
       // Row 인스턴스 생성 (Row는 데이터만 보유, MultiRowRenderer가 스타일링)
+      // __pivotType에 따라 variant 결정
+      const pivotType = (virtualRow.data as Record<string, unknown>)['__pivotType'] as string | undefined;
+      const variant = pivotType === 'subtotal' ? 'subtotal'
+        : pivotType === 'grandtotal' ? 'grandtotal'
+          : 'data';
+
       const row = new Row({
-        structural: false,
-        variant: 'data',
+        structural: pivotType === 'subtotal' || pivotType === 'grandtotal',
+        variant,
         data: virtualRow.data as Record<string, unknown>,
       });
 
@@ -1455,10 +1467,29 @@ export class BodyRenderer {
     rowElement.style.setProperty('--ps-group-indent', `${indentLevel * 20}px`);
 
     // Row 인스턴스 생성
+    // __pivotType에 따라 variant 결정 (피벗 부분합/총합계)
+    const pivotType = (rowData as Record<string, unknown>)['__pivotType'] as
+      | string
+      | undefined;
+
+    // FIX: 피벗 행도 값 렌더링을 위해 'data' variant 사용
+    // PivotProcessor가 이미 값을 계산해서 rowData에 넣어두었으므로,
+    // renderAggregate 대신 renderData를 사용하여 그 값을 그대로 표시해야 함
+    const variant = 'data';
+
+    // 스타일을 위한 클래스 추가
+    let className = '';
+    if (pivotType === 'subtotal') {
+      className = 'ps-row-subtotal';
+    } else if (pivotType === 'grandtotal') {
+      className = 'ps-row-grandtotal';
+    }
+
     const row = new Row({
-      structural: false,
-      variant: 'data',
+      structural: pivotType === 'subtotal' || pivotType === 'grandtotal',
+      variant,
       data: rowData as Record<string, unknown>,
+      className, // 생성자로 전달
     });
 
     // 렌더링 컨텍스트 완성

@@ -501,7 +501,7 @@ export class Row {
     let hasMergeAnchor = false;
 
     // 그룹 헤더 콘텐츠가 남아있으면 제거 (ps-group-toggle 등)
-    const hasNonCellContent = container.firstChild && 
+    const hasNonCellContent = container.firstChild &&
       !(container.firstChild as HTMLElement).classList?.contains('ps-cell');
     if (hasNonCellContent) {
       container.innerHTML = '';
@@ -582,6 +582,16 @@ export class Row {
       const displayValue = this.formatCellValue(value, colDef);
       cell.textContent = displayValue;
       cell.title = displayValue; // 툴팁
+
+      // 피벗 열 소계/총합계 스타일 클래스 추가
+      // 재사용을 위해 기존 클래스 제거
+      cell.classList.remove('ps-cell-column-subtotal', 'ps-cell-column-grandtotal');
+
+      if (colDef?.pivotType === 'subtotal') {
+        cell.classList.add('ps-cell-column-subtotal');
+      } else if (colDef?.pivotType === 'grandtotal') {
+        cell.classList.add('ps-cell-column-grandtotal');
+      }
     }
 
     return hasMergeAnchor;

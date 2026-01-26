@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
   <link rel="stylesheet" href="../shared/styles.css">
   <link rel="stylesheet" href="../../src/ui/style/default.css">
 </head>
+
 <body>
   <!-- 네비게이션 -->
   <nav class="demo-nav">
@@ -18,13 +20,13 @@
     <a href="selection-modes.html">🎯 선택 모드</a>
     <a href="pivot.html" class="active">📊 피벗</a>
   </nav>
-  
+
   <!-- 헤더 -->
   <div class="demo-header">
     <h1>📊 피벗 그리드 (Pivot Grid)</h1>
     <span class="badge badge-implemented">구현됨</span>
   </div>
-  
+
   <!-- 설명 -->
   <div class="demo-description">
     <p>
@@ -33,7 +35,7 @@
       다중 레벨 컬럼 헤더가 자동으로 생성됩니다.
     </p>
   </div>
-  
+
   <div class="demo-container">
     <div class="toolbar">
       <div class="toolbar-group">
@@ -49,47 +51,91 @@
           <option value="5000000">500만건</option>
         </select>
       </div>
-      
+
       <div class="toolbar-divider"></div>
-      
+
       <div class="toolbar-group">
         <label>행 축:</label>
         <select id="rowFieldSelect" onchange="updatePivot()">
           <option value="product" selected>제품</option>
           <option value="region">지역</option>
           <option value="product,region">제품 → 지역</option>
+          <option value="segment,product">세그먼트 → 제품</option>
+          <option value="product,region,segment">제품 → 지역 → 세그먼트</option>
         </select>
       </div>
-      
+
       <div class="toolbar-divider"></div>
-      
+
       <div class="toolbar-group">
         <label>열 축:</label>
         <select id="columnFieldSelect" onchange="updatePivot()">
           <option value="month" selected>월</option>
           <option value="quarter">분기</option>
           <option value="quarter,month">분기 → 월</option>
+          <option value="segment,quarter">세그먼트 → 분기</option>
+          <option value="quarter,month,segment">분기 → 월 → 세그먼트</option>
         </select>
       </div>
-      
+
       <div class="toolbar-divider"></div>
-      
+
       <div class="toolbar-group">
         <label>값:</label>
         <select id="valueFieldSelect" onchange="updatePivot()">
           <option value="sales" selected>판매량</option>
           <option value="profit">수익</option>
+          <option value="satisfaction">만족도 (평균)</option>
           <option value="sales,profit">판매량 + 수익</option>
         </select>
       </div>
-      
+
       <div class="toolbar-divider"></div>
-      
+
       <div class="toolbar-group">
         <button onclick="resetPivot()">🔄 초기화</button>
       </div>
     </div>
-    
+
+    <!-- 부분합/총합계 툴바 -->
+    <div class="toolbar" style="border-top: none; padding-top: 0;">
+      <div class="toolbar-group">
+        <label>📊 행 합계:</label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="showRowSubTotals" onchange="toggleRowSubTotals()">
+          소계
+        </label>
+        <select id="rowSubTotalFields" onchange="updatePivot()" multiple class="multi-select" disabled
+          title="소계 체크 시 활성화">
+          <option value="product">제품</option>
+          <option value="region">지역</option>
+        </select>
+        <label class="checkbox-label">
+          <input type="checkbox" id="showRowGrandTotals" onchange="updatePivot()">
+          총합계
+        </label>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <div class="toolbar-group">
+        <label>📈 열 합계:</label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="showColumnSubTotals" onchange="toggleColumnSubTotals()">
+          소계
+        </label>
+        <select id="columnSubTotalFields" onchange="updatePivot()" multiple class="multi-select" disabled
+          title="소계 체크 시 활성화">
+          <option value="quarter">분기</option>
+          <option value="month">월</option>
+        </select>
+        <label class="checkbox-label">
+          <input type="checkbox" id="showColumnGrandTotals" onchange="updatePivot()">
+          총합계
+        </label>
+      </div>
+    </div>
+
     <!-- 필터/정렬 툴바 -->
     <div class="toolbar" style="border-top: none; padding-top: 0;">
       <div class="toolbar-group">
@@ -99,15 +145,16 @@
           <option value="product">제품</option>
           <option value="region">지역</option>
           <option value="quarter">분기</option>
+          <option value="segment">세그먼트</option>
         </select>
         <select id="filterValueSelect" onchange="applyFilter()" disabled>
           <option value="">값 선택</option>
         </select>
         <button onclick="clearFilter()" class="secondary" style="padding: 4px 8px;">✕</button>
       </div>
-      
+
       <div class="toolbar-divider"></div>
-      
+
       <div class="toolbar-group">
         <label>↕️ 정렬:</label>
         <select id="sortColumnSelect" onchange="applySort()">
@@ -116,29 +163,31 @@
           <option value="region">지역</option>
           <option value="month">월</option>
           <option value="quarter">분기</option>
+          <option value="segment">세그먼트</option>
           <option value="sales">판매량</option>
           <option value="profit">수익</option>
+          <option value="satisfaction">만족도</option>
         </select>
         <select id="sortDirectionSelect" onchange="applySort()">
           <option value="asc">오름차순 ↑</option>
           <option value="desc">내림차순 ↓</option>
         </select>
       </div>
-      
+
       <div class="toolbar-divider"></div>
-      
+
       <div class="toolbar-group" id="filterSortStatus" style="color: #666; font-size: 12px;">
         필터/정렬 없음
       </div>
     </div>
-    
+
     <div id="grid" style="height: 500px;"></div>
-    
+
     <div class="status-bar" id="status">
       초기화 중...
     </div>
   </div>
-  
+
   <!-- 코드 예제 -->
   <div class="code-example">
     <h3>API 사용법 (Pivot 모드 + 필터/정렬)</h3>
@@ -184,7 +233,7 @@
 <span class="comment">// 필터와 정렬은 피벗 연산 전에 적용됩니다.</span>
 <span class="comment">// 필터링된 데이터만 피벗 결과에 포함됩니다.</span></pre>
   </div>
-  
+
   <!-- 데이터 정보 -->
   <div class="info-panel">
     <h3>📋 샘플 데이터 구조</h3>
@@ -194,10 +243,12 @@
           <tr>
             <th>month</th>
             <th>quarter</th>
+            <th>segment</th>
             <th>product</th>
             <th>region</th>
             <th>sales</th>
             <th>profit</th>
+            <th>satisfaction</th>
           </tr>
         </thead>
         <tbody id="dataPreview">
@@ -206,64 +257,72 @@
       </table>
     </div>
   </div>
-  
+
   <script type="module">
     import { PureSheet } from '../../src/index.ts';
-    
+
     let sheet = null;
     let sampleData = [];
-    
+
     // 기본 데이터 배열
     const months = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
     const quarters = ['Q1', 'Q1', 'Q1', 'Q2', 'Q2', 'Q2', 'Q3', 'Q3', 'Q3', 'Q4', 'Q4', 'Q4'];
     const products = ['노트북', '스마트폰', '태블릿', '모니터', '키보드', '마우스', '헤드폰', '스피커', '웹캠', '프린터'];
     const regions = ['서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종'];
-    
+    const segments = ['기업', '소비자', '홈오피스'];
+
     // 데이터 생성 함수
     function generateData(targetCount) {
       const startTime = performance.now();
       updateStatus(`데이터 생성 중... (목표: ${targetCount.toLocaleString()}건)`);
-      
+
       const data = [];
       let id = 1;
-      
-      // 기본 조합 수: products × regions × months = 10 × 8 × 12 = 960
-      const baseComboCount = products.length * regions.length * months.length;
-      
+
+      // 기본 조합 수: products × regions × months × segments
+      const baseComboCount = products.length * regions.length * months.length * segments.length;
+
       // 필요한 반복 수 계산
       const iterations = Math.ceil(targetCount / baseComboCount);
-      
+
       for (let iter = 0; iter < iterations && data.length < targetCount; iter++) {
         for (const product of products) {
           if (data.length >= targetCount) break;
           for (const region of regions) {
             if (data.length >= targetCount) break;
-            for (let i = 0; i < months.length; i++) {
+            for (const segment of segments) {
               if (data.length >= targetCount) break;
-              
-              const baseSales = Math.floor(Math.random() * 100) + 50;
-              const baseProfit = Math.floor(baseSales * (Math.random() * 0.3 + 0.1));
-              
-              data.push({
-                id: id++,
-                month: months[i],
-                quarter: quarters[i],
-                product,
-                region,
-                sales: baseSales,
-                profit: baseProfit,
-              });
+              for (let i = 0; i < months.length; i++) {
+                if (data.length >= targetCount) break;
+
+                const baseSales = Math.floor(Math.random() * 100) + 50;
+                const baseProfit = Math.floor(baseSales * (Math.random() * 0.3 + 0.1));
+                // 만족도: 1.0 ~ 5.0 (소수점 1자리)
+                const baseSatisfaction = parseFloat((Math.random() * 4 + 1).toFixed(1));
+
+                data.push({
+                  id: id++,
+                  month: months[i],
+                  quarter: quarters[i],
+                  product,
+                  region,
+                  segment,
+                  sales: baseSales,
+                  profit: baseProfit,
+                  satisfaction: baseSatisfaction,
+                });
+              }
             }
           }
         }
       }
-      
+
       const duration = performance.now() - startTime;
       console.log(`데이터 생성 완료: ${data.length.toLocaleString()}건 (${duration.toFixed(0)}ms)`);
-      
+
       return data;
     }
-    
+
     // 데이터 미리보기 표시
     function showDataPreview() {
       const tbody = document.getElementById('dataPreview');
@@ -271,56 +330,99 @@
         <tr>
           <td>${row.month}</td>
           <td>${row.quarter}</td>
+          <td>${row.segment}</td>
           <td>${row.product}</td>
           <td>${row.region}</td>
           <td>${row.sales}</td>
           <td>${row.profit}</td>
+          <td>${row.satisfaction}</td>
         </tr>
-      `).join('') + '<tr><td colspan="6">... (총 ' + sampleData.length.toLocaleString() + '행)</td></tr>';
+      `).join('') + '<tr><td colspan="8">... (총 ' + sampleData.length.toLocaleString() + '행)</td></tr>';
     }
-    
+
     // 상태 업데이트
     function updateStatus(message) {
       document.getElementById('status').textContent = message;
     }
-    
+
     // 피벗 설정 파싱
     function parsePivotConfig() {
       const rowFieldSelect = document.getElementById('rowFieldSelect');
       const columnFieldSelect = document.getElementById('columnFieldSelect');
       const valueFieldSelect = document.getElementById('valueFieldSelect');
-      
+
+      // 부분합/총합계 옵션
+      const showRowSubTotals = document.getElementById('showRowSubTotals').checked;
+      const showRowGrandTotals = document.getElementById('showRowGrandTotals').checked;
+      const showColumnSubTotals = document.getElementById('showColumnSubTotals').checked;
+      const showColumnGrandTotals = document.getElementById('showColumnGrandTotals').checked;
+
+      // 소계 필드 선택 (선택된 옵션들)
+      const rowSubTotalFieldsSelect = document.getElementById('rowSubTotalFields');
+      const rowSubTotalFields = Array.from(rowSubTotalFieldsSelect.selectedOptions).map(opt => opt.value);
+
+      const columnSubTotalFieldsSelect = document.getElementById('columnSubTotalFields');
+      const columnSubTotalFields = Array.from(columnSubTotalFieldsSelect.selectedOptions).map(opt => opt.value);
+
       return {
         rowFields: rowFieldSelect.value.split(','),
         columnFields: columnFieldSelect.value.split(','),
-        valueFields: valueFieldSelect.value.split(',').map(field => ({
-          field,
-          aggregate: 'sum',
-          header: field === 'sales' ? '판매량' : '수익',
-        })),
+        valueFields: valueFieldSelect.value.split(',').map(field => {
+          const isSatisfaction = field === 'satisfaction';
+          return {
+            field,
+            aggregate: isSatisfaction ? 'avg' : 'sum',
+            header: field === 'sales' ? '판매량' : (isSatisfaction ? '만족도' : '수익'),
+            formatter: isSatisfaction ? (v) => Number(v ?? 0).toFixed(1) : undefined
+          };
+        }),
+        showRowSubTotals,
+        showRowGrandTotals,
+        showColumnSubTotals,
+        showColumnGrandTotals,
+        rowSubTotalFields: showRowSubTotals ? rowSubTotalFields : undefined,
+        columnSubTotalFields: showColumnSubTotals ? columnSubTotalFields : undefined,
       };
     }
-    
+
+    // 행 소계 토글
+    window.toggleRowSubTotals = function () {
+      const checkbox = document.getElementById('showRowSubTotals');
+      const select = document.getElementById('rowSubTotalFields');
+      select.disabled = !checkbox.checked;
+      updatePivot();
+    };
+
+    // 열 소계 토글
+    window.toggleColumnSubTotals = function () {
+      const checkbox = document.getElementById('showColumnSubTotals');
+      const select = document.getElementById('columnSubTotalFields');
+      select.disabled = !checkbox.checked;
+      updatePivot();
+    };
+
     // 피벗 그리드 초기화
     async function initPivotGrid() {
       const container = document.getElementById('grid');
-      
+
       // 초기 데이터 생성
       const dataCount = parseInt(document.getElementById('dataCountSelect').value);
       sampleData = generateData(dataCount);
       showDataPreview();
-      
+
       const fields = [
         { key: 'month', header: '월', dataType: 'string' },
         { key: 'quarter', header: '분기', dataType: 'string' },
+        { key: 'segment', header: '세그먼트', dataType: 'string' },
         { key: 'product', header: '제품', dataType: 'string' },
         { key: 'region', header: '지역', dataType: 'string' },
         { key: 'sales', header: '판매량', dataType: 'number', aggregate: 'sum' },
         { key: 'profit', header: '수익', dataType: 'number', aggregate: 'sum' },
+        { key: 'satisfaction', header: '만족도', dataType: 'number', aggregate: 'avg' },
       ];
-      
+
       const pivotConfig = parsePivotConfig();
-      
+
       sheet = new PureSheet(container, {
         mode: 'pivot',
         fields,
@@ -331,83 +433,117 @@
         headerStyle: 'height: 40px;',
         theme: 'light',
       });
-      
+
       // 데이터 먼저 로드 (피벗 연산 전에 데이터가 필요)
       await sheet.loadData(sampleData);
-      
+
       // 데이터 로드 후 피벗 설정 적용
       await sheet.setPivotConfig(pivotConfig);
-      
+
       updateStatus(`피벗 완료 - ${sampleData.length.toLocaleString()}개 원본 데이터 → ${sheet.getVisibleRowCount()}개 피벗 행`);
     }
-    
+
     // 데이터 재생성
-    window.regenerateData = async function() {
+    window.regenerateData = async function () {
       if (!sheet) return;
-      
+
       const dataCount = parseInt(document.getElementById('dataCountSelect').value);
-      
+
       // 대용량 데이터 경고
       if (dataCount >= 1000000) {
         updateStatus(`⚠️ ${(dataCount / 1000000).toFixed(0)}백만건 데이터 생성 중... 잠시 기다려주세요.`);
         // UI 업데이트를 위해 짧은 지연
         await new Promise(resolve => setTimeout(resolve, 50));
       }
-      
+
       const startTime = performance.now();
-      
+
       sampleData = generateData(dataCount);
       showDataPreview();
-      
+
       const genTime = performance.now() - startTime;
       updateStatus(`데이터 생성 완료 (${genTime.toFixed(0)}ms) - 피벗 계산 중...`);
-      
+
       // UI 업데이트를 위해 짧은 지연
       await new Promise(resolve => setTimeout(resolve, 50));
-      
+
       const pivotStart = performance.now();
       await sheet.loadData(sampleData);
-      
+
       const pivotConfig = parsePivotConfig();
       await sheet.setPivotConfig(pivotConfig);
-      
+
       const pivotTime = performance.now() - pivotStart;
       const totalTime = performance.now() - startTime;
-      
+
       updateStatus(`완료 - ${sampleData.length.toLocaleString()}건 → ${sheet.getVisibleRowCount()}행 (생성: ${genTime.toFixed(0)}ms, 피벗: ${pivotTime.toFixed(0)}ms, 총: ${totalTime.toFixed(0)}ms)`);
     };
-    
+
+    // 소계 필드 옵션 업데이트
+    function updateSubtotalFieldOptions() {
+      // 행 소계 필드 옵션 업데이트
+      const rowFields = document.getElementById('rowFieldSelect').value.split(',');
+      const rowSubTotalSelect = document.getElementById('rowSubTotalFields');
+      rowSubTotalSelect.innerHTML = rowFields.map(field => {
+        const label = field === 'product' ? '제품' : field === 'region' ? '지역' : field === 'segment' ? '세그먼트' : field;
+        return `<option value="${field}">${label}</option>`;
+      }).join('');
+
+      // 열 소계 필드 옵션 업데이트
+      const columnFields = document.getElementById('columnFieldSelect').value.split(',');
+      const columnSubTotalSelect = document.getElementById('columnSubTotalFields');
+      columnSubTotalSelect.innerHTML = columnFields.map(field => {
+        const label = field === 'quarter' ? '분기' : field === 'month' ? '월' : field === 'segment' ? '세그먼트' : field;
+        return `<option value="${field}">${label}</option>`;
+      }).join('');
+    }
+
     // 피벗 업데이트
-    window.updatePivot = async function() {
+    window.updatePivot = async function () {
       if (!sheet) return;
-      
+
+      // 소계 필드 옵션 동기화
+      updateSubtotalFieldOptions();
+
       const pivotConfig = parsePivotConfig();
       updateStatus('피벗 계산 중...');
-      
+
       try {
         await sheet.setPivotConfig(pivotConfig);
-        updateStatus(`피벗 완료 - 행: ${pivotConfig.rowFields.join(' → ')}, 열: ${pivotConfig.columnFields.join(' → ')}`);
+        const subtotalInfo = [];
+        if (pivotConfig.showRowSubTotals) subtotalInfo.push('행소계');
+        if (pivotConfig.showRowGrandTotals) subtotalInfo.push('행총합');
+        if (pivotConfig.showColumnSubTotals) subtotalInfo.push('열소계');
+        if (pivotConfig.showColumnGrandTotals) subtotalInfo.push('열총합');
+        const subtotalStr = subtotalInfo.length > 0 ? ` [${subtotalInfo.join(', ')}]` : '';
+        updateStatus(`피벗 완료 - 행: ${pivotConfig.rowFields.join(' → ')}, 열: ${pivotConfig.columnFields.join(' → ')}${subtotalStr}`);
       } catch (error) {
         console.error('Pivot error:', error);
         updateStatus('피벗 오류: ' + error.message);
       }
     };
-    
+
     // 초기화
-    window.resetPivot = async function() {
+    window.resetPivot = async function () {
       document.getElementById('rowFieldSelect').value = 'product';
       document.getElementById('columnFieldSelect').value = 'month';
       document.getElementById('valueFieldSelect').value = 'sales';
+      document.getElementById('showRowSubTotals').checked = false;
+      document.getElementById('showRowGrandTotals').checked = false;
+      document.getElementById('showColumnSubTotals').checked = false;
+      document.getElementById('showColumnGrandTotals').checked = false;
+      document.getElementById('rowSubTotalFields').disabled = true;
+      document.getElementById('columnSubTotalFields').disabled = true;
       await clearFilter();
       document.getElementById('sortColumnSelect').value = '';
       await applySort();
       await updatePivot();
     };
-    
+
     // 현재 필터/정렬 상태
     let currentFilter = null;
     let currentSort = null;
-    
+
     // 필터/정렬 상태 표시 업데이트
     function updateFilterSortStatus() {
       const parts = [];
@@ -417,39 +553,39 @@
       if (currentSort) {
         parts.push(`정렬: ${currentSort.columnKey} ${currentSort.direction === 'asc' ? '↑' : '↓'}`);
       }
-      document.getElementById('filterSortStatus').textContent = 
+      document.getElementById('filterSortStatus').textContent =
         parts.length > 0 ? parts.join(' | ') : '필터/정렬 없음';
     }
-    
+
     // 필터 컬럼 변경 시 값 목록 업데이트
-    document.getElementById('filterColumnSelect').addEventListener('change', function() {
+    document.getElementById('filterColumnSelect').addEventListener('change', function () {
       const column = this.value;
       const valueSelect = document.getElementById('filterValueSelect');
-      
+
       if (!column) {
         valueSelect.innerHTML = '<option value="">값 선택</option>';
         valueSelect.disabled = true;
         clearFilter();
         return;
       }
-      
+
       // 해당 컬럼의 유니크 값 추출
       const uniqueValues = [...new Set(sampleData.map(row => row[column]))].sort();
-      
-      valueSelect.innerHTML = '<option value="">전체</option>' + 
+
+      valueSelect.innerHTML = '<option value="">전체</option>' +
         uniqueValues.map(v => `<option value="${v}">${v}</option>`).join('');
       valueSelect.disabled = false;
     });
-    
+
     // 필터 적용
-    window.applyFilter = async function() {
+    window.applyFilter = async function () {
       if (!sheet) return;
-      
+
       const column = document.getElementById('filterColumnSelect').value;
       const value = document.getElementById('filterValueSelect').value;
-      
+
       const startTime = performance.now();
-      
+
       if (!column || !value) {
         currentFilter = null;
         await sheet.filter([]);
@@ -457,18 +593,18 @@
         currentFilter = { columnKey: column, operator: 'eq', value };
         await sheet.filter([currentFilter]);
       }
-      
+
       const duration = performance.now() - startTime;
       updateFilterSortStatus();
       updateStatus(`필터 적용 완료 (${duration.toFixed(0)}ms) - ${sheet.getVisibleRowCount()}개 피벗 행`);
     };
-    
+
     // 필터 해제
-    window.clearFilter = async function() {
+    window.clearFilter = async function () {
       document.getElementById('filterColumnSelect').value = '';
       document.getElementById('filterValueSelect').innerHTML = '<option value="">값 선택</option>';
       document.getElementById('filterValueSelect').disabled = true;
-      
+
       if (sheet) {
         currentFilter = null;
         await sheet.filter([]);
@@ -476,16 +612,16 @@
         updateStatus(`필터 해제 - ${sheet.getVisibleRowCount()}개 피벗 행`);
       }
     };
-    
+
     // 정렬 적용
-    window.applySort = async function() {
+    window.applySort = async function () {
       if (!sheet) return;
-      
+
       const column = document.getElementById('sortColumnSelect').value;
       const direction = document.getElementById('sortDirectionSelect').value;
-      
+
       const startTime = performance.now();
-      
+
       if (!column) {
         currentSort = null;
         await sheet.sort([]);
@@ -493,16 +629,16 @@
         currentSort = { columnKey: column, direction };
         await sheet.sort([currentSort]);
       }
-      
+
       const duration = performance.now() - startTime;
       updateFilterSortStatus();
       updateStatus(`정렬 적용 완료 (${duration.toFixed(0)}ms) - ${sheet.getVisibleRowCount()}개 피벗 행`);
     };
-    
+
     // 초기화
     initPivotGrid().catch(console.error);
   </script>
-  
+
   <style>
     .info-panel {
       margin: 20px auto;
@@ -512,45 +648,86 @@
       border-radius: 8px;
       border: 1px solid #e9ecef;
     }
-    
+
     .info-panel h3 {
       margin: 0 0 10px 0;
       font-size: 14px;
       color: #495057;
     }
-    
+
     .data-preview {
       overflow-x: auto;
     }
-    
+
     .data-preview table {
       width: 100%;
       border-collapse: collapse;
       font-size: 12px;
     }
-    
+
     .data-preview th,
     .data-preview td {
       padding: 6px 10px;
       border: 1px solid #dee2e6;
       text-align: left;
     }
-    
+
     .data-preview th {
       background: #e9ecef;
       font-weight: 600;
     }
-    
+
     .data-preview tr:nth-child(even) {
       background: #f8f9fa;
     }
-    
+
     .data-preview tr:last-child td {
       text-align: center;
       color: #6c757d;
       font-style: italic;
     }
+
+    /* 체크박스 라벨 스타일 */
+    .checkbox-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-right: 12px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+      cursor: pointer;
+    }
+
+    .checkbox-label input[type="checkbox"]:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+
+    /* 멀티 셀렉트 스타일 */
+    .multi-select {
+      min-width: 80px;
+      max-width: 150px;
+      height: 52px;
+      padding: 2px;
+      font-size: 11px;
+      border: 1px solid #ced4da;
+      border-radius: 4px;
+      background: white;
+    }
+
+    .multi-select:disabled {
+      background: #e9ecef;
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .multi-select option {
+      padding: 2px 4px;
+    }
   </style>
 </body>
-</html>
 
+</html>

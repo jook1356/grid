@@ -34,7 +34,7 @@ export interface PivotValueField {
  * 피벗 설정 (내부용)
  *
  * PureSheetConfig의 피벗 관련 속성을 추출하여 PivotProcessor에 전달
- * 
+ *
  * 데이터 처리 순서: 필터 → 정렬 → 피벗
  */
 export interface PivotConfig {
@@ -47,22 +47,71 @@ export interface PivotConfig {
   /** 값 필드 설정 배열 */
   valueFields: PivotValueField[];
 
-  /** 행 합계 표시 여부 @default false */
-  showRowTotals?: boolean;
+  // ==========================================================================
+  // 부분합/총합계 옵션
+  // ==========================================================================
 
-  /** 열 합계 표시 여부 @default false */
-  showColumnTotals?: boolean;
+  /**
+   * 행 소계 표시 (rowSubTotals)
+   * - true: 모든 rowFields 레벨에서 소계 삽입
+   * - false: 소계 없음 (기본값)
+   * - rowSubTotalFields와 함께 사용 시 해당 필드만 적용
+   * @default false
+   */
+  showRowSubTotals?: boolean;
 
-  /** 총 합계 표시 여부 @default false */
-  showGrandTotal?: boolean;
+  /**
+   * 행 소계를 표시할 필드 목록
+   * showRowSubTotals가 true일 때, 특정 필드에서만 소계를 표시하고 싶을 때 사용
+   *
+   * @example
+   * // rowFields: ['category', 'product', 'region']
+   * rowSubTotalFields: ['category', 'product']  // category, product 변경 시 소계
+   * rowSubTotalFields: ['category']             // category 변경 시만 소계
+   */
+  rowSubTotalFields?: string[];
+
+  /**
+   * 행 총합계 표시 (rowGrandTotals)
+   * 하단에 총합 행 추가
+   * @default false
+   */
+  showRowGrandTotals?: boolean;
+
+  /**
+   * 열 소계 표시 (columnSubTotals)
+   * - true: 모든 columnFields 레벨에서 소계 컬럼 삽입
+   * - false: 소계 없음 (기본값)
+   * - columnSubTotalFields와 함께 사용 시 해당 필드만 적용
+   * @default false
+   */
+  showColumnSubTotals?: boolean;
+
+  /**
+   * 열 소계를 표시할 필드 목록
+   * showColumnSubTotals가 true일 때, 특정 필드에서만 소계 컬럼을 표시하고 싶을 때 사용
+   *
+   * @example
+   * // columnFields: ['year', 'quarter', 'month']
+   * columnSubTotalFields: ['year', 'quarter']  // year, quarter 변경 시 소계 컬럼
+   * columnSubTotalFields: ['year']             // year 변경 시만 소계 컬럼
+   */
+  columnSubTotalFields?: string[];
+
+  /**
+   * 열 총합계 표시 (columnGrandTotals)
+   * 우측 끝에 총합 컬럼 추가
+   * @default false
+   */
+  showColumnGrandTotals?: boolean;
 
   // ==========================================================================
   // 전처리 옵션 (피벗 전에 적용)
   // ==========================================================================
 
-  /** 
+  /**
    * 필터 조건 (피벗 전에 적용)
-   * 
+   *
    * 피벗 연산 전에 데이터를 필터링합니다.
    * 필터링된 데이터만 피벗 결과에 포함됩니다.
    */
@@ -70,7 +119,7 @@ export interface PivotConfig {
 
   /**
    * 정렬 조건 (피벗 전에 적용)
-   * 
+   *
    * 피벗 연산 전에 데이터를 정렬합니다.
    * 정렬 순서는 피벗 결과의 행 순서에 영향을 줄 수 있습니다.
    */
@@ -225,3 +274,7 @@ export function parsePivotColumnKey(
   return { path, valueField };
 }
 
+export const PIVOT_KEY_SUBTOTAL = '__subtotal__';
+export const PIVOT_KEY_GRANDTOTAL = '__grandtotal__';
+export const PIVOT_LABEL_SUBTOTAL = '소계';
+export const PIVOT_LABEL_GRANDTOTAL = '총합계';

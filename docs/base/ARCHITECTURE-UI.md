@@ -1399,6 +1399,77 @@ const sheet = new PureSheet(container, {
 
 ---
 
+## 9. 피벗 부분합/총합계 (Pivot Subtotals & GrandTotals)
+
+> 상세 결정 과정: [피벗 부분합/총합계 기능](../decisions/017-pivot-subtotals-grandtotals.md)
+
+### 9.1 개념 및 옵션 체계
+
+4가지 핵심 개념과 이를 활성화하는 옵션:
+
+| 개념 | 옵션명 | 의미 | 위치 |
+|------|--------|------|------|
+| rowSubTotals | `showRowSubTotals` | 행 계층 변경 시 소계 **행** 삽입 | 데이터 중간 |
+| rowGrandTotals | `showRowGrandTotals` | 모든 컬럼의 총합 **행** | 하단 |
+| columnSubTotals | `showColumnSubTotals` | 열 계층 변경 시 소계 **컬럼** 삽입 | 데이터 중간 |
+| columnGrandTotals | `showColumnGrandTotals` | 모든 행의 총합 **컬럼** | 우측 끝 |
+
+### 9.2 시각화
+
+```
+                    showColumnSubTotals  showColumnSubTotals  showColumnGrandTotals
+                              ↓                    ↓                  ↓
+┌────────┬────────┬─────┬─────┬─────────┬─────┬─────┬─────────┬──────────┐
+│ 제품   │ 지역   │ 1월 │ 2월 │ Q1소계  │ 3월 │ 4월 │ Q2소계  │ 총합     │
+├────────┼────────┼─────┼─────┼─────────┼─────┼─────┼─────────┼──────────┤
+│ 노트북 │ 서울   │ 100 │ 150 │   250   │ 120 │ 130 │   250   │   500    │
+│        │ 부산   │  80 │ 120 │   200   │ 100 │ 110 │   210   │   410    │
+│ 노트북 소계     ││ 180 │ 270 │   450   │ 220 │ 240 │   460   │   910    │ ← showRowSubTotals
+├────────┼────────┼─────┼─────┼─────────┼─────┼─────┼─────────┼──────────┤
+│ 총합계          │ ... │ ... │   ...   │ ... │ ... │   ...   │  ...     │ ← showRowGrandTotals
+└─────────────────┴─────┴─────┴─────────┴─────┴─────┴─────────┴──────────┘
+```
+
+### 9.3 Row/Column Structural 개념
+
+Row의 `structural` 속성과 동일한 개념을 Column에도 적용합니다:
+
+| 구분 | Row | Column |
+|------|-----|--------|
+| 속성 | `structural: boolean` | `structural: boolean` |
+| 타입 | `type: 'subtotal' \| 'grandtotal'` | `pivotType: 'subtotal' \| 'grandtotal'` |
+| 용도 | 선택/인덱스 제외 | 선택/집계 제외 |
+
+```typescript
+// 드래그 선택 후 집계 시 structural 컬럼 제외
+function aggregateSelectedCells(selectedCells: CellPosition[]): number {
+  let sum = 0;
+  for (const cell of selectedCells) {
+    const columnDef = getColumnDef(cell.columnKey);
+    if (columnDef.structural) continue;  // 소계/총합계 컬럼 제외
+    sum += getCellValue(cell);
+  }
+  return sum;
+}
+```
+
+### 9.4 API 사용 예시
+
+```typescript
+await pivotGrid.setPivotConfig({
+  rowFields: ['product', 'region'],
+  columnFields: ['quarter', 'month'],
+  valueFields: [{ field: 'sales', aggregate: 'sum' }],
+
+  showRowSubTotals: true,       // 제품별 소계 행
+  showRowGrandTotals: true,     // 하단 총합계 행
+  showColumnSubTotals: true,    // 분기별 소계 컬럼
+  showColumnGrandTotals: true,  // 우측 총합계 컬럼
+});
+```
+
+---
+
 ## 관련 문서
 
 - [Core Architecture](./ARCHITECTURE-CORE.md)
@@ -1412,3 +1483,4 @@ const sheet = new PureSheet(container, {
 - [Worker 제거 결정](../decisions/009-remove-worker-architecture.md)
 - [Config API 재설계](../decisions/010-config-api-redesign.md)
 - [필터/정렬 → 피벗 파이프라인](../decisions/011-filter-sort-pivot-pipeline.md)
+- [피벗 부분합/총합계 기능](../decisions/017-pivot-subtotals-grandtotals.md)

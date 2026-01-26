@@ -541,3 +541,4 @@ await grid.pivot(config);  // ~50-200ms 소요
 - [Core Architecture](../base/ARCHITECTURE-CORE.md)
 - [Worker 제거 결정](./009-remove-worker-architecture.md)
 - [필터/정렬 → 피벗 파이프라인](./011-filter-sort-pivot-pipeline.md)
+- [피벗 부분합/총합계 기능](./017-pivot-subtotals-grandtotals.md)

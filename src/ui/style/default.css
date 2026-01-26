@@ -967,3 +967,92 @@
 .ps-theme-dark .ps-row.ps-row-deleted .ps-cell {
   background-color: rgba(244, 67, 54, 0.15);
 }
+
+/* =============================================================================
+   Pivot Subtotal / Grand Total Rows
+   ============================================================================= */
+
+/**
+ * 피벗 부분합(Subtotal) 행
+ * - showRowSubTotals 옵션에 의해 생성
+ * - 계층 변경 시 중간에 삽입되는 소계 행
+ */
+.ps-row.ps-row-subtotal {
+  background-color: #f0f4f8;
+}
+
+.ps-row.ps-row-subtotal .ps-cell {
+  background-color: #f0f4f8;
+  font-weight: 600;
+}
+
+.ps-row.ps-row-subtotal:hover .ps-cell {
+  background-color: #e3eaf2;
+}
+
+/**
+ * 피벗 총합계(Grand Total) 행
+ * - showRowGrandTotals 옵션에 의해 생성
+ * - 하단에 추가되는 전체 합계 행
+ */
+.ps-row.ps-row-grandtotal {
+  background-color: #e2e8f0;
+}
+
+.ps-row.ps-row-grandtotal .ps-cell {
+  background-color: #e2e8f0;
+  font-weight: 700;
+}
+
+.ps-row.ps-row-grandtotal:hover .ps-cell {
+  background-color: #d5dde6;
+}
+
+/* 다크 테마 피벗 부분합/총합계 */
+.ps-theme-dark .ps-row.ps-row-subtotal {
+  background-color: #2a3441;
+}
+
+.ps-theme-dark .ps-row.ps-row-subtotal .ps-cell {
+  background-color: #2a3441;
+}
+
+.ps-theme-dark .ps-row.ps-row-subtotal:hover .ps-cell {
+  background-color: #343f4f;
+}
+
+.ps-theme-dark .ps-row.ps-row-grandtotal {
+  background-color: #1e2631;
+}
+
+.ps-theme-dark .ps-row.ps-row-grandtotal .ps-cell {
+  background-color: #1e2631;
+}
+
+.ps-theme-dark .ps-row.ps-row-grandtotal:hover .ps-cell {
+  background-color: #283040;
+}
+/**
+ * 피벗 열 부분합(Column Subtotal) 셀
+ */
+.ps-cell.ps-cell-column-subtotal {
+  background-color: #ecf3fa;
+  font-weight: 600;
+}
+
+/**
+ * 피벗 열 총합계(Column Grand Total) 셀
+ */
+.ps-cell.ps-cell-column-grandtotal {
+  background-color: #e2e8f0;
+  font-weight: 700;
+}
+
+/* 다크 테마 피벗 열 부분합/총합계 */
+.ps-theme-dark .ps-cell.ps-cell-column-subtotal {
+  background-color: #2a3441;
+}
+
+.ps-theme-dark .ps-cell.ps-cell-column-grandtotal {
+  background-color: #1e2631;
+}

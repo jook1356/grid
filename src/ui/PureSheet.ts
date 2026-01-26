@@ -1409,6 +1409,13 @@ export class PureSheet {
       __pivotType: pivotRow.type,
     }));
 
+    // DEBUG: 평탄화된 소계 행 확인
+    const subtotalFlattened = flattenedData.filter(r => r.__pivotType === 'subtotal');
+    console.log('[applyPivot] flattened subtotal rows:', subtotalFlattened.length);
+    if (subtotalFlattened.length > 0) {
+      console.log('[applyPivot] first flattened subtotal:', subtotalFlattened[0]);
+    }
+
     // 피벗 컬럼
     const allColumns = [...this.pivotResult.rowHeaderColumns, ...this.pivotResult.columns];
 

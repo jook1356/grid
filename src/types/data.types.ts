@@ -124,6 +124,29 @@ export interface ColumnDef {
     formatter?: (value: CellValue) => string;
     parser?: (input: string) => CellValue;
   };
+
+  // ==========================================================================
+  // 피벗 전용 속성
+  // ==========================================================================
+
+  /**
+   * 피벗 컬럼 타입
+   * - 'data': 일반 데이터 컬럼 (기본값)
+   * - 'subtotal': 소계 컬럼 (showColumnSubTotals에 의해 생성)
+   * - 'grandtotal': 총합계 컬럼 (showColumnGrandTotals에 의해 생성)
+   */
+  pivotType?: 'data' | 'subtotal' | 'grandtotal';
+
+  /**
+   * 구조적 컬럼 여부 (Row의 structural과 동일한 개념)
+   * - true: 선택/집계에서 제외
+   * - false: 일반 데이터 컬럼 (기본값)
+   *
+   * 용도:
+   * - 드래그 선택 후 집계 시 제외
+   * - 복사/붙여넣기 시 제외 가능
+   */
+  structural?: boolean;
 }
 
 // ============================================================================
