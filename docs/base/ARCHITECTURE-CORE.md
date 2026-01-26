@@ -518,7 +518,20 @@ export class ArqueroProcessor implements IDataProcessor {
     }
     
     const grouped = table.groupby(...options.groupBy).rollup(rollupSpec);
+    const grouped = table.groupby(...options.groupBy).rollup(rollupSpec);
     return this.transformAggregateResult(grouped, options);
+  }
+
+  /**
+   * 피벗 처럼 다중 레벨 집계가 필요한 경우를 위한 메서드
+   * (하위 클래스에서 확장하여 사용)
+   */
+  protected async aggregateMultiLevel(
+    options: AggregateQueryOptions,
+    levels: string[][]
+  ): Promise<AggregateResult[]> {
+    // ...
+    return [];
   }
   
   private extractIndices(table: aq.Table): ProcessorResult {

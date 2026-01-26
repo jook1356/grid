@@ -40,7 +40,7 @@ export class ArqueroProcessor implements IDataProcessor {
   /**
    * Arquero 테이블 (컬럼 지향 데이터 구조)
    */
-  private table: Table | null = null;
+  protected table: Table | null = null;
 
   /**
    * 원본 행 수
@@ -211,36 +211,36 @@ export class ArqueroProcessor implements IDataProcessor {
       case 'contains':
         return table.filter(aq.escape((d: Row) => {
           const v = d[columnKey];
-          return v !== null && v !== undefined && 
-                 String(v).toLowerCase().includes(String(value).toLowerCase());
+          return v !== null && v !== undefined &&
+            String(v).toLowerCase().includes(String(value).toLowerCase());
         }));
 
       case 'notContains':
         return table.filter(aq.escape((d: Row) => {
           const v = d[columnKey];
-          return v === null || v === undefined || 
-                 !String(v).toLowerCase().includes(String(value).toLowerCase());
+          return v === null || v === undefined ||
+            !String(v).toLowerCase().includes(String(value).toLowerCase());
         }));
 
       case 'startsWith':
         return table.filter(aq.escape((d: Row) => {
           const v = d[columnKey];
-          return v !== null && v !== undefined && 
-                 String(v).toLowerCase().startsWith(String(value).toLowerCase());
+          return v !== null && v !== undefined &&
+            String(v).toLowerCase().startsWith(String(value).toLowerCase());
         }));
 
       case 'endsWith':
         return table.filter(aq.escape((d: Row) => {
           const v = d[columnKey];
-          return v !== null && v !== undefined && 
-                 String(v).toLowerCase().endsWith(String(value).toLowerCase());
+          return v !== null && v !== undefined &&
+            String(v).toLowerCase().endsWith(String(value).toLowerCase());
         }));
 
       case 'between':
         return table.filter(aq.escape((d: Row) => {
           const v = d[columnKey];
-          return v !== null && v !== undefined && 
-                 v >= value! && v <= value2!;
+          return v !== null && v !== undefined &&
+            v >= value! && v <= value2!;
         }));
 
       case 'isNull':

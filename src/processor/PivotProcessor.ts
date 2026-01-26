@@ -87,14 +87,14 @@ export class PivotProcessor extends ArqueroProcessor {
     // 3단계: 유니크 값 추출 (columnFields별, 정렬 방향 반영)
     const uniqueValues = this.extractUniqueValues(table, config.columnFields, config.sorts);
 
-    // 4단계: 집계 연산
-    const aggregatedData = this.aggregateData(table, config);
+    // 4단계: 집계 연산 (Multi-pass)
+    const { map: aggregationMap, leafRows } = this.aggregateData(table, config);
 
     // 5단계: 컬럼 헤더 트리 빌드
     const columnHeaderTree = this.buildHeaderTree(uniqueValues, config);
 
-    // 6단계: 피벗 데이터 구조 변환
-    const pivotedData = this.transformToPivotStructure(aggregatedData, config, uniqueValues);
+    // 6단계: 피벗 데이터 구조 변환 (Map + Leaf Data 사용)
+    const pivotedData = this.transformToPivotStructure(leafRows, aggregationMap, config, uniqueValues);
 
     // 7단계: 행 병합 정보 계산
     const rowMergeInfo = this.calculateRowMergeInfo(pivotedData, config.rowFields);
@@ -198,33 +198,152 @@ export class PivotProcessor extends ArqueroProcessor {
   // ============================================================================
 
   /**
-   * 데이터 집계 (rowFields + columnFields로 그룹화)
+   * 데이터 집계 (Multi-pass Aggregation)
+   * 
+   * Arquero를 사용하여 모든 필요한 레벨(Leaf, Subtotal, GrandTotal)의 집계를 수행하고
+   * 빠른 조회를 위해 Map 형태로 반환합니다.
+   * 또한 Leaf Level 데이터는 구조 구성을 위해 별도 반환합니다.
    */
   private aggregateData(
     table: Table,
     config: PivotConfig
-  ): Record<string, unknown>[] {
-    const groupByFields = [...config.rowFields, ...config.columnFields];
+  ): { map: Map<string, number>; leafRows: Record<string, unknown>[] } {
+    const {
+      rowFields,
+      columnFields,
+      valueFields,
+      showRowSubTotals,
+      showColumnSubTotals,
+      showRowGrandTotals,
+      showColumnGrandTotals
+    } = config;
 
-    // 집계 스펙 생성
-    const rollupSpec: Record<string, unknown> = {};
-    for (const valueField of config.valueFields) {
-      rollupSpec[valueField.field] = this.getAggregateOp(
-        valueField.aggregate,
-        valueField.field
-      );
+    const aggregationMap = new Map<string, number>();
+    let leafRows: Record<string, unknown>[] = [];
+
+    // 헬퍼: 키 생성
+    const getMapKey = (rowKey: string, colKey: string, valueField: string) =>
+      `${rowKey}::${colKey}::${valueField}`;
+
+    // 헬퍼: 집계 수행 및 맵 저장
+    const runAggregation = (
+      rFields: string[],
+      cFields: string[],
+      isRowTotal: boolean,
+      isColTotal: boolean,
+      isLeafPass: boolean
+    ) => {
+      const groupByFields = [...rFields, ...cFields];
+
+      const rollupSpec: Record<string, unknown> = {};
+      for (const vf of valueFields) {
+        rollupSpec[vf.field] = this.getAggregateOp(vf.aggregate, vf.field);
+      }
+
+      let result: Table;
+      if (groupByFields.length > 0) {
+        result = table.groupby(...groupByFields).rollup(rollupSpec);
+      } else {
+        result = table.rollup(rollupSpec);
+      }
+
+      // 결과 매핑
+      const rows = result.objects() as any[];
+
+      if (isLeafPass) {
+        leafRows = rows;
+      }
+
+      for (const row of rows) {
+        // Row Key
+        const rKey = rFields.length > 0
+          ? rFields.map(f => String(row[f] ?? '')).join('|')
+          : (isRowTotal ? PIVOT_KEY_GRANDTOTAL : '');
+
+        // Col Key
+        const cKey = cFields.length > 0
+          ? cFields.map(f => String(row[f] ?? '')).join('|')
+          : (isColTotal ? PIVOT_KEY_GRANDTOTAL : '');
+
+        for (const vf of valueFields) {
+          const val = row[vf.field];
+          if (typeof val === 'number') {
+            aggregationMap.set(getMapKey(rKey, cKey, vf.field), val);
+          }
+        }
+      }
+    };
+
+    // 1. Leaf Levels (Row Leaf x Col Leaf)
+    runAggregation(rowFields, columnFields, false, false, true);
+
+    // 2. Row Subtotals (Row Subsets x Col Leaf)
+    if (showRowSubTotals) {
+      for (let i = 0; i < rowFields.length; i++) {
+        const prefix = rowFields.slice(0, i + 1);
+        // 마지막 레벨 미만인 경우에만 Subtotal (마지막 레벨은 Leaf와 동일하므로 Leaf Pass에서 처리됨)
+        // 하지만 rowSubTotals의 경우 명시적으로 계산해야 할 수도 있음.
+        // 여기서는 prefix length < rowFields.length 인 경우만 계산.
+        // 만약 rowFields가 1개뿐이라면? 
+        if (prefix.length < rowFields.length) {
+          runAggregation(prefix, columnFields, false, false, false);
+        }
+      }
     }
 
-    // 그룹화 + 집계
-    let aggregated: Table;
-    if (groupByFields.length > 0) {
-      aggregated = table.groupby(...groupByFields).rollup(rollupSpec);
-    } else {
-      // 그룹화 없이 전체 집계
-      aggregated = table.rollup(rollupSpec);
+    // 3. Row GrandTotal (Empty Row x Col Leaf)
+    if (showRowGrandTotals) {
+      runAggregation([], columnFields, true, false, false);
     }
 
-    return aggregated.objects() as Record<string, unknown>[];
+    // 4. Column Subtotals (Row Leaf x Col Subsets)
+    if (showColumnSubTotals) {
+      for (let i = 0; i < columnFields.length; i++) {
+        const prefix = columnFields.slice(0, i + 1);
+        if (prefix.length < columnFields.length) {
+          runAggregation(rowFields, prefix, false, false, false);
+        }
+      }
+    }
+
+    // 5. Column GrandTotal (Row Leaf x Empty Col)
+    if (showColumnGrandTotals) {
+      runAggregation(rowFields, [], false, true, false);
+    }
+
+    // 6. Cross Subtotals (Row Subtotals x Col Subtotals)
+    if (showRowSubTotals && showColumnSubTotals) {
+      for (let r = 0; r < rowFields.length - 1; r++) {
+        const rPrefix = rowFields.slice(0, r + 1);
+        for (let c = 0; c < columnFields.length - 1; c++) {
+          const cPrefix = columnFields.slice(0, c + 1);
+          runAggregation(rPrefix, cPrefix, false, false, false);
+        }
+      }
+    }
+
+    // 7. Row Subtotal x Col GrandTotal
+    if (showRowSubTotals && showColumnGrandTotals) {
+      for (let r = 0; r < rowFields.length - 1; r++) {
+        const rPrefix = rowFields.slice(0, r + 1);
+        runAggregation(rPrefix, [], false, true, false);
+      }
+    }
+
+    // 8. Row GrandTotal x Col Subtotal
+    if (showRowGrandTotals && showColumnSubTotals) {
+      for (let c = 0; c < columnFields.length - 1; c++) {
+        const cPrefix = columnFields.slice(0, c + 1);
+        runAggregation([], cPrefix, true, false, false);
+      }
+    }
+
+    // 9. Grand Total (Row Empty x Col Empty)
+    if (showRowGrandTotals && showColumnGrandTotals) {
+      runAggregation([], [], true, true, false);
+    }
+
+    return { map: aggregationMap, leafRows };
   }
 
   /**
@@ -558,13 +677,13 @@ export class PivotProcessor extends ArqueroProcessor {
   // ============================================================================
 
   /**
-   * 집계 데이터를 피벗 구조로 변환
+   * 집계 데이터를 피벗 구조로 변환 (Map 조회 방식)
    *
-   * showRowSubTotals가 true이면 각 그룹 하단에 소계 행을 삽입합니다.
-   * showRowGrandTotals가 true이면 마지막에 총합계 행을 추가합니다.
+   * leafRows를 사용하여 행 구조(트리)를 구성하고,값은 aggregationMap에서 조회하여 채웁니다.
    */
   private transformToPivotStructure(
-    aggregatedData: Record<string, unknown>[],
+    leafRows: Record<string, unknown>[],
+    aggregationMap: Map<string, number>,
     config: PivotConfig,
     uniqueValues: Record<string, CellValue[]>
   ): PivotRow[] {
@@ -579,87 +698,56 @@ export class PivotProcessor extends ArqueroProcessor {
       showColumnGrandTotals,
     } = config;
 
-    // 열 소계를 표시할 필드 목록 결정
-    const colSubtotalFields: string[] = [];
-    if (showColumnSubTotals && columnFields.length > 0) {
-      if (columnSubTotalFields && columnSubTotalFields.length > 0) {
-        for (const field of columnFields) {
-          if (columnSubTotalFields.includes(field)) {
-            colSubtotalFields.push(field);
-          }
-        }
-      } else {
-        colSubtotalFields.push(...columnFields.slice(0, -1));
-      }
-    }
-
-    // rowFields 조합별로 데이터 그룹화
+    // 1. Leaf Row Groups 생성
+    // 데이터가 있는 행만 생성됨
     const rowGroups = new Map<string, Record<string, CellValue>>();
 
-    for (const row of aggregatedData) {
-      // 행 키 생성 (rowFields 값 조합)
+    for (const row of leafRows) {
+      // 행 키 생성
       const rowKey = rowFields.map((f) => String(row[f] ?? '')).join('|');
 
-      // 컬럼 키 생성 (columnFields 값 조합)
-      const columnPath = columnFields.map((f) => String(row[f] ?? ''));
-
-      // 행 데이터 가져오기 또는 생성
-      let pivotRow = rowGroups.get(rowKey);
-      if (!pivotRow) {
-        pivotRow = {};
-        // rowHeaders 복사
+      // 행 데이터 객체 초기화 (헤더 정보 저장)
+      if (!rowGroups.has(rowKey)) {
+        const rowHeaderData: Record<string, CellValue> = {};
         for (const f of rowFields) {
-          pivotRow[f] = row[f] as CellValue;
+          rowHeaderData[f] = row[f] as CellValue;
         }
-        rowGroups.set(rowKey, pivotRow);
-      }
-
-      // 각 valueField의 값을 피벗 컬럼에 할당
-      for (const valueField of valueFields) {
-        const colKey = createPivotColumnKey(columnPath, valueField.field);
-        pivotRow[colKey] = row[valueField.field] as CellValue;
+        rowGroups.set(rowKey, rowHeaderData);
       }
     }
 
-    // Map을 배열로 변환하고 열 소계/총합계 계산
+    // 2. PivotRow 리스트 생성 (Leaf Levels)
     const dataRows: PivotRow[] = [];
+    const allColumnKeys = this.getAllColumnKeys(config, uniqueValues);
 
-    for (const [, rowData] of rowGroups) {
+    // 헬퍼: 값 채우기
+    const fillValues = (rowHeaders: Record<string, CellValue>, targetValues: Record<string, CellValue>) => {
+      // Row Key 재구성
+      const rKey = rowFields.map(f => String(rowHeaders[f] ?? '')).join('|');
+
+      // 모든 가능한 컬럼에 대해 값 조회 (Leaf, Subtotal, GrandTotal)
+      for (const colDef of allColumnKeys) {
+        // Map Key: RowKey::ColKey::Vf
+        const mapKey = `${rKey}::${colDef.colKey}::${colDef.valueField}`;
+        const val = aggregationMap.get(mapKey);
+        if (val !== undefined) {
+          targetValues[colDef.fullKey] = val;
+        }
+      }
+    };
+
+    for (const [rowKey, rowHeaders] of rowGroups) {
       const pivotRow: PivotRow = {
-        rowHeaders: {},
+        rowHeaders: { ...rowHeaders },
         values: {},
         type: 'data',
       };
 
-      // rowHeaders와 values 분리
-      for (const [key, value] of Object.entries(rowData)) {
-        if (rowFields.includes(key)) {
-          pivotRow.rowHeaders[key] = value;
-        } else {
-          pivotRow.values[key] = value;
-        }
-      }
-
-      // 열 소계 값 계산
-      if (colSubtotalFields.length > 0) {
-        this.calculateColumnSubtotals(
-          pivotRow,
-          columnFields,
-          colSubtotalFields,
-          valueFields,
-          uniqueValues
-        );
-      }
-
-      // 열 총합계 값 계산
-      if (showColumnGrandTotals) {
-        this.calculateColumnGrandTotal(pivotRow, valueFields);
-      }
-
+      fillValues(rowHeaders, pivotRow.values);
       dataRows.push(pivotRow);
     }
 
-    // 정렬 적용
+    // 3. 정렬 적용
     // config.sorts가 있으면 해당 조건으로, 없으면 rowFields 기준 기본 정렬
     if (config.sorts && config.sorts.length > 0) {
       dataRows.sort((a, b) => {
@@ -670,11 +758,10 @@ export class PivotProcessor extends ArqueroProcessor {
           let aVal = a.rowHeaders[columnKey];
           let bVal = b.rowHeaders[columnKey];
 
-          // rowHeaders에 없으면 values에서 찾기 (집계 값 기준 정렬)
+          // rowHeaders에 없으면 values에서 찾기
           if (aVal === undefined) {
-            // values에서 해당 컬럼키가 포함된 값들의 합계로 비교
-            aVal = this.sumValuesForColumn(a.values, columnKey, config.valueFields);
-            bVal = this.sumValuesForColumn(b.values, columnKey, config.valueFields);
+            aVal = a.values[columnKey];
+            bVal = b.values[columnKey];
           }
 
           if (aVal === bVal) continue;
@@ -710,351 +797,203 @@ export class PivotProcessor extends ArqueroProcessor {
       });
     }
 
-    // ========================================================================
-    // 부분합(Subtotal) 및 총합계(GrandTotal) 행 생성
-    // ========================================================================
+    // 4. 부분합(Subtotal) 및 총합계(GrandTotal) 행 삽입
     const result: PivotRow[] = [];
 
-    // 소계를 표시할 필드 목록 결정
-    // rowSubTotalFields가 지정되면 해당 필드만, 아니면 showRowSubTotals가 true일 때 모든 rowFields
+    // 소계 필드 결정
     const subtotalFields: string[] = [];
     if (showRowSubTotals && rowFields.length > 0) {
       if (config.rowSubTotalFields && config.rowSubTotalFields.length > 0) {
-        // 지정된 필드 중 rowFields에 포함된 것만 사용 (순서 유지)
         for (const field of rowFields) {
           if (config.rowSubTotalFields.includes(field)) {
             subtotalFields.push(field);
           }
         }
       } else {
-        // 모든 rowFields에서 소계 (마지막 필드 제외 - 마지막은 개별 데이터)
+        // 모든 rowFields (마지막 제외)
         subtotalFields.push(...rowFields.slice(0, -1));
       }
     }
 
-    // DEBUG
-    console.log('[transformToPivotStructure] dataRows count:', dataRows.length);
-    console.log('[transformToPivotStructure] subtotalFields:', subtotalFields);
-    if (dataRows.length > 0) {
-      console.log('[transformToPivotStructure] first dataRow:', dataRows[0]);
-      console.log('[transformToPivotStructure] first dataRow values keys:', Object.keys(dataRows[0]?.values || {}));
-    }
-
     if (subtotalFields.length > 0) {
-      // 다중 레벨 소계 삽입
-      this.insertMultiLevelSubtotals(dataRows, result, rowFields, subtotalFields, config.valueFields);
+      this.insertMultiLevelSubtotals(dataRows, result, config, subtotalFields, aggregationMap, allColumnKeys);
     } else {
-      // 소계 없이 데이터만
       result.push(...dataRows);
     }
 
     // 총합계 행 추가
     if (showRowGrandTotals) {
-      const grandTotalRow = this.createGrandTotalRow(dataRows, rowFields, config.valueFields);
+      const grandTotalRow = this.createGrandTotalRow(aggregationMap, allColumnKeys, rowFields);
       result.push(grandTotalRow);
-    }
-
-    // DEBUG: 최종 결과 확인
-    console.log('[transformToPivotStructure] final result count:', result.length);
-    const subtotalRows = result.filter(r => r.type === 'subtotal');
-    const grandtotalRows = result.filter(r => r.type === 'grandtotal');
-    console.log('[transformToPivotStructure] subtotal rows:', subtotalRows.length);
-    console.log('[transformToPivotStructure] grandtotal rows:', grandtotalRows.length);
-    if (subtotalRows.length > 0) {
-      console.log('[transformToPivotStructure] first subtotal row:', subtotalRows[0]);
-      console.log('[transformToPivotStructure] first subtotal row values:', subtotalRows[0]?.values);
     }
 
     return result;
   }
 
   /**
+   * 헬퍼: 모든 컬럼 키 목록 생성 (Leaf, Subtotal, GrandTotal)
+   */
+  private getAllColumnKeys(
+    config: PivotConfig,
+    uniqueValues: Record<string, CellValue[]>
+  ): { fullKey: string; colKey: string; valueField: string }[] {
+    const { columnFields, valueFields, showColumnSubTotals, columnSubTotalFields, showColumnGrandTotals } = config;
+    const keys: { fullKey: string; colKey: string; valueField: string }[] = [];
+
+    const buildKeys = (
+      level: number,
+      currentPath: string[],
+      addSubtotals: boolean
+    ) => {
+      if (level >= columnFields.length) {
+        // Leaf Level (Value Fields)
+        for (const vf of valueFields) {
+          keys.push({
+            fullKey: createPivotColumnKey(currentPath, vf.field),
+            colKey: currentPath.map(String).join('|'),
+            valueField: vf.field
+          });
+        }
+        return;
+      }
+
+      const field = columnFields[level];
+      const values = uniqueValues[field] || [];
+
+      for (const val of values) {
+        const strVal = String(val ?? '');
+        const nextPath = [...currentPath, strVal];
+
+        buildKeys(level + 1, nextPath, addSubtotals);
+
+        const needSubtotal = showColumnSubTotals &&
+          (!columnSubTotalFields || columnSubTotalFields.length === 0 || columnSubTotalFields.includes(field));
+
+        if (needSubtotal && level < columnFields.length - 1) {
+          const subPath = [...nextPath, PIVOT_KEY_SUBTOTAL];
+          for (const vf of valueFields) {
+            keys.push({
+              fullKey: createPivotColumnKey(subPath, vf.field),
+              colKey: nextPath.map(String).join('|'),
+              valueField: vf.field
+            });
+          }
+        }
+      }
+    };
+
+    buildKeys(0, [], true);
+
+    if (showColumnGrandTotals) {
+      const grandTotalPath = [PIVOT_KEY_GRANDTOTAL];
+      for (const vf of valueFields) {
+        keys.push({
+          fullKey: createPivotColumnKey(grandTotalPath, vf.field),
+          colKey: PIVOT_KEY_GRANDTOTAL,
+          valueField: vf.field
+        });
+      }
+    }
+
+    return keys;
+  }
+
+  /**
    * 다중 레벨 소계 삽입
-   *
-   * 각 소계 필드 레벨에서 그룹이 변경될 때 해당 레벨과 하위 레벨의 소계를 삽입합니다.
-   *
-   * @example
-   * rowFields: ['category', 'product', 'region']
-   * subtotalFields: ['category', 'product']
-   *
-   * 결과:
-   * - category A, product 1, region X
-   * - category A, product 1, region Y
-   * - [product 1 소계]
-   * - category A, product 2, region X
-   * - [product 2 소계]
-   * - [category A 소계]
-   * - category B, product 3, region X
-   * - [product 3 소계]
-   * - [category B 소계]
    */
   private insertMultiLevelSubtotals(
     dataRows: PivotRow[],
     result: PivotRow[],
-    rowFields: string[],
+    config: PivotConfig,
     subtotalFields: string[],
-    valueFields: PivotValueField[]
+    aggregationMap: Map<string, number>,
+    allColumnKeys: { fullKey: string; colKey: string; valueField: string }[]
   ): void {
-    // 각 소계 레벨의 현재 그룹 값과 그룹 행들을 추적
-    // 레벨 인덱스는 rowFields 내에서의 위치
-    const levelIndices = subtotalFields.map((f) => rowFields.indexOf(f));
+    const { rowFields } = config;
 
-    // 각 레벨별 현재 그룹 값
-    const currentGroupValues: (CellValue | undefined)[] = subtotalFields.map(() => undefined);
+    // 이전 행의 값 저장을 위한 객체 (레벨별)
+    const prevValues: Record<number, CellValue> = {};
+    let initialized = false;
 
-    // 각 레벨별 그룹에 속한 행들 (하위 레벨 소계 포함)
-    const groupRowsAtLevel: PivotRow[][] = subtotalFields.map(() => []);
+    for (let i = 0; i < dataRows.length; i++) {
+      const row = dataRows[i]!;
 
-    for (const row of dataRows) {
-      // 각 레벨에서 그룹 변경 확인 (상위 레벨부터)
-      let changedLevel = -1;
+      if (!initialized) {
+        for (let l = 0; l < rowFields.length; l++) {
+          const field = rowFields[l]!;
+          prevValues[l] = row.rowHeaders[field];
+        }
+        initialized = true;
+        result.push(row);
+        continue;
+      }
 
-      for (let i = 0; i < subtotalFields.length; i++) {
-        const field = subtotalFields[i]!;
-        const currentValue = row.rowHeaders[field];
-        const prevValue = currentGroupValues[i];
+      // 그룹 변경 감지 (상위 레벨부터)
+      let changeLevel = -1;
 
-        if (prevValue !== undefined && currentValue !== prevValue) {
-          changedLevel = i;
-          break; // 상위 레벨이 바뀌면 하위 레벨도 당연히 바뀜
+      for (let l = 0; l < rowFields.length; l++) {
+        const field = rowFields[l]!;
+        const val = row.rowHeaders[field];
+        if (prevValues[l] !== val) {
+          changeLevel = l;
+          break;
         }
       }
 
-      // 그룹이 변경되었으면 해당 레벨부터 하위 레벨까지 소계 삽입
-      if (changedLevel >= 0) {
-        // 하위 레벨부터 상위 레벨 순으로 소계 삽입
-        for (let i = subtotalFields.length - 1; i >= changedLevel; i--) {
-          const field = subtotalFields[i]!;
-          const groupValue = currentGroupValues[i];
-          const groupRows = groupRowsAtLevel[i]!;
+      if (changeLevel !== -1) {
+        // 변경된 레벨부터 가장 깊은 레벨까지 역순으로 소계 삽입
+        for (let idx = subtotalFields.length - 1; idx >= 0; idx--) {
+          const field = subtotalFields[idx]!;
+          const levelIndex = rowFields.indexOf(field);
 
-          if (groupRows.length > 0) {
-            // 그룹 행들을 상위 레벨에 추가 (가장 상위 레벨은 result에)
-            if (i === 0) {
-              result.push(...groupRows);
-            }
-            // 하위 레벨의 행들은 이미 상위에 추가되어 있음
-
-            // 소계 행 생성 (데이터 행만 필터링하여 집계)
-            const dataOnlyRows = groupRows.filter((r) => r.type === 'data');
-            if (dataOnlyRows.length > 0) {
-              const subtotalRow = this.createSubtotalRow(
-                dataOnlyRows,
-                field,
-                groupValue,
-                rowFields,
-                valueFields,
-                levelIndices[i]!
-              );
-
-              // 소계를 상위 레벨 그룹에 추가
-              if (i === 0) {
-                result.push(subtotalRow);
-              } else {
-                groupRowsAtLevel[i - 1]!.push(subtotalRow);
-              }
+          if (levelIndex >= changeLevel) {
+            const groupHeaders: Record<string, CellValue> = {};
+            for (let k = 0; k <= levelIndex; k++) {
+              const f = rowFields[k]!;
+              groupHeaders[f] = prevValues[k];
             }
 
-            // 그룹 초기화
-            groupRowsAtLevel[i] = [];
-          }
-        }
-      }
-
-      // 현재 행을 가장 하위 소계 레벨의 그룹에 추가
-      const lowestLevel = subtotalFields.length - 1;
-      groupRowsAtLevel[lowestLevel]!.push(row);
-
-      // 가장 하위가 아닌 레벨들에도 행 추가 (중첩 구조)
-      for (let i = lowestLevel - 1; i >= 0; i--) {
-        groupRowsAtLevel[i]!.push(row);
-      }
-
-      // 현재 그룹 값 업데이트
-      for (let i = 0; i < subtotalFields.length; i++) {
-        const field = subtotalFields[i]!;
-        currentGroupValues[i] = row.rowHeaders[field];
-      }
-    }
-
-    // 마지막 그룹들 처리
-    for (let i = subtotalFields.length - 1; i >= 0; i--) {
-      const field = subtotalFields[i]!;
-      const groupValue = currentGroupValues[i];
-      const groupRows = groupRowsAtLevel[i]!;
-
-      if (groupRows.length > 0) {
-        if (i === 0) {
-          result.push(...groupRows);
-        }
-
-        const dataOnlyRows = groupRows.filter((r) => r.type === 'data');
-        if (dataOnlyRows.length > 0) {
-          const subtotalRow = this.createSubtotalRow(
-            dataOnlyRows,
-            field,
-            groupValue,
-            rowFields,
-            valueFields,
-            levelIndices[i]!
-          );
-
-          if (i === 0) {
+            const subtotalRow = this.createSubtotalRow(
+              groupHeaders,
+              rowFields,
+              levelIndex,
+              aggregationMap,
+              allColumnKeys
+            );
             result.push(subtotalRow);
-          } else {
-            groupRowsAtLevel[i - 1]!.push(subtotalRow);
-          }
-        }
-
-        groupRowsAtLevel[i] = [];
-      }
-    }
-  }
-
-  /**
-   * 열 소계 값 계산
-   *
-   * 각 소계 필드에 대해 해당 그룹의 값들을 합산합니다.
-   *
-   * @example
-   * columnFields: ['quarter', 'month']
-   * colSubtotalFields: ['quarter']
-   *
-   * Q1의 소계 = Q1_1월_sales + Q1_2월_sales + Q1_3월_sales
-   */
-  private calculateColumnSubtotals(
-    pivotRow: PivotRow,
-    columnFields: string[],
-    colSubtotalFields: string[],
-    valueFields: PivotValueField[],
-    uniqueValues: Record<string, CellValue[]>
-  ): void {
-    // 재귀적으로 각 레벨의 소계 계산
-    this.calculateSubtotalRecursive(pivotRow, columnFields, colSubtotalFields, valueFields, uniqueValues, 0, []);
-  }
-
-  /**
-   * 재귀적으로 열 소계 계산
-   */
-  private calculateSubtotalRecursive(
-    row: PivotRow,
-    columnFields: string[],
-    subtotalFields: string[],
-    valueFields: PivotValueField[],
-    uniqueValues: Record<string, CellValue[]>,
-    level: number,
-    path: string[]
-  ): void {
-    if (level >= columnFields.length) return;
-
-    const field = columnFields[level]!;
-    const values = uniqueValues[field] || [];
-    const shouldCalculateSubtotal = subtotalFields.includes(field);
-
-    for (const val of values) {
-      const strVal = String(val ?? '');
-      const currentPath = [...path, strVal];
-
-      // 하위 레벨 먼저 계산 (Bottom-up)
-      this.calculateSubtotalRecursive(
-        row,
-        columnFields,
-        subtotalFields,
-        valueFields,
-        uniqueValues,
-        level + 1,
-        currentPath
-      );
-
-      // 현재 레벨 소계 계산
-      if (shouldCalculateSubtotal) {
-        for (const vf of valueFields) {
-          // 변경된 키 구조: 상위값/__subtotal__/값필드
-          // addSubtotalColumn에서 생성한 키 구조와 일치해야 함:
-          // [...path, strVal, '__subtotal__', vf.field]
-          const subtotalKey = this.createSubtotalKey(currentPath, vf.field);
-
-          // 하위 값들의 합계 계산
-          // 여기서는 단순하게: 현재 경로(currentPath)로 시작하는 모든 데이터 컬럼을 찾아서 합산
-          // (성능 최적화 여지 있음)
-
-          // 이 그룹에 속하는 리프 컬럼들의 값 수집
-          let collectedValues: number[] = [];
-
-          const searchPrefix = createPivotColumnKey(currentPath, '');
-          const suffix = '_' + vf.field;
-
-          for (const [key, value] of Object.entries(row.values)) {
-            if (key === subtotalKey) continue;
-
-            // 현재 그룹에 속하는지 확인
-            if (key.startsWith(searchPrefix) && key.endsWith(suffix)) {
-              // 소계 컬럼 제외 (중복 합산 방지)
-              if (key.includes(PIVOT_KEY_SUBTOTAL)) continue;
-              // 총합계 제외
-              if (key.includes(PIVOT_KEY_GRANDTOTAL)) continue;
-
-              if (typeof value === 'number') {
-                collectedValues.push(value);
-              }
-            }
-          }
-
-          if (collectedValues.length > 0) {
-            row.values[subtotalKey] = this.aggregateValues(collectedValues, vf.aggregate);
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   * 열 총합계 값 계산
-   *
-   * 모든 데이터 컬럼의 값을 합산합니다.
-   */
-  private calculateColumnGrandTotal(
-    pivotRow: PivotRow,
-    valueFields: PivotValueField[]
-  ): void {
-    // 각 valueField에 대해 총합계 계산
-    for (const valueField of valueFields) {
-      let values: number[] = [];
-
-      for (const [key, value] of Object.entries(pivotRow.values)) {
-        // __subtotal__이나 __grandtotal__을 포함하지 않는 데이터 컬럼만
-        if (!key.includes(PIVOT_KEY_SUBTOTAL) && !key.includes(PIVOT_KEY_GRANDTOTAL)) {
-          if (key.endsWith('_' + valueField.field) && typeof value === 'number') {
-            values.push(value);
           }
         }
       }
 
-      // 총합계 컬럼 키 생성 및 값 할당
-      const grandTotalColKey = this.createGrandTotalKey(valueField.field);
-      pivotRow.values[grandTotalColKey] = this.aggregateValues(values, valueField.aggregate);
+      result.push(row);
+
+      for (let l = 0; l < rowFields.length; l++) {
+        const field = rowFields[l]!;
+        prevValues[l] = row.rowHeaders[field];
+      }
     }
-  }
 
-  /**
-   * 값 집계 헬퍼
-   */
-  private aggregateValues(values: number[], method: string = 'sum'): number {
-    if (values.length === 0) return 0;
+    // 마지막 그룹 닫기
+    if (initialized) {
+      for (let idx = subtotalFields.length - 1; idx >= 0; idx--) {
+        const field = subtotalFields[idx]!;
+        const levelIndex = rowFields.indexOf(field);
 
-    switch (method) {
-      case 'sum':
-        return values.reduce((a, b) => a + b, 0);
-      case 'avg':
-        return values.reduce((a, b) => a + b, 0) / values.length;
-      case 'min':
-        return Math.min(...values);
-      case 'max':
-        return Math.max(...values);
-      case 'count':
-        return values.length;
-      default: // sum
-        return values.reduce((a, b) => a + b, 0);
+        const groupHeaders: Record<string, CellValue> = {};
+        for (let k = 0; k <= levelIndex; k++) {
+          const f = rowFields[k]!;
+          groupHeaders[f] = prevValues[k];
+        }
+
+        const subtotalRow = this.createSubtotalRow(
+          groupHeaders,
+          rowFields,
+          levelIndex,
+          aggregationMap,
+          allColumnKeys
+        );
+        result.push(subtotalRow);
+      }
     }
   }
 
@@ -1062,211 +1001,165 @@ export class PivotProcessor extends ArqueroProcessor {
    * 소계 행 생성
    */
   private createSubtotalRow(
-    groupRows: PivotRow[],
-    groupField: string,
-    groupValue: CellValue,
+    groupHeaders: Record<string, CellValue>,
     rowFields: string[],
-    valueFields: PivotValueField[],
-    depth: number = 0
+    levelIndex: number,
+    aggregationMap: Map<string, number>,
+    allColumnKeys: { fullKey: string; colKey: string; valueField: string }[]
   ): PivotRow {
-    // 그룹 내 모든 값 수집 (키별로 배열 저장)
-    const collectedValues: Record<string, number[]> = {};
+    // Row Key 생성 (소계 레벨까지만 포함)
+    const activeFields = rowFields.slice(0, levelIndex + 1);
+    const rKey = activeFields.map(f => String(groupHeaders[f] ?? '')).join('|');
 
-    for (const row of groupRows) {
-      for (const [key, value] of Object.entries(row.values)) {
-        if (typeof value === 'number') {
-          if (!collectedValues[key]) collectedValues[key] = [];
-          collectedValues[key]!.push(value);
-        }
-      }
+    // rowHeaders 설정 (소계 라벨 처리)
+    const rowHeaders: Record<string, CellValue> = { ...groupHeaders };
+    // 현재 그룹 필드 아래 레벨은 '소계'로 표시
+    if (levelIndex < rowFields.length - 1) {
+      const nextField = rowFields[levelIndex + 1];
+      rowHeaders[nextField] = PIVOT_LABEL_SUBTOTAL;
+    }
+    // 그 외 하위 레벨은 빈값
+    for (let i = levelIndex + 2; i < rowFields.length; i++) {
+      rowHeaders[rowFields[i]] = '';
     }
 
-    // 각 키별로 적절한 집계 함수 적용
-    const aggregatedValues: Record<string, CellValue> = {};
-    for (const [key, values] of Object.entries(collectedValues)) {
-      // 해당 키가 어떤 valueField에 속하는지 찾기
-      const valueField = valueFields.find(vf =>
-        key.endsWith('_' + vf.field) || key === vf.field ||
-        key.endsWith(PIVOT_KEY_SUBTOTAL + '_' + vf.field) || // 소계 컬럼
-        key.endsWith(PIVOT_KEY_GRANDTOTAL + '_' + vf.field)  // 총합계 컬럼
-      );
-
-      const aggregateFunc = valueField?.aggregate ?? 'sum';
-      aggregatedValues[key] = this.aggregateValues(values, aggregateFunc);
-    }
-
-    // DEBUG
-    // console.log('[createSubtotalRow] groupField:', groupField, 'aggregated:', aggregatedValues);
-
-    // rowHeaders 설정 (그룹 필드는 그룹 값 + '소계', 나머지는 빈 문자열)
-    const rowHeaders: Record<string, CellValue> = {};
-    const groupFieldIndex = rowFields.indexOf(groupField);
-
-    for (let i = 0; i < rowFields.length; i++) {
-      const field = rowFields[i]!;
-      if (i < groupFieldIndex) {
-        // 상위 레벨 필드: 첫 번째 데이터 행의 값 유지
-        rowHeaders[field] = groupRows[0]?.rowHeaders[field] ?? '';
-      } else if (i === groupFieldIndex) {
-        // 현재 그룹 필드: 값만 표시
-        rowHeaders[field] = groupValue;
-      } else if (i === groupFieldIndex + 1) {
-        // 바로 아래 레벨 필드: '소계' 표시
-        rowHeaders[field] = PIVOT_LABEL_SUBTOTAL;
-      } else {
-        // 나머지 하위 레벨 필드: 빈 문자열
-        rowHeaders[field] = '';
-      }
-    }
-
-    return {
+    const subtotalRow: PivotRow = {
       rowHeaders,
-      values: aggregatedValues,
+      values: {},
       type: 'subtotal',
-      depth,
+      depth: levelIndex,
     };
+
+    // 값 채우기
+    for (const colDef of allColumnKeys) {
+      const mapKey = `${rKey}::${colDef.colKey}::${colDef.valueField}`;
+      const val = aggregationMap.get(mapKey);
+      if (val !== undefined) {
+        subtotalRow.values[colDef.fullKey] = val;
+      }
+    }
+
+    return subtotalRow;
   }
 
   /**
    * 총합계 행 생성
    */
   private createGrandTotalRow(
-    dataRows: PivotRow[],
-    rowFields: string[],
-    valueFields: PivotValueField[]
+    aggregationMap: Map<string, number>,
+    allColumnKeys: { fullKey: string; colKey: string; valueField: string }[],
+    rowFields: string[]
   ): PivotRow {
-    // 모든 값 수집
-    const collectedValues: Record<string, number[]> = {};
-
-    for (const row of dataRows) {
-      // 소계 행은 제외하고 데이터 행만 합산 (중복 방지)
-      // dataRows에는 data, subtotal, grandtotal이 섞여있지 않음? 
-      // transformToPivotStructure에서 호출 시 dataRows만 넘겨야 함.
-      // 하지만 transformToPivotStructure 구현을 보면 subtotal이 삽입되기 전의 dataRows를 넘기는지 확인 필요.
-      // dataRows는 순수 데이터 행들임 (transformToPivotStructure 초반에 생성된 것).
-
-      for (const [key, value] of Object.entries(row.values)) {
-        if (typeof value === 'number') {
-          if (!collectedValues[key]) collectedValues[key] = [];
-          collectedValues[key]!.push(value);
-        }
-      }
-    }
-
-    // 집계 적용
-    const aggregatedValues: Record<string, CellValue> = {};
-    for (const [key, values] of Object.entries(collectedValues)) {
-      const valueField = valueFields.find(vf =>
-        key.endsWith('_' + vf.field) || key === vf.field ||
-        key.endsWith(PIVOT_KEY_SUBTOTAL + '_' + vf.field) ||
-        key.endsWith(PIVOT_KEY_GRANDTOTAL + '_' + vf.field)
-      );
-
-      const aggregateFunc = valueField?.aggregate ?? 'sum';
-      aggregatedValues[key] = this.aggregateValues(values, aggregateFunc);
-    }
-
-    // rowHeaders 설정
-    const rowHeaders: Record<string, CellValue> = {};
-    for (let i = 0; i < rowFields.length; i++) {
-      const field = rowFields[i]!;
-      rowHeaders[field] = i === 0 ? PIVOT_LABEL_GRANDTOTAL : '';
-    }
-
-    return {
-      rowHeaders,
-      values: aggregatedValues,
+    const grandTotalRow: PivotRow = {
+      rowHeaders: {},
+      values: {},
       type: 'grandtotal',
     };
-  }
 
-  // ============================================================================
-  // 행 병합 정보 계산
-  // ============================================================================
+    // Row Key
+    const rKey = PIVOT_KEY_GRANDTOTAL;
 
-  /**
-   * 행 병합 정보 계산 (same-value 기반)
-   */
-  private calculateRowMergeInfo(
-    data: PivotRow[],
-    rowFields: string[]
-  ): Record<string, RowMergeInfo[]> {
-    const result: Record<string, RowMergeInfo[]> = {};
-
-    for (const field of rowFields) {
-      const merges: RowMergeInfo[] = [];
-      let spanStart = 0;
-      let currentValue: CellValue = undefined;
-
-      for (let i = 0; i < data.length; i++) {
-        const row = data[i];
-        if (!row) continue;
-
-        const value = row.rowHeaders[field];
-
-        if (i === 0) {
-          currentValue = value;
-          spanStart = 0;
-        } else if (value !== currentValue) {
-          // 이전 병합 구간 저장
-          if (i > spanStart) {
-            merges.push({
-              startIndex: spanStart,
-              span: i - spanStart,
-            });
-          }
-          currentValue = value;
-          spanStart = i;
-        }
+    if (rowFields.length > 0) {
+      grandTotalRow.rowHeaders[rowFields[0]] = PIVOT_LABEL_GRANDTOTAL;
+      for (let i = 1; i < rowFields.length; i++) {
+        grandTotalRow.rowHeaders[rowFields[i]] = '';
       }
-
-      // 마지막 구간 저장
-      if (data.length > spanStart) {
-        merges.push({
-          startIndex: spanStart,
-          span: data.length - spanStart,
-        });
-      }
-
-      result[field] = merges;
     }
 
-    return result;
+    for (const colDef of allColumnKeys) {
+      const mapKey = `${rKey}::${colDef.colKey}::${colDef.valueField}`;
+      const val = aggregationMap.get(mapKey);
+      if (val !== undefined) {
+        grandTotalRow.values[colDef.fullKey] = val;
+      }
+    }
+
+    return grandTotalRow;
   }
 
-  // ============================================================================
-  // 정렬 헬퍼
-  // ============================================================================
+  /**
+   * 행 병합 정보 계산
+   */
+  private calculateRowMergeInfo(rows: PivotRow[], rowFields: string[]): Record<string, RowMergeInfo[]> {
+    const mergeInfo: Record<string, RowMergeInfo[]> = {};
+    if (rows.length === 0 || rowFields.length === 0) {
+      return mergeInfo;
+    }
+
+    for (const field of rowFields) {
+      mergeInfo[field] = [];
+    }
+
+    const tracking: Record<string, { value: CellValue; startIndex: number }> = {};
+    for (const field of rowFields) {
+      tracking[field] = {
+        value: rows[0]!.rowHeaders[field],
+        startIndex: 0,
+      };
+    }
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i]!;
+      let parentChanged = false;
+
+      for (let j = 0; j < rowFields.length; j++) {
+        const field = rowFields[j]!;
+        const val = row.rowHeaders[field];
+        const tracker = tracking[field]!;
+
+        // PivotRow type check
+        const isSpecialRow = row.type !== 'data';
+        const prevWasSpecial = rows[i - 1]!.type !== 'data';
+
+        if (parentChanged || val !== tracker.value || isSpecialRow || prevWasSpecial) {
+          const rowspan = i - tracker.startIndex;
+          if (rowspan > 1) {
+            if (!mergeInfo[field]) mergeInfo[field] = {};
+            mergeInfo[field]![tracker.startIndex] = { rowspan, colspan: 1 };
+            for (let k = tracker.startIndex + 1; k < i; k++) {
+              mergeInfo[field]![k] = { rowspan: 0, colspan: 0 };
+            }
+          } else {
+            if (!mergeInfo[field]) mergeInfo[field] = {};
+            mergeInfo[field]![tracker.startIndex] = { rowspan: 1, colspan: 1 };
+          }
+
+          tracker.value = val;
+          tracker.startIndex = i;
+          parentChanged = true;
+        }
+      }
+    }
+
+    // 마지막 그룹 처리
+    for (const field of rowFields) {
+      const tracker = tracking[field]!;
+      const rowspan = rows.length - tracker.startIndex;
+      if (rowspan > 1) {
+        if (!mergeInfo[field]) mergeInfo[field] = {};
+        mergeInfo[field]![tracker.startIndex] = { rowspan, colspan: 1 };
+        for (let k = tracker.startIndex + 1; k < rows.length; k++) {
+          mergeInfo[field]![k] = { rowspan: 0, colspan: 0 };
+        }
+      } else {
+        if (!mergeInfo[field]) mergeInfo[field] = {};
+        mergeInfo[field]![tracker.startIndex] = { rowspan: 1, colspan: 1 };
+      }
+    }
+
+    return mergeInfo;
+  }
 
   /**
-   * 피벗 결과에서 특정 값 필드의 합계 계산 (정렬용)
-   * 
-   * 예: sales로 정렬 시, 모든 월의 sales 합계를 계산하여 비교
+   * 정렬용 값 집계 (Placeholder)
+   * 현재 로직은 `transformToPivotStructure` 내에서 처리되므로 사용되지 않을 수 있음.
    */
   private sumValuesForColumn(
     values: Record<string, CellValue>,
     columnKey: string,
     valueFields: PivotValueField[]
   ): number {
-    let sum = 0;
-
-    // 해당 valueField가 존재하는지 확인
-    const valueField = valueFields.find(vf => vf.field === columnKey);
-    if (!valueField) {
-      return 0;
-    }
-
-    // values 객체에서 해당 valueField를 포함하는 모든 키의 값을 합산
-    // 예: '1월_sales', '2월_sales', ... 모두 합산
-    for (const [key, value] of Object.entries(values)) {
-      if (key.endsWith('_' + columnKey) || key === columnKey) {
-        if (typeof value === 'number') {
-          sum += value;
-        }
-      }
-    }
-
-    return sum;
+    return 0;
   }
 
   // ============================================================================
