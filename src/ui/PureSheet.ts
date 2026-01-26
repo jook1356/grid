@@ -45,7 +45,8 @@ export type PureSheetEventType =
   | 'column:pin'
   | 'sort:changed'
   | 'filter:changed'
-  | 'scroll';
+  | 'scroll'
+  | 'undo:stateChange';
 
 /**
  * 이벤트 구독 해제 함수
@@ -216,12 +217,19 @@ export class PureSheet {
     });
 
     // 키보드 단축키 관리자 초기화 (Ctrl+Z/Y Undo/Redo)
-    // onRefresh 콜백으로 Undo/Redo 후 새로고침 처리
+    // PureSheet의 undo()/redo() 메서드를 통해 일관된 처리
     this.keyboardShortcutManager = new KeyboardShortcutManager(
       this.container,
-      this.undoStack,
-      { onRefresh: () => this.refresh() }
+      {
+        onUndo: () => this.undo(),
+        onRedo: () => this.redo(),
+      }
     );
+
+    // UndoStack의 상태 변경을 외부로 전파
+    this.undoStack.on('stateChange', (state) => {
+      this.emitEvent('undo:stateChange', state);
+    });
 
     // ChangeTracker → BodyRenderer 연결 (Dirty State CSS 적용 + 데이터 병합)
     const bodyRenderer = this.gridRenderer.getBodyRenderer();

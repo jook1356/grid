@@ -418,8 +418,11 @@ grid.<span class="function">discardRow</span>(<span class="string">'row-5'</span
         updateSelectedInfo();
       });
 
-      // 키보드 단축키는 PureSheet 내부에서 자동 처리됨
-      // (Ctrl+Z, Ctrl+Y)
+      // Undo/Redo 상태 변경 이벤트 (단축키, 버튼 모두 동일하게 처리)
+      grid.on('undo:stateChange', () => {
+        updateChangesPanel();
+        updateUndoRedoButtons();
+      });
 
       updateStatus('준비 완료 - 셀을 더블클릭하여 편집, Ctrl+Z로 Undo');
       updateChangesPanel();
@@ -524,8 +527,6 @@ grid.<span class="function">discardRow</span>(<span class="string">'row-5'</span
       if (!grid) return;
 
       if (grid.undo()) {
-        updateChangesPanel();
-        updateUndoRedoButtons();
         updateStatus('Undo 실행됨');
       }
     };
@@ -534,8 +535,6 @@ grid.<span class="function">discardRow</span>(<span class="string">'row-5'</span
       if (!grid) return;
 
       if (grid.redo()) {
-        updateChangesPanel();
-        updateUndoRedoButtons();
         updateStatus('Redo 실행됨');
       }
     };
@@ -546,20 +545,6 @@ grid.<span class="function">discardRow</span>(<span class="string">'row-5'</span
       document.getElementById('undoBtn').disabled = !grid.canUndo;
       document.getElementById('redoBtn').disabled = !grid.canRedo;
     }
-
-    // 키보드 이벤트 리스너 (Undo/Redo 후 UI 업데이트)
-    document.addEventListener('keydown', (e) => {
-      if (!grid) return;
-
-      // Ctrl+Z 또는 Ctrl+Y 감지
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'y')) {
-        // PureSheet 내부에서 처리되므로 약간의 딜레이 후 UI 업데이트
-        setTimeout(() => {
-          updateChangesPanel();
-          updateUndoRedoButtons();
-        }, 50);
-      }
-    });
 
     // =========================================================================
     // Commit/Discard

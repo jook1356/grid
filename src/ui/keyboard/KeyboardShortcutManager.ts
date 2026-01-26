@@ -4,7 +4,10 @@
  * Undo/Redo 등 키보드 단축키를 처리합니다.
  *
  * @example
- * const manager = new KeyboardShortcutManager(container, undoStack);
+ * const manager = new KeyboardShortcutManager(container, {
+ *   onUndo: () => grid.undo(),
+ *   onRedo: () => grid.redo(),
+ * });
  *
  * // 커스텀 단축키 등록
  * manager.register('ctrl+s', () => saveChanges());
@@ -12,8 +15,6 @@
  * // 정리
  * manager.destroy();
  */
-
-import type { UndoStack } from '../../core/UndoStack';
 
 /**
  * 단축키 핸들러
@@ -26,8 +27,10 @@ export type ShortcutHandler = () => void;
 export interface KeyboardShortcutManagerOptions {
     /** Undo/Redo 단축키 비활성화 */
     disableUndoRedo?: boolean;
-    /** Undo/Redo 후 호출될 콜백 (DOM 이벤트 대신 사용) */
-    onRefresh?: () => void;
+    /** Undo 실행 콜백 (PureSheet.undo() 호출용) */
+    onUndo?: () => void;
+    /** Redo 실행 콜백 (PureSheet.redo() 호출용) */
+    onRedo?: () => void;
 }
 
 /**
@@ -39,7 +42,6 @@ export class KeyboardShortcutManager {
 
     constructor(
         private readonly container: HTMLElement,
-        private readonly undoStack: UndoStack,
         private readonly options: KeyboardShortcutManagerOptions = {}
     ) {
         this.boundHandler = this.handleKeyDown.bind(this);
@@ -76,34 +78,20 @@ export class KeyboardShortcutManager {
     private registerDefaults(): void {
         if (this.options.disableUndoRedo) return;
 
+        const { onUndo, onRedo } = this.options;
+
         // Undo: Ctrl+Z (Windows/Linux), Cmd+Z (Mac)
-        this.register('ctrl+z', () => {
-            if (this.undoStack.undo()) {
-                this.triggerRefresh();
-            }
-        });
-        this.register('meta+z', () => {
-            if (this.undoStack.undo()) {
-                this.triggerRefresh();
-            }
-        });
+        if (onUndo) {
+            this.register('ctrl+z', onUndo);
+            this.register('meta+z', onUndo);
+        }
 
         // Redo: Ctrl+Y 또는 Ctrl+Shift+Z (Windows/Linux), Cmd+Shift+Z (Mac)
-        this.register('ctrl+y', () => {
-            if (this.undoStack.redo()) {
-                this.triggerRefresh();
-            }
-        });
-        this.register('ctrl+shift+z', () => {
-            if (this.undoStack.redo()) {
-                this.triggerRefresh();
-            }
-        });
-        this.register('meta+shift+z', () => {
-            if (this.undoStack.redo()) {
-                this.triggerRefresh();
-            }
-        });
+        if (onRedo) {
+            this.register('ctrl+y', onRedo);
+            this.register('ctrl+shift+z', onRedo);
+            this.register('meta+shift+z', onRedo);
+        }
     }
 
     private attach(): void {
@@ -151,19 +139,5 @@ export class KeyboardShortcutManager {
 
         parts.push(key);
         return parts.join('+');
-    }
-
-    /**
-     * Refresh 트리거 (콜백 우선, 없으면 DOM 이벤트)
-     */
-    private triggerRefresh(): void {
-        if (this.options.onRefresh) {
-            this.options.onRefresh();
-        } else {
-            // 하위 호환성을 위해 DOM 이벤트도 유지
-            this.container.dispatchEvent(
-                new CustomEvent('ps:refresh', { bubbles: true })
-            );
-        }
     }
 }

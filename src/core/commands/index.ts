@@ -108,6 +108,11 @@ export class UpdateCellCommand implements Command {
 
 /**
  * 행 삭제 Command
+ *
+ * 수정된 행을 삭제할 때 수정 상태도 함께 저장하여
+ * Undo 시 수정 상태도 복원합니다.
+ *
+ * 이미 삭제된 행을 다시 삭제하면 no-op으로 처리합니다.
  */
 export class DeleteRowCommand implements Command {
     readonly type = 'deleteRow' as const;
@@ -116,6 +121,17 @@ export class DeleteRowCommand implements Command {
     // 추가된 행이었는지 여부 (undo 시 addRow로 복원해야 함)
     private readonly wasAddedRow: boolean;
 
+    // 이미 삭제된 행이었는지 여부 (no-op 처리)
+    private readonly wasAlreadyDeleted: boolean;
+
+    // 수정된 행이었는지 여부 (undo 시 수정 상태도 복원해야 함)
+    private readonly wasModified: boolean;
+    private readonly modifiedData: {
+        original: Row;
+        current: Row;
+        fields: Map<string, { originalValue: CellValue; currentValue: CellValue }>;
+    } | null = null;
+
     constructor(
         private readonly changeTracker: ChangeTracker,
         private readonly rowId: string | number,
@@ -123,21 +139,54 @@ export class DeleteRowCommand implements Command {
         private readonly originalIndex: number
     ) {
         this.description = `행 삭제 (rowId: ${rowId})`;
+
         // 실행 전에 추가된 행인지 확인
         this.wasAddedRow = this.changeTracker.addedRows.has(rowId);
+
+        // 실행 전에 이미 삭제된 행인지 확인
+        this.wasAlreadyDeleted = this.changeTracker.deletedRowIds.has(rowId);
+
+        // 실행 전에 수정된 행인지 확인하고 수정 정보 저장
+        const modified = this.changeTracker.modifiedRows.get(rowId);
+        this.wasModified = !!modified;
+        if (modified) {
+            this.modifiedData = {
+                original: { ...modified.originalData },
+                current: { ...modified.currentData },
+                fields: new Map(modified.changedFields),
+            };
+        }
     }
 
     execute(): void {
+        // 이미 삭제된 행이면 아무것도 하지 않음
+        if (this.wasAlreadyDeleted) return;
+
         this.changeTracker.deleteRow(this.rowId, this.originalData, this.originalIndex);
     }
 
     undo(): void {
+        // 이미 삭제된 행이었으면 아무것도 하지 않음
+        if (this.wasAlreadyDeleted) return;
+
         if (this.wasAddedRow) {
             // 추가된 행이었으면 다시 addRow로 복원
             this.changeTracker.addRow(this.originalData, this.originalIndex);
         } else {
             // 기존 행이었으면 삭제 목록에서 제거
             this.changeTracker.undeleteRow(this.rowId);
+
+            // 수정 상태도 복원
+            if (this.wasModified && this.modifiedData) {
+                for (const [field, change] of this.modifiedData.fields) {
+                    this.changeTracker.updateCell(
+                        this.rowId,
+                        field,
+                        change.currentValue,
+                        this.modifiedData.original
+                    );
+                }
+            }
         }
     }
 }

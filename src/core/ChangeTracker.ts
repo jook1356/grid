@@ -254,6 +254,11 @@ export class ChangeTracker extends SimpleEventEmitter<ChangeTrackerEvents> {
             return;
         }
 
+        // 이미 삭제된 행 → 무시 (중복 삭제 방지)
+        if (this._deletedRows.has(rowId)) {
+            return;
+        }
+
         // 수정 상태 정리
         this._modifiedRows.delete(rowId);
 
