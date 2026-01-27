@@ -438,8 +438,9 @@ export class PivotHeaderRenderer {
           const valueField = cell.dataset['valueField'];
           if (!valueField) continue;
 
-          // borderBoxSize 사용 (소수점 유지하여 정확한 너비 반영)
-          const width = entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width;
+          // borderBoxSize 사용 시 실제 렌더링된 픽셀과 미세한 차이(0.02px 등)가 발생할 수 있음
+          // getBoundingClientRect().width를 사용하여 렌더링된 실제 크기와 정확히 일치시킴
+          const width = cell.getBoundingClientRect().width;
           if (width <= 0) continue;
 
           // 기존 너비와 비교하여 변경된 경우에만 업데이트 (성능 최적화)

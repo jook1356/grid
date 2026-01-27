@@ -236,9 +236,11 @@ export class HeaderRenderer {
           if (!columnKey) continue;
 
           // borderBoxSize 사용 (더 정확함)
-          const width = Math.round(
-            entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width
-          );
+          // const width = Math.round(
+          //   entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width
+          // );
+          const width = cell.getBoundingClientRect().width;
+
           if (width <= 0) continue;
 
           // 기존 너비와 비교하여 변경된 경우에만 업데이트 (성능 최적화)
