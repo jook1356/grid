@@ -171,6 +171,8 @@ export interface HorizontalVirtualizationOptions {
 export interface BodyRendererOptions {
   /** 기본 행 높이 */
   rowHeight: number;
+  /** 헤더 높이 (스크롤바 오프셋 계산용) */
+  headerHeight?: number;
   /** GridCore 인스턴스 */
   gridCore: GridCore;
   /** 컬럼 상태 */
@@ -427,6 +429,12 @@ export class BodyRenderer {
 
     // VirtualScroller 연결 (rowContainer도 전달하여 네이티브 스크롤 지원)
     this.virtualScroller.attach(this.scrollProxyY, this.viewport, this.spacerY, this.rowContainer);
+
+    // Spacer 오프셋 설정: scrollProxyY가 헤더를 포함한 main-area 전체 높이를 가지므로
+    // 헤더 높이만큼 spacer에 추가하여 스크롤바가 올바르게 표시되도록 함
+    if (options.headerHeight) {
+      this.virtualScroller.setSpacerOffset(options.headerHeight);
+    }
 
     // HorizontalVirtualScroller 연결
     this.horizontalVirtualScroller.attach(this.scrollProxyX, this.viewport, this.spacerX);

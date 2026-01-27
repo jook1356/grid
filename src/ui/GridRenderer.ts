@@ -568,6 +568,7 @@ export class GridRenderer {
     // BodyRenderer 초기화 (외부 스크롤 프록시 전달)
     this.bodyRenderer = new BodyRenderer(this.bodyElement, {
       rowHeight: this.options.rowHeight ?? 36,
+      headerHeight: this.options.headerHeight ?? 40,
       gridCore: this.gridCore,
       columns: this.columnStates,
       selectionMode: this.options.selectionMode ?? 'row',

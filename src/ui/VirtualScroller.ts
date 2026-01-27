@@ -67,6 +67,15 @@ export class VirtualScroller extends SimpleEventEmitter<VirtualScrollerEvents> {
   private viewportHeight = 0;
 
   /**
+   * Spacer 높이 오프셋
+   *
+   * scrollProxyY가 실제 viewport보다 더 큰 영역을 차지할 때
+   * (예: 헤더가 포함된 경우) 이 오프셋을 spacer 높이에 추가하여
+   * 스크롤바가 올바르게 표시되도록 합니다.
+   */
+  private spacerOffset = 0;
+
+  /**
    * 렌더링용 행 높이
    */
   private renderRowHeight: number;
@@ -225,6 +234,20 @@ export class VirtualScroller extends SimpleEventEmitter<VirtualScrollerEvents> {
     this.chunkSize = Math.floor(MAX_CHUNK_HEIGHT / this.renderRowHeight);
     this.updateRowContainerHeight();
     this.emitRangeChanged();
+  }
+
+  /**
+   * Spacer 높이 오프셋 설정
+   *
+   * scrollProxyY의 clientHeight가 실제 viewport보다 클 때
+   * (예: 헤더 영역이 포함된 경우) 이 오프셋을 설정하여
+   * 스크롤바가 올바르게 표시되도록 합니다.
+   *
+   * @param offset - 추가할 높이 (보통 헤더 높이)
+   */
+  setSpacerOffset(offset: number): void {
+    this.spacerOffset = offset;
+    this.updateSpacerHeight();
   }
 
   /**
@@ -637,11 +660,15 @@ export class VirtualScroller extends SimpleEventEmitter<VirtualScrollerEvents> {
   /**
    * Spacer 높이 업데이트 (프록시 스크롤바 범위)
    * 브라우저 최대 scrollHeight 제한을 고려하여 안전한 높이로 설정
+   *
+   * spacerOffset을 추가하여 scrollProxyY가 viewport보다 클 때
+   * (예: 헤더가 포함된 경우) 스크롤바가 올바르게 표시되도록 합니다.
    */
   private updateSpacerHeight(): void {
     if (!this.spacer) return;
 
-    const idealHeight = this.totalRows * SPACER_ROW_HEIGHT;
+    // spacerOffset: scrollProxyY.clientHeight와 실제 viewport 높이의 차이 보정
+    const idealHeight = this.totalRows * SPACER_ROW_HEIGHT + this.spacerOffset;
     // 브라우저 한계를 초과하면 최대값으로 제한
     // 비율 기반 스크롤 계산이 이를 보정함
     const safeHeight = Math.min(idealHeight, MAX_SCROLL_HEIGHT);
