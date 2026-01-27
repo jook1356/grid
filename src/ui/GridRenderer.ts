@@ -318,9 +318,9 @@ export class GridRenderer {
 
   /**
    * 피벗 헤더로 전환
-   * 
+   *
    * 기존 HeaderRenderer를 제거하고 PivotHeaderRenderer로 교체합니다.
-   * 
+   *
    * @param pivotResult - 피벗 연산 결과
    */
   switchToPivotHeader(pivotResult: PivotResult): void {
@@ -338,17 +338,48 @@ export class GridRenderer {
       this.pivotHeaderRenderer = null;
     }
 
+    // fieldDefs 맵 생성 (options.columns에서 width 정보 참조용)
+    // ColumnDef는 FieldDef의 width/minWidth/maxWidth를 포함함
+    const fieldDefs = new Map<string, import('../types').FieldDef>();
+    for (const col of this.options.columns) {
+      // ColumnDef를 FieldDef로 캐스팅 (width 관련 속성만 필요)
+      fieldDefs.set(col.key, col as unknown as import('../types').FieldDef);
+    }
+
+    // columnFieldCount 계산
+    // headerLevelCount는 columnFields 개수 + valueFields 레벨(1)
+    // valueFields가 여러 개여도 마지막 레벨 하나만 차지함
+    const columnFieldCount = pivotResult.headerLevelCount - 1;
+
+    // 피벗 컬럼 참조 저장 (콜백에서 사용)
+    const pivotColumns = pivotResult.columns;
+
     // PivotHeaderRenderer 생성
     this.pivotHeaderRenderer = new PivotHeaderRenderer(this.headerElement, {
       headerTree: pivotResult.columnHeaderTree,
       levelCount: pivotResult.headerLevelCount,
       rowHeaderColumns: pivotResult.rowHeaderColumns,
-      dataColumns: pivotResult.columns,
+      dataColumns: pivotColumns,
       headerHeight: this.options.rowHeight ?? 36,
+      fieldDefs,
+      columnFieldCount,
+      gridContainer: this.gridContainer!,
+      // 컬럼 너비 변경 콜백 (가상 스크롤용)
+      onColumnWidthChange: (valueField, width) => {
+        // 해당 valueField를 가진 모든 컬럼의 너비 업데이트
+        for (const state of this.columnStates) {
+          const colDef = pivotColumns.find(c => c.key === state.key);
+          if (colDef?.pivotValueField === valueField) {
+            state.width = width;
+            // HorizontalVirtualScroller에도 알림 (offset 재계산)
+            this.bodyRenderer?.updateColumnWidth(state.key, width);
+          }
+        }
+      },
     });
 
     // 컬럼 상태 업데이트 (행 헤더 + 피벗 컬럼)
-    const allColumns = [...pivotResult.rowHeaderColumns, ...pivotResult.columns];
+    const allColumns = [...pivotResult.rowHeaderColumns, ...pivotColumns];
     this.updateColumnStates(allColumns);
 
     this.headerMode = 'pivot';

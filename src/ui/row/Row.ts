@@ -534,7 +534,11 @@ export class Row {
       // 너비 설정 (CSS 변수 사용)
       // minWidth/maxWidth/flex는 헤더 셀에서 계산된 후 CSS 변수에 반영되므로
       // 데이터 셀에서는 width만 설정하면 됨
-      cell.style.width = `var(--col-${column.key}-width, ${column.width}px)`;
+      // 피봇 컬럼인 경우 --pivot-col-{valueField}-width 사용
+      const widthVar = colDef?.pivotValueField
+        ? `var(--pivot-col-${colDef.pivotValueField}-width, ${column.width}px)`
+        : `var(--col-${column.key}-width, ${column.width}px)`;
+      cell.style.width = widthVar;
 
       // 데이터 속성
       cell.dataset['columnKey'] = column.key;
@@ -752,7 +756,7 @@ export class Row {
     container: HTMLElement,
     columns: ColumnState[],
     aggregateValues: Map<string, CellValue>,
-    _columnDefs: Map<string, ColumnDef>
+    columnDefs: Map<string, ColumnDef>
   ): void {
     // 필요한 셀 수 맞추기
     while (container.children.length > columns.length) {
@@ -771,7 +775,12 @@ export class Row {
       if (!column) continue;
 
       const cell = cells[i] as HTMLElement;
-      cell.style.width = `var(--col-${column.key}-width, ${column.width}px)`;
+      const colDef = columnDefs.get(column.key);
+      // 피봇 컬럼인 경우 --pivot-col-{valueField}-width 사용
+      const widthVar = colDef?.pivotValueField
+        ? `var(--pivot-col-${colDef.pivotValueField}-width, ${column.width}px)`
+        : `var(--col-${column.key}-width, ${column.width}px)`;
+      cell.style.width = widthVar;
       cell.dataset['columnKey'] = column.key;
 
       // 집계 값이 있으면 표시

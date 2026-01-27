@@ -153,6 +153,14 @@ export interface ColumnDef {
    * - 복사/붙여넣기 시 제외 가능
    */
   structural?: boolean;
+
+  /**
+   * 피봇 valueField 키 (피봇 모드에서만 사용)
+   *
+   * 피봇 컬럼(예: '10월_sales')의 원본 valueField 키('sales')를 저장합니다.
+   * Row.ts에서 이 값이 있으면 --pivot-col-{valueField}-width CSS 변수를 사용합니다.
+   */
+  pivotValueField?: string;
 }
 
 // ============================================================================

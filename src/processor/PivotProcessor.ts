@@ -1222,6 +1222,7 @@ export class PivotProcessor extends ArqueroProcessor {
         formatter: valueField?.formatter,
         pivotType,
         structural: isSubtotal || isGrandTotal, // 소계/총합계는 structural
+        pivotValueField: valueField?.field, // CSS 변수 참조용
       });
       return;
     }

@@ -105,17 +105,17 @@ export function configToInternalOptions(config: PureSheetConfig): InternalOption
   // Flat 모드의 그룹핑 설정
   if (isFlatMode(config)) {
     const flatConfig = config as FlatModeConfig;
-    
+
     if (flatConfig.group) {
       options.groupingConfig = {
         columns: flatConfig.group.columns,
         aggregates: flatConfig.group.subtotals
           ? Object.fromEntries(
-              flatConfig.group.subtotals.map(key => {
-                const field = config.fields.find(f => f.key === key);
-                return [key, field?.aggregate ?? 'sum'];
-              })
-            )
+            flatConfig.group.subtotals.map(key => {
+              const field = config.fields.find(f => f.key === key);
+              return [key, field?.aggregate ?? 'sum'];
+            })
+          )
           : undefined,
       };
     }
@@ -156,6 +156,9 @@ export function getPivotConfig(config: PureSheetConfig): import('../../types/piv
       field: fieldKey,
       aggregate: fieldDef?.aggregate || 'sum',
       header: fieldDef?.header || fieldKey,
+      width: fieldDef?.width,
+      minWidth: fieldDef?.minWidth,
+      maxWidth: fieldDef?.maxWidth,
       formatter: fieldDef?.formatter,
     };
   });
