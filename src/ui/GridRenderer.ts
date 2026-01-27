@@ -75,6 +75,7 @@ export class GridRenderer {
   private scrollProxyX: HTMLElement | null = null;
   private spacerY: HTMLElement | null = null;
   private spacerX: HTMLElement | null = null;
+  private styleElement: HTMLStyleElement | null = null;
 
   // 모듈
   private headerRenderer: HeaderRenderer | null = null;
@@ -136,6 +137,8 @@ export class GridRenderer {
    * 전체 새로고침
    */
   refresh(): void {
+    // 컬럼 변경사항이 있을 수 있으므로 스타일 블록 업데이트
+    this.updateColumnStyleBlock();
     this.bodyRenderer?.refresh();
   }
 
@@ -383,6 +386,7 @@ export class GridRenderer {
     this.updateColumnStates(allColumns);
 
     this.headerMode = 'pivot';
+    this.updateColumnStyleBlock(); // 피벗 모드전환 시 스타일 업데이트
   }
 
   /**
@@ -420,6 +424,7 @@ export class GridRenderer {
     this.bodyRenderer?.updateColumns(this.columnStates);
 
     this.headerMode = 'flat';
+    this.updateColumnStyleBlock(); // 일반 모드 복원 시 스타일 업데이트
   }
 
   /**
@@ -581,6 +586,12 @@ export class GridRenderer {
 
     // 컨테이너에 추가
     this.container.appendChild(this.gridContainer);
+
+    // 스타일 요소 생성 및 초기화
+    this.styleElement = document.createElement('style');
+    this.styleElement.setAttribute('data-id', 'grid-column-styles');
+    this.gridContainer.appendChild(this.styleElement);
+    this.updateColumnStyleBlock();
 
     // HeaderRenderer 초기화
     this.headerRenderer = new HeaderRenderer(this.headerElement, {
@@ -820,6 +831,41 @@ export class GridRenderer {
       .reduce((sum, col) => sum + col.width, 0);
 
     this.gridContainer.style.setProperty('--ps-row-width', `${totalWidth}px`);
+  }
+
+  /**
+   * 동적 컬럼 스타일 블록 업데이트
+   * 
+   * 각 셀에 인라인으로 width를 지정하는 대신,
+   * data-column-key 속성을 기반으로 한 CSS 규칙을 생성하여 주입합니다.
+   * 이를 통해 DOM 크기를 줄이고 렌더링 성능을 개선합니다.
+   */
+  private updateColumnStyleBlock(): void {
+    if (!this.styleElement || !this.gridContainer) return;
+
+    // 현재 GridCore의 컬럼 정보 사용 (피벗 여부 등 메타데이터 포함)
+    const columns = this.gridCore.getColumns();
+    const rules: string[] = [];
+
+    for (const col of columns) {
+      // CSS 변수 이름 결정 (피벗 모드 vs 일반 모드)
+      // 피벗 값 필드인 경우: --pivot-col-{valueField}-width
+      // 일반 컬럼인 경우: --col-{key}-width
+      const varName = col.pivotValueField
+        ? `--pivot-col-${col.pivotValueField}-width`
+        : `--col-${col.key}-width`;
+
+      // CSS 규칙 생성
+      // .ps-cell[data-column-key="KEY"] { width: var(--variable-name); }
+      // fallback은 calc() 내부 등 복잡성을 고려하여 생략하거나 필요한 경우 추가
+      // (여기서는 변수만 사용, 변수가 없으면 기본값은 0이 되거나 상속됨 - 초기화 시 설정됨)
+      rules.push(`.ps-cell[data-column-key="${col.key}"] { width: var(${varName}); }`);
+
+      // 집계 셀(subtotal, grandtotal)도 동일한 너비 사용
+      // (Row.ts에서 ps-cell 클래스를 공유하므로 위 규칙으로 커버됨)
+    }
+
+    this.styleElement.textContent = rules.join('\n');
   }
 
   /**

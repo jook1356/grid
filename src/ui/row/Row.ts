@@ -532,13 +532,9 @@ export class Row {
       const colDef = columnDefs.get(column.key);
 
       // 너비 설정 (CSS 변수 사용)
-      // minWidth/maxWidth/flex는 헤더 셀에서 계산된 후 CSS 변수에 반영되므로
-      // 데이터 셀에서는 width만 설정하면 됨
-      // 피봇 컬럼인 경우 --pivot-col-{valueField}-width 사용
-      const widthVar = colDef?.pivotValueField
-        ? `var(--pivot-col-${colDef.pivotValueField}-width, ${column.width}px)`
-        : `var(--col-${column.key}-width, ${column.width}px)`;
-      cell.style.width = widthVar;
+      // 이제 GridRenderer에서 주입된 스타일 시트(.ps-cell[data-column-key="KEY"])를 통해
+      // width: var(...) 가 자동으로 적용됩니다. 인라인 스타일 제거.
+      // cell.style.width = widthVar;
 
       // 데이터 속성
       cell.dataset['columnKey'] = column.key;
@@ -775,12 +771,11 @@ export class Row {
       if (!column) continue;
 
       const cell = cells[i] as HTMLElement;
-      const colDef = columnDefs.get(column.key);
-      // 피봇 컬럼인 경우 --pivot-col-{valueField}-width 사용
-      const widthVar = colDef?.pivotValueField
-        ? `var(--pivot-col-${colDef.pivotValueField}-width, ${column.width}px)`
-        : `var(--col-${column.key}-width, ${column.width}px)`;
-      cell.style.width = widthVar;
+      // const colDef = columnDefs.get(column.key); // Unused
+
+      // 너비는 GridRenderer의 스타일 시트에서 처리됨
+      // const widthVar = ...
+
       cell.dataset['columnKey'] = column.key;
 
       // 집계 값이 있으면 표시
