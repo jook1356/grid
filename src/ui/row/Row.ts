@@ -594,6 +594,13 @@ export class Row {
       } else if (colDef?.pivotType === 'grandtotal') {
         cell.classList.add('ps-cell-column-grandtotal');
       }
+
+      // readonly 컬럼 스타일 클래스 추가/제거
+      if (colDef?.readonly === true) {
+        cell.classList.add('ps-cell-readonly');
+      } else {
+        cell.classList.remove('ps-cell-readonly');
+      }
     }
 
     return hasMergeAnchor;

@@ -104,6 +104,11 @@ export class EditorManager extends SimpleEventEmitter<EditorManagerEvents> {
 
     // 컬럼 정의 확인
     const colDef = this.getColumnDef(position.columnKey);
+    // readonly가 true면 편집 불가 (전역 editable 설정보다 우선)
+    if (colDef?.readonly === true) {
+      return false;
+    }
+    // editable이 명시적으로 false면 편집 불가
     if (colDef?.editable === false) {
       return false;
     }

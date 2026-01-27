@@ -54,6 +54,7 @@ export function fieldToColumn(field: FieldDef): ColumnDef {
     sortable: field.sortable,
     filterable: field.filterable,
     editable: field.editable,
+    readonly: field.readonly,
     hidden: field.hidden,
     frozen: field.pinned,
     formatter: field.formatter,

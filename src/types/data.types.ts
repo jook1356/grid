@@ -101,6 +101,9 @@ export interface ColumnDef {
   /** 편집 가능 여부 (기본값: false) */
   editable?: boolean;
 
+  /** 읽기 전용 여부 - true면 전역 editable 설정과 관계없이 편집 불가 (기본값: false) */
+  readonly?: boolean;
+
   /** 숨김 여부 (기본값: false) */
   hidden?: boolean;
 

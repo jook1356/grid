@@ -511,6 +511,22 @@
   color: var(--ps-cell-text);
 }
 
+/* 읽기 전용 셀 */
+.ps-cell.ps-cell-readonly {
+  background: var(--ps-row-alt-bg);
+  color: var(--ps-cell-text);
+  cursor: not-allowed;
+}
+
+.ps-row:hover .ps-cell.ps-cell-readonly {
+  background: var(--ps-row-alt-bg);
+}
+
+/* 다크 테마 읽기 전용 셀 */
+.ps-theme-dark .ps-cell.ps-cell-readonly {
+  background: var(--ps-row-alt-bg);
+}
+
 /* =============================================================================
    Selection
    ============================================================================= */
