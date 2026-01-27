@@ -42,8 +42,8 @@ export { MultiRowRenderer } from './ui/multirow';
 export { PivotHeaderRenderer } from './ui/pivot';
 export type { PivotHeaderRendererOptions } from './ui/pivot';
 
-// Row 모듈 (Row 클래스만 - RowClass로 별칭)
-export { Row as RowClass } from './ui/row';
+// Row 모듈
+export { Row, Row as RowClass } from './ui/row';
 export type {
   RowVariant,
   RowConfig,
