@@ -139,6 +139,7 @@ export class GridRenderer {
   refresh(): void {
     // 컬럼 변경사항이 있을 수 있으므로 스타일 블록 업데이트
     this.updateColumnStyleBlock();
+    this.measureColumnWidths()
     this.bodyRenderer?.refresh();
   }
 
@@ -387,6 +388,7 @@ export class GridRenderer {
 
     this.headerMode = 'pivot';
     this.updateColumnStyleBlock(); // 피벗 모드전환 시 스타일 업데이트
+    this.measureColumnWidths()
   }
 
   /**
@@ -425,6 +427,7 @@ export class GridRenderer {
 
     this.headerMode = 'flat';
     this.updateColumnStyleBlock(); // 일반 모드 복원 시 스타일 업데이트
+    this.measureColumnWidths()
   }
 
   /**
@@ -447,12 +450,6 @@ export class GridRenderer {
       visible: col.hidden !== true,
       order: index,
     }));
-
-    // CSS 변수 업데이트
-    this.initializeColumnWidthCSS();
-
-    // BodyRenderer에 반영
-    this.bodyRenderer?.updateColumns(this.columnStates);
   }
 
   /**
@@ -526,9 +523,6 @@ export class GridRenderer {
       this.gridContainer.classList.add('ps-theme-dark');
     }
 
-    // CSS 변수로 컬럼 너비 설정
-    this.initializeColumnWidthCSS();
-
     // 그룹화 설정이 있으면 초기 indent CSS 변수 설정
     if (this.options.groupingConfig?.columns?.length) {
       const indentPx = this.options.groupingConfig.columns.length * 20;
@@ -591,7 +585,6 @@ export class GridRenderer {
     this.styleElement = document.createElement('style');
     this.styleElement.setAttribute('data-id', 'grid-column-styles');
     this.gridContainer.appendChild(this.styleElement);
-    this.updateColumnStyleBlock();
 
     // HeaderRenderer 초기화
     this.headerRenderer = new HeaderRenderer(this.headerElement, {
@@ -774,39 +767,6 @@ export class GridRenderer {
   // ===========================================================================
 
   /**
-   * 컬럼 너비 CSS 변수 초기화
-   *
-   * width, minWidth, maxWidth를 CSS 변수로 설정합니다.
-   * 데이터 셀에서 이 CSS 변수를 참조하여 헤더와 동일한 제약을 적용합니다.
-   */
-  private initializeColumnWidthCSS(): void {
-    if (!this.gridContainer) return;
-
-    const columns = this.options.columns;
-
-    for (const col of this.columnStates) {
-      this.gridContainer.style.setProperty(`--col-${col.key}-width`, `${col.width}px`);
-
-      // minWidth, maxWidth CSS 변수 설정
-      const colDef = columns.find((c) => c.key === col.key);
-      if (colDef) {
-        const minWidthValue = toCSSValue(colDef.minWidth);
-        const maxWidthValue = toCSSValue(colDef.maxWidth);
-
-        if (minWidthValue) {
-          this.gridContainer.style.setProperty(`--col-${col.key}-min-width`, minWidthValue);
-        }
-        if (maxWidthValue) {
-          this.gridContainer.style.setProperty(`--col-${col.key}-max-width`, maxWidthValue);
-        }
-      }
-    }
-
-    // 총 컬럼 너비 계산하여 CSS 변수로 저장 (그룹 헤더 너비 동기화용)
-    this.updateTotalColumnWidthCSS();
-  }
-
-  /**
    * 컬럼 너비 CSS 변수 업데이트
    */
   private updateColumnWidthCSS(columnKey: string, width: number): void {
@@ -876,35 +836,26 @@ export class GridRenderer {
    * 이를 통해 데이터 셀들도 헤더와 동일한 너비를 갖게 됩니다.
    */
   private measureColumnWidths(): void {
-    if (!this.headerElement || !this.gridContainer) return;
-
-    // columnStates를 Map으로 변환 (O(1) 조회)
-    const stateMap = new Map(this.columnStates.map((s) => [s.key, s]));
-
     // 렌더링이 완료된 후 측정 (브라우저가 레이아웃을 계산한 후)
     requestAnimationFrame(() => {
-      const headerCells = this.headerElement!.querySelectorAll<HTMLElement>('.ps-header-cell');
+      if (!this.gridContainer) return;
 
-      headerCells.forEach((cell) => {
-        const columnKey = cell.dataset['columnKey'];
-        if (!columnKey) return;
+      // GridCore에서 최신 컬럼 정보 가져오기
+      const columns = this.gridCore.getColumns();
+      const columnMap = new Map(columns.map(c => [c.key, c]));
 
-        // 실제 렌더링된 너비 측정 (offsetWidth = border 포함)
-        const measuredWidth = cell.offsetWidth;
-        if (measuredWidth <= 0) return;
+      for (const col of this.columnStates) {
+        // 컬럼 정의 조회
+        const colDef = columnMap.get(col.key);
 
-        // ColumnState 업데이트 (Map 조회로 O(1))
-        const state = stateMap.get(columnKey);
-        if (state) {
-          state.width = measuredWidth;
+        // 피벗 값 필드(valueField)가 있는 컬럼은 개별 변수 등록 스킵
+        // (PivotHeaderRenderer에서 통합 관리되는 변수 사용)
+        if (colDef?.pivotValueField || !colDef) {
+          continue;
         }
 
-        // CSS 변수 설정 (헤더와 데이터 셀 동기화)
-        this.gridContainer!.style.setProperty(
-          `--col-${columnKey}-width`,
-          `${measuredWidth}px`
-        );
-      });
+        this.gridContainer.style.setProperty(`--col-${col.key}-width`, `${col.width}px`);
+      }
 
       // 총 너비 업데이트
       this.updateTotalColumnWidthCSS();
