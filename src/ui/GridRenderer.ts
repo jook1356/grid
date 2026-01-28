@@ -15,7 +15,7 @@ import type { InternalOptions } from './utils/configAdapter';
 import { BodyRenderer } from './body/BodyRenderer';
 import { HeaderRenderer } from './header/HeaderRenderer';
 import { PivotHeaderRenderer } from './pivot/PivotHeaderRenderer';
-import { DEFAULT_COLUMN_WIDTH, toCSSValue } from './utils/cssUtils';
+import { DEFAULT_COLUMN_WIDTH } from './utils/cssUtils';
 
 // CSS 스타일 삽입 여부 추적
 let styleInjected = false;
@@ -139,7 +139,8 @@ export class GridRenderer {
   refresh(): void {
     // 컬럼 변경사항이 있을 수 있으므로 스타일 블록 업데이트
     this.updateColumnStyleBlock();
-    this.measureColumnWidths()
+    // 컬럼 상태를 CSS 변수로 동기화
+    this.syncColumnWidthCSSVariables();
     this.bodyRenderer?.refresh();
   }
 
@@ -174,8 +175,8 @@ export class GridRenderer {
         // 바디 셀들은 flex 스타일을 사용하지 않으므로 순회 불필요
       }
 
-      // 1. CSS 변수 업데이트
-      this.updateColumnWidthCSS(columnKey, width);
+      // 1. CSS 변수 업데이트 (총합은 아직 업데이트하지 않음)
+      this.setColumnWidthCSSVariable(columnKey, width);
 
       // 2. 헤더 셀의 실제 너비 측정 (minWidth/maxWidth가 적용된 값)
       const headerCell = this.headerElement?.querySelector<HTMLElement>(
@@ -185,12 +186,16 @@ export class GridRenderer {
       // 헤더 셀이 있으면 실제 측정된 너비 사용, 없으면 요청된 너비 사용
       const actualWidth = headerCell?.offsetWidth ?? width;
 
-      // 3. 측정된 값으로 상태 및 CSS 변수 업데이트
+      // 3. 측정된 값으로 상태 업데이트
       state.width = actualWidth;
       if (actualWidth !== width) {
-        this.updateColumnWidthCSS(columnKey, actualWidth);
+        this.setColumnWidthCSSVariable(columnKey, actualWidth);
       }
 
+      // 4. 총 너비 CSS 변수 업데이트 (1회만)
+      this.updateTotalColumnWidthCSS();
+
+      // 5. 하위 렌더러에 알림
       this.headerRenderer?.updateColumnWidth(columnKey, actualWidth);
       this.bodyRenderer?.updateColumnWidth(columnKey, actualWidth);
     }
@@ -388,7 +393,7 @@ export class GridRenderer {
 
     this.headerMode = 'pivot';
     this.updateColumnStyleBlock(); // 피벗 모드전환 시 스타일 업데이트
-    this.measureColumnWidths()
+    this.syncColumnWidthCSSVariables()
   }
 
   /**
@@ -427,7 +432,7 @@ export class GridRenderer {
 
     this.headerMode = 'flat';
     this.updateColumnStyleBlock(); // 일반 모드 복원 시 스타일 업데이트
-    this.measureColumnWidths()
+    this.syncColumnWidthCSSVariables()
   }
 
   /**
@@ -485,13 +490,13 @@ export class GridRenderer {
    * 컬럼 상태 초기화
    *
    * 초기 width는 기본값을 사용합니다.
-   * 실제 픽셀값은 렌더링 후 measureColumnWidths()에서 측정됩니다.
+   * 실제 픽셀값은 렌더링 후 syncColumnWidthCSSVariables()에서 CSS 변수로 동기화됩니다.
    */
   private initializeColumnStates(): void {
     const columns = this.gridCore.getColumns();
     this.columnStates = columns.map((col, index) => ({
       key: col.key,
-      // 초기값은 기본값, 렌더링 후 measureColumnWidths에서 실제 값으로 업데이트
+      // 초기값은 기본값, 렌더링 후 syncColumnWidthCSSVariables에서 CSS 변수로 동기화
       width: DEFAULT_COLUMN_WIDTH,
       pinned: col.frozen ?? 'none',
       visible: col.hidden !== true,
@@ -693,7 +698,7 @@ export class GridRenderer {
     }
 
     // 렌더링 후 헤더 셀의 clientWidth를 측정하여 CSS 변수 업데이트
-    this.measureColumnWidths();
+    this.syncColumnWidthCSSVariables();
   }
 
   /**
@@ -767,14 +772,14 @@ export class GridRenderer {
   // ===========================================================================
 
   /**
-   * 컬럼 너비 CSS 변수 업데이트
+   * 단일 컬럼의 CSS 변수 설정
+   *
+   * 총 너비 업데이트는 호출자가 명시적으로 수행합니다.
+   * 이를 통해 여러 컬럼 변경 시 총합 계산을 1회로 최적화할 수 있습니다.
    */
-  private updateColumnWidthCSS(columnKey: string, width: number): void {
+  private setColumnWidthCSSVariable(columnKey: string, width: number): void {
     if (!this.gridContainer) return;
     this.gridContainer.style.setProperty(`--col-${columnKey}-width`, `${width}px`);
-
-    // 총 컬럼 너비도 업데이트
-    this.updateTotalColumnWidthCSS();
   }
 
   /**
@@ -829,13 +834,12 @@ export class GridRenderer {
   }
 
   /**
-   * 헤더 셀의 clientWidth를 측정하여 CSS 변수 업데이트
+   * 컬럼 상태(columnStates)의 width를 CSS 변수로 동기화
    *
-   * 헤더 셀에 적용된 width/minWidth/maxWidth/flex 인라인 스타일에 의해
-   * 실제로 렌더링된 너비를 측정하고, 이 값을 CSS 변수로 설정합니다.
-   * 이를 통해 데이터 셀들도 헤더와 동일한 너비를 갖게 됩니다.
+   * 렌더링 후 브라우저가 레이아웃을 계산한 시점에 실행됩니다.
+   * 피벗 값 필드 컬럼은 PivotHeaderRenderer에서 관리하므로 제외합니다.
    */
-  private measureColumnWidths(): void {
+  private syncColumnWidthCSSVariables(): void {
     // 렌더링이 완료된 후 측정 (브라우저가 레이아웃을 계산한 후)
     requestAnimationFrame(() => {
       if (!this.gridContainer) return;
