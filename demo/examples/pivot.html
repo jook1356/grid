@@ -7,22 +7,12 @@
   <title>피벗 그리드 (Pivot Grid) - PureSheet Demo</title>
   <link rel="stylesheet" href="../shared/styles.css">
   <link rel="stylesheet" href="../../src/ui/style/default.css">
+  <script src="../shared/nav-sidebar.js" defer></script>
 </head>
 
 <body>
-  <!-- 네비게이션 -->
-  <nav class="demo-nav">
-    <a href="../index.html">🏠 홈</a>
-    <a href="pinning.html">📌 행/컬럼 고정</a>
-    <a href="multi-row.html">📑 Multi-Row</a>
-    <a href="grouping.html">📂 행 그룹화</a>
-    <a href="merge.html">🔗 셀 병합</a>
-    <a href="selection-modes.html">🎯 선택 모드</a>
-    <a href="pivot.html" class="active">📊 피벗</a>
-    <a href="format-row.html">🎨 formatRow</a>
-    <a href="crud.html">✏️ CRUD</a>
-    <a href="column-visibility.html">👁️ 필드 선택</a>
-  </nav>
+  <!-- 사이드바 네비게이션 -->
+  <nav-sidebar></nav-sidebar>
 
   <!-- 헤더 -->
   <div class="demo-header">
@@ -97,6 +87,20 @@
 
       <div class="toolbar-group">
         <button onclick="resetPivot()">🔄 초기화</button>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <div class="toolbar-group">
+        <label>🔧 엔진:</label>
+        <select id="engineSelect" onchange="recreateGrid()">
+          <option value="aq" selected>Arquero</option>
+          <option value="db">DuckDB-Wasm</option>
+        </select>
+        <label class="checkbox-label" style="margin-left: 8px;">
+          <input type="checkbox" id="useWorkerCheckbox" onchange="recreateGrid()">
+          Web Worker
+        </label>
       </div>
     </div>
 
@@ -198,10 +202,9 @@
 <span class="keyword">const</span> pivotGrid = <span class="keyword">new</span> <span class="function">PureSheet</span>(container, {
   mode: <span class="string">'pivot'</span>,
   data: salesData,
-  fields: [...],
-  rowFields: [<span class="string">'product'</span>],
-  columnFields: [<span class="string">'month'</span>],
-  valueFields: [<span class="string">'sales'</span>],
+  rowFields: [{ field: <span class="string">'product'</span>, header: <span class="string">'제품'</span> }],
+  columnFields: [{ field: <span class="string">'month'</span>, header: <span class="string">'월'</span> }],
+  valueFields: [{ field: <span class="string">'sales'</span>, aggregate: <span class="string">'sum'</span>, header: <span class="string">'판매량'</span> }],
 });
 
 <span class="comment">// ==========================================</span>
@@ -367,18 +370,44 @@
       const columnSubTotalFieldsSelect = document.getElementById('columnSubTotalFields');
       const columnSubTotalFields = Array.from(columnSubTotalFieldsSelect.selectedOptions).map(opt => opt.value);
 
+      // rowFields를 객체 배열로 변환
+      const rowFieldsArr = rowFieldSelect.value.split(',').map(field => {
+        const headerMap = { product: '제품', region: '지역', segment: '세그먼트' };
+        return { field, header: headerMap[field] || field };
+      });
+
+      // columnFields를 객체 배열로 변환
+      const columnFieldsArr = columnFieldSelect.value.split(',').map(field => {
+        const headerMap = { month: '월', quarter: '분기', segment: '세그먼트' };
+        return { field, header: headerMap[field] || field };
+      });
+
+      // valueFields를 객체 배열로 변환
+      const valueFieldsArr = valueFieldSelect.value.split(',').map(field => {
+        const isSatisfaction = field === 'satisfaction';
+        return {
+          field,
+          aggregate: isSatisfaction ? 'avg' : 'sum',
+          header: field === 'sales' ? '판매량' : (isSatisfaction ? '만족도' : '수익'),
+          formatter: isSatisfaction ? (v) => Number(v ?? 0).toFixed(1) : undefined
+        };
+      });
+
+      console.log({
+        rowFields: rowFieldsArr,
+        columnFields: columnFieldsArr,
+        valueFields: valueFieldsArr,
+        showRowSubTotals,
+        showRowGrandTotals,
+        showColumnSubTotals,
+        showColumnGrandTotals,
+        rowSubTotalFields: showRowSubTotals ? rowSubTotalFields : undefined,
+        columnSubTotalFields: showColumnSubTotals ? columnSubTotalFields : undefined,
+      })
       return {
-        rowFields: rowFieldSelect.value.split(','),
-        columnFields: columnFieldSelect.value.split(','),
-        valueFields: valueFieldSelect.value.split(',').map(field => {
-          const isSatisfaction = field === 'satisfaction';
-          return {
-            field,
-            aggregate: isSatisfaction ? 'avg' : 'sum',
-            header: field === 'sales' ? '판매량' : (isSatisfaction ? '만족도' : '수익'),
-            formatter: isSatisfaction ? (v) => Number(v ?? 0).toFixed(1) : undefined
-          };
-        }),
+        rowFields: rowFieldsArr,
+        columnFields: columnFieldsArr,
+        valueFields: valueFieldsArr,
         showRowSubTotals,
         showRowGrandTotals,
         showColumnSubTotals,
@@ -426,24 +455,46 @@
 
       const pivotConfig = parsePivotConfig();
 
-      sheet = new PureSheet(container, {
-        mode: 'pivot',
-        fields,
-        rowFields: pivotConfig.rowFields,
-        columnFields: pivotConfig.columnFields,
-        valueFields: pivotConfig.valueFields.map(v => v.field),
-        rowStyle: 'height: 36px;',
-        headerStyle: 'height: 40px;',
-        theme: 'light',
-      });
+      // 엔진 옵션 파싱
+      const engine = document.getElementById('engineSelect').value;
+      const useWorker = document.getElementById('useWorkerCheckbox').checked;
+      const engineLabel = engine === 'aq' ? 'Arquero' : 'DuckDB';
+      const workerLabel = useWorker ? '+Worker' : '';
 
-      // 데이터 먼저 로드 (피벗 연산 전에 데이터가 필요)
-      await sheet.loadData(sampleData);
+      try {
+        updateStatus(`${engineLabel}${workerLabel} 엔진 초기화 중...`);
 
-      // 데이터 로드 후 피벗 설정 적용
-      await sheet.setPivotConfig(pivotConfig);
+        sheet = new PureSheet(container, {
+          mode: 'pivot',
+          rowFields: pivotConfig.rowFields,
+          columnFields: pivotConfig.columnFields,
+          valueFields: pivotConfig.valueFields,
+          rowStyle: 'height: 36px;',
+          headerStyle: 'height: 40px;',
+          theme: 'light',
+          engine,
+          useWorker,
+        });
 
-      updateStatus(`피벗 완료 - ${sampleData.length.toLocaleString()}개 원본 데이터 → ${sheet.getVisibleRowCount()}개 피벗 행`);
+        // 데이터 먼저 로드 (피벗 연산 전에 데이터가 필요)
+        await sheet.loadData(sampleData);
+
+        // 데이터 로드 후 피벗 설정 적용
+        await sheet.setPivotConfig(pivotConfig);
+
+        updateStatus(`피벗 완료 [${engineLabel}${workerLabel}] - ${sampleData.length.toLocaleString()}개 원본 데이터 → ${sheet.getVisibleRowCount()}개 피벗 행`);
+      } catch (error) {
+        console.error('Grid initialization error:', error);
+        updateStatus(`❌ 오류 [${engineLabel}${workerLabel}]: ${error.message}`);
+
+        // DuckDB 실패 시 Arquero로 폴백
+        if (engine === 'db') {
+          document.getElementById('engineSelect').value = 'aq';
+          updateStatus(`❌ DuckDB 초기화 실패. Arquero로 재시도 중...`);
+          await new Promise(r => setTimeout(r, 100));
+          await initPivotGrid();
+        }
+      }
     }
 
     // 데이터 재생성
@@ -479,7 +530,11 @@
       const pivotTime = performance.now() - pivotStart;
       const totalTime = performance.now() - startTime;
 
-      updateStatus(`완료 - ${sampleData.length.toLocaleString()}건 → ${sheet.getVisibleRowCount()}행 (생성: ${genTime.toFixed(0)}ms, 피벗: ${pivotTime.toFixed(0)}ms, 총: ${totalTime.toFixed(0)}ms)`);
+      const engine = document.getElementById('engineSelect').value;
+      const useWorker = document.getElementById('useWorkerCheckbox').checked;
+      const engineLabel = engine === 'aq' ? 'Arquero' : 'DuckDB';
+      const workerLabel = useWorker ? '+Worker' : '';
+      updateStatus(`완료 [${engineLabel}${workerLabel}] - ${sampleData.length.toLocaleString()}건 → ${sheet.getVisibleRowCount()}행 (생성: ${genTime.toFixed(0)}ms, 피벗: ${pivotTime.toFixed(0)}ms, 총: ${totalTime.toFixed(0)}ms)`);
     };
 
     // 소계 필드 옵션 업데이트
@@ -519,10 +574,41 @@
         if (pivotConfig.showColumnSubTotals) subtotalInfo.push('열소계');
         if (pivotConfig.showColumnGrandTotals) subtotalInfo.push('열총합');
         const subtotalStr = subtotalInfo.length > 0 ? ` [${subtotalInfo.join(', ')}]` : '';
-        updateStatus(`피벗 완료 - 행: ${pivotConfig.rowFields.join(' → ')}, 열: ${pivotConfig.columnFields.join(' → ')}${subtotalStr}`);
+        updateStatus(`피벗 완료 - 행: ${pivotConfig.rowFields.map(f => f.field).join(' → ')}, 열: ${pivotConfig.columnFields.map(f => f.field).join(' → ')}${subtotalStr}`);
       } catch (error) {
         console.error('Pivot error:', error);
         updateStatus('피벗 오류: ' + error.message);
+      }
+    };
+
+    // 그리드 재생성 (엔진/Worker 변경 시)
+    window.recreateGrid = async function () {
+      const engine = document.getElementById('engineSelect').value;
+      const useWorker = document.getElementById('useWorkerCheckbox').checked;
+      const engineLabel = engine === 'aq' ? 'Arquero' : 'DuckDB-Wasm';
+      const workerLabel = useWorker ? ' + Worker' : '';
+
+      updateStatus(`🔧 ${engineLabel}${workerLabel} 엔진으로 재생성 중...`);
+
+      // 기존 그리드 파괴
+      if (sheet) {
+        try {
+          sheet.destroy();
+        } catch (e) {
+          console.warn('Error destroying sheet:', e);
+        }
+        sheet = null;
+      }
+
+      // 짧은 지연 (UI 업데이트)
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      // 그리드 재생성
+      try {
+        await initPivotGrid();
+      } catch (error) {
+        console.error('Grid recreation error:', error);
+        updateStatus(`❌ 오류: ${error.message}`);
       }
     };
 

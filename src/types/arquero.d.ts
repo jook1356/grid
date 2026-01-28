@@ -14,6 +14,8 @@ declare module 'arquero' {
     rollup(values: Record<string, unknown>): Table;
     array(column: string): unknown[];
     objects(): unknown[];
+    select(...columns: string[]): Table;
+    dedupe(): Table;
   }
 
   export function from(data: unknown[]): Table;

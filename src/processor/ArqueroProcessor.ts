@@ -69,7 +69,7 @@ export class ArqueroProcessor implements IDataProcessor {
     // 원본 인덱스 컬럼 추가 (정렬/필터 후에도 원본 위치 추적용)
     // aq.op.row_number()는 1부터 시작하므로 -1 해서 0부터 시작하도록 함
     this.table = this.table.derive({
-      __rowIndex__: () => aq.op.row_number() - 1,
+      __rowIndex__: () => (aq.op.row_number() as number) - 1,
     });
   }
 
@@ -369,7 +369,7 @@ export class ArqueroProcessor implements IDataProcessor {
   /**
    * 집계 함수 변환
    */
-  private getAggregateOp(func: string, columnKey: string): unknown {
+  protected getAggregateOp(func: string, columnKey: string): unknown {
     switch (func) {
       case 'sum':
         return aq.op.sum(columnKey);
@@ -388,6 +388,51 @@ export class ArqueroProcessor implements IDataProcessor {
       default:
         return aq.op.count();
     }
+  }
+
+  // ==========================================================================
+  // 가상 데이터 로딩 (Worker 호환)
+  // ==========================================================================
+
+  /**
+   * 가시 영역의 행 데이터를 가져옵니다.
+   *
+   * Main Thread 모드에서는 로컬 데이터에서 추출합니다.
+   * Worker 모드와 동일한 인터페이스를 제공합니다.
+   *
+   * @param startIndex - 시작 인덱스 (필터/정렬 후 순서, inclusive)
+   * @param endIndex - 끝 인덱스 (exclusive)
+   * @returns 해당 범위의 Row 배열
+   */
+  async fetchVisibleRows(startIndex: number, endIndex: number): Promise<Row[]> {
+    const table = this.ensureInitialized();
+
+    // 모든 행을 가져와서 슬라이스 (Arquero Table은 slice가 없음)
+    const allRows = table.objects() as (Row & { __rowIndex__: number })[];
+    const sliced = allRows.slice(startIndex, endIndex);
+
+    // __rowIndex__ 컬럼 제거
+    return sliced.map(row => {
+      const { __rowIndex__, ...rest } = row;
+      return rest;
+    });
+  }
+
+  /**
+   * 현재 필터/정렬 후 총 행 수 (스크롤바 계산용)
+   */
+  getVisibleRowCount(): number {
+    if (!this.table) return 0;
+    // table.array()의 length로 행 수 계산
+    const indices = this.table.array('__rowIndex__') as number[];
+    return indices.length;
+  }
+
+  /**
+   * 전체 행 수 (필터 적용 전)
+   */
+  getRowCount(): number {
+    return this.rowCount;
   }
 
   // ==========================================================================

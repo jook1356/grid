@@ -1073,3 +1073,52 @@
 .ps-theme-dark .ps-cell.ps-cell-column-grandtotal {
   background-color: #1e2631;
 }
+
+/* ==========================================================================
+   StatusBar - 상태 표시줄
+   ========================================================================== */
+
+/**
+ * 상태 표시줄 컨테이너
+ * 가로 스크롤 아래에 위치하며 성능 정보와 행 수를 표시합니다.
+ */
+.ps-status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 16px;
+  padding: 0 8px;
+  background-color: #f8f9fa;
+  border-top: 1px solid #e0e0e0;
+  font-size: 11px;
+  color: #666;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+/**
+ * 타이밍 정보 영역 (왼쪽)
+ */
+.ps-status-bar__timing {
+  display: flex;
+  gap: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/**
+ * 행 수 정보 영역 (오른쪽)
+ */
+.ps-status-bar__row-count {
+  white-space: nowrap;
+  margin-left: auto;
+  padding-left: 16px;
+}
+
+/* 다크 테마 상태 표시줄 */
+.ps-theme-dark .ps-status-bar {
+  background-color: #1a1f2e;
+  border-top-color: #2d3446;
+  color: #9ca3af;
+}

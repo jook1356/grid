@@ -10,6 +10,7 @@ export * from './types';
 
 // 코어 모듈 내보내기
 export * from './core';
+export { BatchCommand } from './core'; // BatchCommand 중복 수출 모호성 해결
 
 // 프로세서 모듈 내보내기
 export * from './processor';

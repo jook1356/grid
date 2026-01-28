@@ -2,6 +2,8 @@
  * 피벗 그리드 타입 정의
  *
  * 피벗 연산, 헤더 트리, 데이터 변환에 사용되는 타입들입니다.
+ *
+ * @see docs/decisions/023-pivot-field-type-unification.md
  */
 
 import type { CellValue } from './data.types';
@@ -10,41 +12,66 @@ import type { AggregateFunc } from './field.types';
 import type { FilterState, SortState } from './state.types';
 
 // ============================================================================
-// 피벗 설정
+// 피벗 필드 타입
 // ============================================================================
 
 /**
- * 피벗 값 필드 설정
+ * 피벗 필드 기본 인터페이스
  */
-export interface PivotValueField {
-  /** 필드 키 */
+export interface PivotFieldBase {
+  /** 필드 키 (데이터 객체의 키와 매칭) */
   field: string;
 
-  /** 집계 함수 */
-  aggregate: AggregateFunc;
-
-  /** 표시 이름 (선택) */
+  /** 헤더에 표시할 이름 (미지정 시 field 사용) */
   header?: string;
+}
+
+/**
+ * 행 축 필드 (rowFields)
+ */
+export interface PivotRowField extends PivotFieldBase {
+  /** 정렬 방향 */
+  sort?: 'asc' | 'desc';
+}
+
+/**
+ * 열 축 필드 (columnFields)
+ */
+export interface PivotColumnField extends PivotFieldBase {
+  /** 정렬 방향 */
+  sort?: 'asc' | 'desc';
+}
+
+/**
+ * 값 필드 (valueFields)
+ */
+export interface PivotValueField extends PivotFieldBase {
+  /** 집계 함수 (필수) */
+  aggregate: AggregateFunc;
 
   /** 값 포맷터 */
   formatter?: (value: CellValue) => string;
 }
 
+// ============================================================================
+// 피벗 설정
+// ============================================================================
+
 /**
- * 피벗 설정 (내부용)
+ * 피벗 설정
  *
- * PureSheetConfig의 피벗 관련 속성을 추출하여 PivotProcessor에 전달
+ * 피벗 모드에서는 fields 대신 rowFields, columnFields, valueFields만 사용합니다.
  *
  * 데이터 처리 순서: 필터 → 정렬 → 피벗
  */
 export interface PivotConfig {
-  /** 행 축 필드 키 배열 */
-  rowFields: string[];
+  /** 행 축 필드 배열 */
+  rowFields: PivotRowField[];
 
-  /** 열 축 필드 키 배열 (피벗되는 필드) */
-  columnFields: string[];
+  /** 열 축 필드 배열 (피벗되는 필드) */
+  columnFields: PivotColumnField[];
 
-  /** 값 필드 설정 배열 */
+  /** 값 필드 배열 */
   valueFields: PivotValueField[];
 
   // ==========================================================================
@@ -125,6 +152,13 @@ export interface PivotConfig {
    */
   sorts?: SortState[];
 }
+
+/**
+ * 정규화된 피벗 설정 (하위 호환성 유지용)
+ * PivotConfig와 동일 (모든 필드가 객체 배열로 통일됨)
+ */
+export type NormalizedPivotConfig = PivotConfig;
+
 
 // ============================================================================
 // 피벗 헤더 트리
@@ -240,6 +274,9 @@ export interface PivotResult {
     /** columnFields별 유니크 값 수 */
     uniqueValues: Record<string, number>;
   };
+
+  /** 피벗 결과 행 수 (Lazy Loading 시 pivotedData가 비어있을 수 있음) */
+  pivotRowCount?: number;
 }
 
 // ============================================================================

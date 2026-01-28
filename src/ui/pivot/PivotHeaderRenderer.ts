@@ -357,7 +357,7 @@ export class PivotHeaderRenderer {
    *
    * 모든 리프 노드들의 CSS 변수를 합산합니다.
    */
-  private calculateTotalWidthCSS(): string {
+  public calculateTotalWidthCSS(): string {
     const { headerTree, columnFieldCount, dataColumns } = this.options;
 
     // 리프 노드가 없으면 기본값
@@ -374,7 +374,7 @@ export class PivotHeaderRenderer {
     // 각 리프의 CSS 변수 참조 생성
     const terms = leaves.map((leaf) => {
       if (!leaf.columnKey) return `${DEFAULT_COLUMN_WIDTH}px`;
-      const { valueField } = parsePivotColumnKey(leaf.columnKey, columnFieldCount);
+      const { valueField } = parsePivotColumnKey(leaf.columnKey!, columnFieldCount);
       return `var(--pivot-col-${valueField}-width)`;
     });
 

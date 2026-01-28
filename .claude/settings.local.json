@@ -12,7 +12,9 @@
       "WebSearch",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:gemini.google.com)",
-      "WebFetch(domain:qkrdkwl9090.tistory.com)"
+      "WebFetch(domain:qkrdkwl9090.tistory.com)",
+      "Bash(npx vitest:*)",
+      "Bash(grep:*)"
     ]
   }
 }

@@ -6,79 +6,16 @@
   <title>PureSheet Demo</title>
   <link rel="stylesheet" href="shared/styles.css">
   <link rel="stylesheet" href="../src/ui/style/default.css">
+  <script src="shared/nav-sidebar.js" defer></script>
 </head>
 <body>
-  <!-- 네비게이션 -->
-  <nav class="demo-nav">
-    <a href="index.html" class="active">🏠 홈</a>
-    <a href="examples/pinning.html">📌 행/컬럼 고정</a>
-    <a href="examples/multi-row.html">📑 Multi-Row</a>
-    <a href="examples/grouping.html">📂 행 그룹화</a>
-    <a href="examples/merge.html">🔗 셀 병합</a>
-    <a href="examples/selection-modes.html">🎯 선택 모드</a>
-    <a href="examples/pivot.html">📊 피벗</a>
-    <a href="examples/format-row.html">🎨 formatRow</a>
-  </nav>
-  
+  <!-- 사이드바 네비게이션 -->
+  <nav-sidebar></nav-sidebar>
+
   <h1 style="margin-bottom: 8px;">🗃️ PureSheet Demo</h1>
   <p style="color: #666; margin-bottom: 24px;">고성능 가상화 그리드 라이브러리</p>
   
   <!-- 예제 카드 그리드 -->
-  <div class="example-grid">
-    <div class="example-card">
-      <h3>📌 행/컬럼 고정</h3>
-      <p>행과 컬럼을 상하좌우에 고정하여 스크롤해도 항상 표시됩니다.</p>
-      <a href="examples/pinning.html">예제 보기 →</a>
-    </div>
-    
-    <div class="example-card">
-      <h3>📑 Multi-Row 레이아웃</h3>
-      <p>하나의 데이터 행을 여러 줄로 표시하여 복잡한 정보를 가독성 있게 보여줍니다.</p>
-      <a href="examples/multi-row.html">예제 보기 →</a>
-    </div>
-    
-    <div class="example-card">
-      <h3>📂 행 그룹화</h3>
-      <p>데이터를 계층적으로 그룹화하고 집계(합계, 평균 등)를 표시합니다.</p>
-      <a href="examples/grouping.html">예제 보기 →</a>
-    </div>
-    
-    <div class="example-card">
-      <h3>🔗 셀 병합</h3>
-      <p>같은 값을 가진 연속된 셀을 병합합니다. 계층적 병합도 지원.</p>
-      <a href="examples/merge.html">예제 보기 →</a>
-    </div>
-    
-    <div class="example-card">
-      <h3>⚡ 대용량 데이터</h3>
-      <p>100만+ 행을 60fps로 부드럽게 스크롤합니다. 아래에서 테스트해보세요!</p>
-      <a href="#grid" onclick="window.loadData && loadData(1000000)">100만 행 로드 →</a>
-    </div>
-    
-    <div class="example-card">
-      <h3>🎯 선택 모드</h3>
-      <p>행 선택, 셀 선택, 또는 둘 다. 다양한 선택 모드를 지원합니다.</p>
-      <a href="examples/selection-modes.html">예제 보기 →</a>
-    </div>
-    
-    <div class="example-card">
-      <h3>📊 피벗 그리드</h3>
-      <p>데이터를 행/열 축으로 교차 집계합니다. 다중 레벨 헤더 자동 생성.</p>
-      <a href="examples/pivot.html">예제 보기 →</a>
-    </div>
-
-    <div class="example-card">
-      <h3>🎨 formatRow API</h3>
-      <p>행 렌더링 시 조건부 스타일링. Wijmo formatItem보다 20배 효율적.</p>
-      <a href="examples/format-row.html">예제 보기 →</a>
-    </div>
-
-    <div class="example-card">
-      <h3>📏 컬럼 너비</h3>
-      <p>px, rem, %, auto 등 다양한 CSS 단위로 컬럼 너비 지정. minWidth/maxWidth 지원.</p>
-      <a href="examples/column-widths.html">예제 보기 →</a>
-    </div>
-  </div>
   
   <h2 style="margin-top: 32px; margin-bottom: 16px; font-size: 1.25rem; color: #333;">
     ⚡ 성능 테스트
@@ -219,7 +156,7 @@
       // PureSheet import
       const { PureSheet } = await import('../src/index.ts');
       
-      const columns = [
+      const fields = [
         { key: 'id', header: 'ID', width: 60, frozen: 'left' },
         { key: 'name', header: 'Name', width: 150 },
         { key: 'email', header: 'Email', width: 250 },
@@ -231,7 +168,7 @@
       
       // PureSheet 인스턴스 생성 (완전한 기능 지원)
       sheet = new PureSheet(container, {
-        columns,
+        fields,
         rowHeight: 36,
         headerHeight: 40,
         selectionMode: 'all',       // 셀+행 모두 선택 (셀 선택 시 행도 자동 동기화)

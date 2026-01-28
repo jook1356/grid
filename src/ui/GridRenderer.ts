@@ -8,13 +8,14 @@
  */
 
 import type { GridCore } from '../core/GridCore';
-import type { ColumnDef } from '../types';
+import type { ColumnDef, Row } from '../types';
 import type { PivotResult } from '../types/pivot.types';
 import type { ColumnState, SortState } from './types';
 import type { InternalOptions } from './utils/configAdapter';
 import { BodyRenderer } from './body/BodyRenderer';
 import { HeaderRenderer } from './header/HeaderRenderer';
 import { PivotHeaderRenderer } from './pivot/PivotHeaderRenderer';
+import { StatusBar, type PerformanceTiming } from './StatusBar';
 import { DEFAULT_COLUMN_WIDTH } from './utils/cssUtils';
 
 // CSS 스타일 삽입 여부 추적
@@ -29,7 +30,7 @@ export interface GridRendererOptions {
   /** 내부 옵션 */
   options: InternalOptions;
   /** 행 클릭 콜백 (viewIndex, dataIndex 모두 전달) */
-  onRowClick?: (viewIndex: number, row: Record<string, unknown>, event: MouseEvent, dataIndex?: number) => void;
+  onRowClick?: (viewIndex: number, row: Row, event: MouseEvent, dataIndex?: number) => void;
   /** 셀 클릭 콜백 */
   onCellClick?: (
     position: { rowIndex: number; columnKey: string },
@@ -81,6 +82,7 @@ export class GridRenderer {
   private headerRenderer: HeaderRenderer | null = null;
   private pivotHeaderRenderer: PivotHeaderRenderer | null = null;
   private bodyRenderer: BodyRenderer | null = null;
+  private statusBar: StatusBar | null = null;
 
   // 현재 헤더 모드
   private headerMode: 'flat' | 'pivot' = 'flat';
@@ -301,6 +303,60 @@ export class GridRenderer {
   }
 
   // ===========================================================================
+  // StatusBar API
+  // ===========================================================================
+
+  /**
+   * 타이밍 정보 설정
+   *
+   * @param timings - 성능 측정 항목 배열
+   */
+  setTimings(timings: PerformanceTiming[]): void {
+    this.statusBar?.setTimings(timings);
+  }
+
+  /**
+   * 단일 타이밍 추가/업데이트
+   *
+   * @param name - 측정 항목 이름
+   * @param duration - 소요 시간 (ms)
+   */
+  addTiming(name: string, duration: number): void {
+    this.statusBar?.addTiming(name, duration);
+  }
+
+  /**
+   * 타이밍 정보 초기화
+   */
+  clearTimings(): void {
+    this.statusBar?.clearTimings();
+  }
+
+  /**
+   * 행 수 정보 업데이트
+   *
+   * @param total - 전체 행 수
+   * @param visible - 보이는 행 수 (필터 적용 후)
+   */
+  setStatusRowCount(total: number, visible: number): void {
+    this.statusBar?.setRowCount(total, visible);
+  }
+
+  /**
+   * StatusBar 표시/숨김
+   */
+  setStatusBarVisible(visible: boolean): void {
+    this.statusBar?.setVisible(visible);
+  }
+
+  /**
+   * StatusBar 인스턴스 반환
+   */
+  getStatusBar(): StatusBar | null {
+    return this.statusBar;
+  }
+
+  // ===========================================================================
   // 피벗 모드 지원
   // ===========================================================================
 
@@ -465,6 +521,7 @@ export class GridRenderer {
     this.headerRenderer?.destroy();
     this.pivotHeaderRenderer?.destroy();
     this.bodyRenderer?.destroy();
+    this.statusBar?.destroy();
 
     if (this.gridContainer) {
       this.gridContainer.remove();
@@ -583,6 +640,9 @@ export class GridRenderer {
 
     this.gridContainer.appendChild(scrollAreaX);
 
+    // StatusBar 생성 (가로 스크롤 아래)
+    this.statusBar = new StatusBar(this.gridContainer);
+
     // 컨테이너에 추가
     this.container.appendChild(this.gridContainer);
 
@@ -630,6 +690,11 @@ export class GridRenderer {
 
     // 가로 스크롤 동기화 설정
     this.setupHorizontalScrollSync();
+
+    // Worker 통계 연결
+    this.gridCore.setProcessorStatsCallback((stats) => {
+      this.addTiming('Worker Transfer', stats.transferTime);
+    });
   }
 
   /**

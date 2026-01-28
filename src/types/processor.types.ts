@@ -202,6 +202,37 @@ export interface IDataProcessor {
    * @returns 그룹별 집계 결과
    */
   aggregate(options: AggregateQueryOptions): Promise<AggregateResult[]>;
+
+  // ==========================================================================
+  // 가상 데이터 로딩 (Worker 최적화)
+  // ==========================================================================
+
+  /**
+   * 가시 영역의 행 데이터를 가져옵니다.
+   *
+   * Worker 모드에서는 해당 범위만 Worker에서 요청합니다.
+   * Main Thread 모드에서는 이미 로드된 데이터에서 추출합니다.
+   *
+   * @param startIndex - 시작 인덱스 (필터/정렬 후 순서, inclusive)
+   * @param endIndex - 끝 인덱스 (exclusive)
+   * @returns 해당 범위의 Row 배열
+   *
+   * @example
+   * // 화면에 0~50번 행이 보이는 경우
+   * const visibleRows = await processor.fetchVisibleRows(0, 50);
+   */
+  fetchVisibleRows(startIndex: number, endIndex: number): Promise<Row[]>;
+
+  /**
+   * 현재 필터/정렬 후 총 행 수
+   * (스크롤바 계산용)
+   */
+  getVisibleRowCount(): number;
+
+  /**
+   * 전체 행 수 (필터 적용 전)
+   */
+  getRowCount(): number;
 }
 
 // ============================================================================
@@ -217,6 +248,7 @@ export type WorkerRequestType =
   | 'FILTER'
   | 'QUERY'
   | 'AGGREGATE'
+  | 'FETCH_DATA'
   | 'DESTROY';
 
 /**

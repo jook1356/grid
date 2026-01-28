@@ -35,6 +35,10 @@ export { MultiRowRenderer } from './multirow';
 export { PivotHeaderRenderer } from './pivot';
 export type { PivotHeaderRendererOptions } from './pivot';
 
+// StatusBar 모듈
+export { StatusBar } from './StatusBar';
+export type { PerformanceTiming, StatusBarOptions } from './StatusBar';
+
 // Row 모듈
 export { Row } from './row';
 export type {

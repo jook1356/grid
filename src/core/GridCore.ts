@@ -39,12 +39,19 @@ import type {
   Unsubscribe,
   AggregateResult,
   AggregateQueryOptions,
+  IDataProcessor,
+  ApiConfig,
+  PivotConfig,
+  PivotResult,
 } from '../types';
 
 import { EventEmitter } from './EventEmitter';
 import { DataStore } from './DataStore';
 import { IndexManager } from './IndexManager';
-import { ArqueroProcessor } from '../processor/ArqueroProcessor';
+import { RowCache } from './RowCache';
+import { createProcessor, type ProcessorOptions } from '../processor/ProcessorFactory';
+import { WorkerProcessor, type StatsCallback } from '../processor/WorkerProcessor';
+import type { EngineType } from '../processor/engines/IEngine';
 
 // =============================================================================
 // 타입 정의
@@ -60,8 +67,27 @@ export interface GridCoreOptions {
   /** 초기 데이터 (선택) */
   data?: Row[];
 
+  /** API 설정 (데이터 페칭) */
+  api?: ApiConfig;
+
   /** 행 ID 컬럼 키 (기본값: 'id') */
   idKey?: string;
+
+  /**
+   * 데이터 처리 엔진 (021-engine-abstraction-architecture)
+   * - 'aq': Arquero (기본값) - 필터/정렬 위주, 번들 사이즈 민감
+   * - 'db': DuckDB-Wasm - 복잡 집계 반복, 서버가 Arrow 제공
+   * @default 'aq'
+   */
+  engine?: EngineType;
+
+  /**
+   * Web Worker 사용 여부
+   * - false (기본값): 메인 스레드에서 실행
+   * - true: Web Worker에서 실행 (UI 블로킹 방지)
+   * @default false
+   */
+  useWorker?: boolean;
 }
 
 /**
@@ -96,7 +122,13 @@ export class GridCore {
   private readonly indexManager: IndexManager;
 
   /** 데이터 처리기 (정렬/필터/집계) */
-  private readonly processor: ArqueroProcessor;
+  private readonly processor: IDataProcessor;
+
+  /** 행 캐시 (Worker 가상 데이터 로딩용) */
+  private readonly rowCache: RowCache;
+
+  /** Worker 사용 여부 */
+  private readonly useWorker: boolean;
 
   // ===========================================================================
   // 상태
@@ -115,6 +147,16 @@ export class GridCore {
   /** 데이터 로드 완료 여부 */
   private dataLoaded = false;
 
+  /** 프리페치 관련 상태 */
+  private prefetchState = {
+    /** 마지막 스크롤 위치 */
+    lastStartIndex: 0,
+    /** 현재 진행 중인 프리페치 Promise */
+    pendingPrefetch: null as Promise<void> | null,
+    /** 프리페치 debounce 타이머 */
+    debounceTimer: null as ReturnType<typeof setTimeout> | null,
+  };
+
   // ===========================================================================
   // 생성자
   // ===========================================================================
@@ -127,7 +169,20 @@ export class GridCore {
     this.events = new EventEmitter();
     this.dataStore = new DataStore(this.events, { idKey: options.idKey });
     this.indexManager = new IndexManager(this.events);
-    this.processor = new ArqueroProcessor();
+
+    // 프로세서 생성 (engine, useWorker 옵션 지원)
+    this.useWorker = options.useWorker ?? false;
+    const processorOptions: ProcessorOptions = {
+      engine: options.engine ?? 'aq',
+      useWorker: this.useWorker,
+    };
+    this.processor = createProcessor(processorOptions);
+
+    // 행 캐시 생성 (Worker 가상 데이터 로딩용)
+    this.rowCache = new RowCache({
+      maxRows: 500,
+      bufferMultiplier: 2,
+    });
 
     // 초기 컬럼 설정
     this.dataStore.setColumns(options.columns);
@@ -156,17 +211,29 @@ export class GridCore {
     // 초기 데이터가 있으면 로드
     if (this.options.data && this.options.data.length > 0) {
       await this.loadData(this.options.data);
+    } else if (this.options.api) {
+      // API 설정이 있으면 워커에서 페칭
+      // (WorkerProcessor인 경우에만 워커에서 페칭 가능, 아니면 에러 또는 메인 스레드 페칭 고려)
+      if (this.useWorker && this.processor instanceof WorkerProcessor) {
+        await this.processor.fetchData(this.options.api);
+        this.dataLoaded = true;
+        this.indexManager.initialize(this.processor.getRowCount());
+        this.rowCache.clear();
+      } else {
+        // TODO: 메인 스레드 모드에서도 api 페칭 지원할지 결정 필요
+        console.warn('API fetching is currently only supported in Worker mode.');
+      }
     }
   }
 
-  /**
-   * 초기화 여부 확인
-   */
+  /** 초기화 여부 확인 */
   private ensureInitialized(): void {
     if (!this.initialized) {
       throw new Error('GridCore not initialized. Call initialize() first.');
     }
   }
+
+
 
   // ===========================================================================
   // 데이터 로드
@@ -207,6 +274,9 @@ export class GridCore {
       filters: [],
       groups: null,
     };
+
+    // 캐시 무효화 (Worker 가상 데이터 로딩)
+    this.rowCache.clear();
 
     this.dataLoaded = true;
   }
@@ -263,6 +333,9 @@ export class GridCore {
 
     // 결과 적용
     this.indexManager.applyProcessorResult(result);
+
+    // 캐시 무효화 (Worker 가상 데이터 로딩)
+    this.rowCache.invalidate();
   }
 
   /**
@@ -346,6 +419,9 @@ export class GridCore {
 
     // 결과 적용
     this.indexManager.applyProcessorResult(result);
+
+    // 캐시 무효화 (Worker 가상 데이터 로딩)
+    this.rowCache.invalidate();
   }
 
   /**
@@ -410,11 +486,47 @@ export class GridCore {
   }
 
   // ===========================================================================
+  // 피벗
+  // ===========================================================================
+
+  /**
+   * 피벗 수행
+   * 
+   * @param config - 피벗 설정
+   */
+  async pivot(config: PivotConfig): Promise<PivotResult> {
+    this.ensureInitialized();
+    this.ensureDataLoaded();
+
+    // 피벗 설정 변경 시 이전 캐시 무효화 (이전 피벗 결과가 반환되는 것을 방지)
+    this.rowCache.clear();
+
+    if (this.useWorker && this.processor instanceof WorkerProcessor) {
+      return this.processor.pivot(config);
+    }
+
+    // Main Thread 모드에서는 외부(PureSheet)에서 PivotProcessor를 직접 사용하거나
+    // 여기서 InternalProcessor를 통해 처리할 수 있음.
+    // 현재 구조상 PureSheet가 로컬 PivotProcessor를 가지고 있으므로,
+    // 여기서는 Worker 모드가 아닐 경우 에러를 던지거나 null을 반환하여 
+    // 호출자가 처리하도록 할 수 있음. 
+    // 하지만 일관성을 위해 여기서 처리하는 것이 좋음.
+    // 다만 Processor 인터페이스에 pivot이 없으므로(WorkerProcessor에만 추가함),
+    // 타입 캐스팅이나 구조 변경이 필요.
+
+    // 임시로 WorkerProcessor가 아닌 경우 에러
+    throw new Error('GridCore.pivot is currently only supported in Worker mode.');
+  }
+
+  // ===========================================================================
   // 데이터 접근
   // ===========================================================================
 
   /**
-   * 범위 내 행 가져오기 (가상화용)
+   * 범위 내 행 가져오기 (가상화용, 동기)
+   *
+   * Main Thread 모드에서 사용합니다.
+   * Worker 모드에서는 getVisibleRowsAsync()를 사용하세요.
    *
    * @param start - 시작 인덱스 (가시 인덱스)
    * @param end - 끝 인덱스 (가시 인덱스, 미포함)
@@ -430,12 +542,190 @@ export class GridCore {
   }
 
   /**
+   * 범위 내 행 가져오기 (가상화용, 비동기)
+   *
+   * Worker 모드에서 캐시를 활용하여 보이는 행만 가져옵니다.
+   * Main Thread 모드에서도 사용 가능 (동일한 인터페이스 제공).
+   *
+   * @param start - 시작 인덱스 (가시 인덱스)
+   * @param end - 끝 인덱스 (가시 인덱스, 미포함)
+   * @returns 해당 범위의 Row 배열
+   *
+   * @example
+   * // Worker 모드에서 화면에 보이는 0~50번 행 가져오기
+   * const rows = await grid.getVisibleRowsAsync(0, 50);
+   */
+  async getVisibleRowsAsync(start: number, end: number): Promise<Row[]> {
+    // Worker 모드가 아니면 동기 방식으로 처리
+    if (!this.useWorker) {
+      return this.getRowsInRange(start, end);
+    }
+
+    // 1. 캐시 확인
+    const cacheResult = this.rowCache.getRange(start, end);
+
+    // 캐시에 모든 행이 있으면 바로 반환
+    if (cacheResult.complete) {
+      return cacheResult.rows as Row[];
+    }
+
+    // 2. 누락된 범위 계산 (연속된 범위로 병합)
+    const missingRanges = this.mergeToRanges(cacheResult.missingIndices);
+
+    // 3. Worker에서 누락된 행 가져오기
+    const fetchPromises = missingRanges.map(([s, e]) =>
+      this.processor.fetchVisibleRows(s, e)
+    );
+    const fetchedRowsArrays = await Promise.all(fetchPromises);
+
+    // 4. 캐시 업데이트
+    for (let i = 0; i < missingRanges.length; i++) {
+      const [rangeStart] = missingRanges[i]!;
+      const rows = fetchedRowsArrays[i]!;
+      this.rowCache.setRange(rangeStart, rows);
+    }
+
+    // 5. 완성된 행 배열 반환
+    const finalResult = this.rowCache.getRange(start, end);
+    return finalResult.rows.filter((row): row is Row => row !== null);
+  }
+
+  /**
+   * 누락된 인덱스들을 연속된 범위로 병합
+   *
+   * @param indices - 누락된 인덱스 배열
+   * @returns 범위 배열 [[start, end], ...]
+   */
+  private mergeToRanges(indices: number[]): [number, number][] {
+    if (indices.length === 0) return [];
+
+    const sorted = [...indices].sort((a, b) => a - b);
+    const ranges: [number, number][] = [];
+
+    let rangeStart = sorted[0]!;
+    let rangeEnd = sorted[0]!;
+
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i] === rangeEnd + 1) {
+        rangeEnd = sorted[i]!;
+      } else {
+        ranges.push([rangeStart, rangeEnd + 1]);
+        rangeStart = sorted[i]!;
+        rangeEnd = sorted[i]!;
+      }
+    }
+    ranges.push([rangeStart, rangeEnd + 1]);
+
+    return ranges;
+  }
+
+  // ==========================================================================
+  // 프리페치 최적화
+  // ==========================================================================
+
+  /**
+   * 스크롤 방향 기반 프리페치
+   *
+   * 현재 보이는 범위 기준으로 스크롤 방향을 감지하고,
+   * 해당 방향으로 데이터를 미리 로드합니다.
+   *
+   * @param visibleStart - 현재 보이는 시작 인덱스
+   * @param visibleEnd - 현재 보이는 끝 인덱스
+   * @param prefetchSize - 프리페치할 행 수 (기본: 보이는 행 수의 2배)
+   */
+  async prefetchForScroll(
+    visibleStart: number,
+    visibleEnd: number,
+    prefetchSize?: number
+  ): Promise<void> {
+    // Worker 모드가 아니면 불필요
+    if (!this.useWorker) return;
+
+    const visibleCount = visibleEnd - visibleStart;
+    const size = prefetchSize ?? visibleCount * 2;
+
+    // 스크롤 방향 감지
+    const scrollDirection = visibleStart > this.prefetchState.lastStartIndex ? 'down' : 'up';
+    this.prefetchState.lastStartIndex = visibleStart;
+
+    const totalRows = this.processor.getVisibleRowCount();
+
+    // 프리페치 범위 계산
+    let prefetchStart: number;
+    let prefetchEnd: number;
+
+    if (scrollDirection === 'down') {
+      // 아래로 스크롤: 아래쪽 미리 로드
+      prefetchStart = visibleEnd;
+      prefetchEnd = Math.min(visibleEnd + size, totalRows);
+    } else {
+      // 위로 스크롤: 위쪽 미리 로드
+      prefetchStart = Math.max(0, visibleStart - size);
+      prefetchEnd = visibleStart;
+    }
+
+    // 범위가 유효하지 않으면 스킵
+    if (prefetchStart >= prefetchEnd) return;
+
+    // 캐시에 없는 행만 프리페치
+    const cacheResult = this.rowCache.getRange(prefetchStart, prefetchEnd);
+    if (cacheResult.complete) return;
+
+    // Worker에서 가져오기 (결과는 캐시에 저장됨)
+    await this.getVisibleRowsAsync(prefetchStart, prefetchEnd);
+  }
+
+  /**
+   * Debounced 프리페치
+   *
+   * 빠른 스크롤 시 요청이 너무 많이 발생하는 것을 방지합니다.
+   *
+   * @param visibleStart - 현재 보이는 시작 인덱스
+   * @param visibleEnd - 현재 보이는 끝 인덱스
+   * @param delay - Debounce 지연 시간 (기본: 100ms)
+   */
+  prefetchDebounced(
+    visibleStart: number,
+    visibleEnd: number,
+    delay = 100
+  ): void {
+    // 이전 타이머 취소
+    if (this.prefetchState.debounceTimer) {
+      clearTimeout(this.prefetchState.debounceTimer);
+    }
+
+    // 새 타이머 설정
+    this.prefetchState.debounceTimer = setTimeout(() => {
+      this.prefetchState.debounceTimer = null;
+      void this.prefetchForScroll(visibleStart, visibleEnd);
+    }, delay);
+  }
+
+  /**
+   * 캐시 범위 외 데이터 정리
+   *
+   * 현재 보이는 범위에서 먼 캐시 데이터를 정리합니다.
+   * 메모리 사용량을 최적화합니다.
+   *
+   * @param visibleStart - 현재 보이는 시작 인덱스
+   * @param visibleEnd - 현재 보이는 끝 인덱스
+   */
+  evictDistantCache(visibleStart: number, visibleEnd: number): void {
+    this.rowCache.evictOutsideRange(visibleStart, visibleEnd);
+  }
+
+  /**
    * 가시 인덱스로 행 가져오기
    *
    * @param visibleIndex - 가시 인덱스
    * @returns 해당 행 또는 undefined
    */
   getRowByVisibleIndex(visibleIndex: number): Row | undefined {
+    // Worker 모드면 캐시에서 조회
+    if (this.useWorker) {
+      return this.rowCache.get(visibleIndex) ?? undefined;
+    }
+
     const originalIndex = this.indexManager.toOriginalIndex(visibleIndex);
     if (originalIndex < 0) return undefined;
     return this.dataStore.getRowByIndex(originalIndex);
@@ -499,8 +789,20 @@ export class GridCore {
   /**
    * IndexManager 접근 (피벗 모드 등에서 인덱스 재설정 시 사용)
    */
+  /**
+   * IndexManager 접근 (피벗 모드 등에서 인덱스 재설정 시 사용)
+   */
   getIndexManager(): IndexManager {
     return this.indexManager;
+  }
+
+  /**
+   * 프로세서 통계 콜백 설정 (Worker 성능 측정용)
+   */
+  setProcessorStatsCallback(callback: StatsCallback): void {
+    if (this.processor instanceof WorkerProcessor) {
+      this.processor.setStatsCallback(callback);
+    }
   }
 
   // ===========================================================================
@@ -589,10 +891,10 @@ export class GridCore {
 
   /**
    * 프로세서 인스턴스 가져오기
-   * 
+   *
    * 피벗 모드에서 필터/정렬된 인덱스를 직접 계산할 때 사용합니다.
    */
-  getProcessor(): ArqueroProcessor {
+  getProcessor(): IDataProcessor {
     return this.processor;
   }
 
@@ -615,6 +917,22 @@ export class GridCore {
    */
   getFilteredOutCount(): number {
     return this.indexManager.getFilteredOutCount();
+  }
+
+  /**
+   * Worker 사용 여부
+   *
+   * Worker 모드면 getVisibleRowsAsync()를 사용해야 합니다.
+   */
+  isUsingWorker(): boolean {
+    return this.useWorker;
+  }
+
+  /**
+   * 행 캐시 상태 (디버그용)
+   */
+  getCacheStats(): ReturnType<RowCache['getStats']> {
+    return this.rowCache.getStats();
   }
 
   // ===========================================================================
@@ -683,8 +1001,15 @@ export class GridCore {
    * onUnmounted(() => grid.destroy());
    */
   destroy(): void {
+    // 프리페치 타이머 정리
+    if (this.prefetchState.debounceTimer) {
+      clearTimeout(this.prefetchState.debounceTimer);
+      this.prefetchState.debounceTimer = null;
+    }
+
     this.processor.destroy();
     this.indexManager.destroy();
+    this.rowCache.clear();
     this.events.destroy();
     this.initialized = false;
     this.dataLoaded = false;
@@ -719,10 +1044,10 @@ export class GridCore {
   }
 
   /**
-   * ArqueroProcessor 접근
+   * 데이터 프로세서 접근
    * @internal
    */
-  get _processor(): ArqueroProcessor {
+  get _processor(): IDataProcessor {
     return this.processor;
   }
 }

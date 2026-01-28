@@ -752,7 +752,7 @@ export class Row {
     container: HTMLElement,
     columns: ColumnState[],
     aggregateValues: Map<string, CellValue>,
-    columnDefs: Map<string, ColumnDef>
+    _columnDefs: Map<string, ColumnDef>
   ): void {
     // 필요한 셀 수 맞추기
     while (container.children.length > columns.length) {

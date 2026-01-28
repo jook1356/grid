@@ -9,6 +9,7 @@
 
 import { GridCore } from '../core/GridCore';
 import type { ColumnDef, Row as RowData, SortState, FilterState, FieldDef, PureSheetConfig, PivotConfig, PivotResult, CellValue } from '../types';
+import { isFlatMode } from '../types/field.types';
 import type { GroupingConfig } from '../types/grouping.types';
 import type { ChangesSummary } from '../types/crud.types';
 import type { CellPosition, ColumnState } from './types';
@@ -22,10 +23,12 @@ import { configToInternalOptions, getGridMode, getPivotConfig, type InternalOpti
 import { PivotProcessor } from '../processor/PivotProcessor';
 import type { MergeManager } from './merge/MergeManager';
 import { HierarchicalMergeManager } from './merge/MergeManager';
+import { PrecalculatedMergeManager } from './merge/PrecalculatedMergeManager';
 import { ChangeTracker } from '../core/ChangeTracker';
 import { UndoStack } from '../core/UndoStack';
 import { AddRowCommand, UpdateCellCommand, DeleteRowCommand, UndeleteRowCommand, DiscardRowCommand } from '../core/commands';
 import { KeyboardShortcutManager } from './keyboard/KeyboardShortcutManager';
+import type { PerformanceTiming } from './StatusBar';
 
 /**
  * PureSheet 이벤트 타입
@@ -85,11 +88,16 @@ export class PureSheet {
   private pivotProcessor: PivotProcessor | null = null;
   private pivotConfig: PivotConfig | null = null;
   private pivotResult: PivotResult | null = null;
+  /** 피벗 세대 카운터 (동시 applyPivot 방어용) */
+  private pivotApplyGeneration: number = 0;
 
   // CRUD 및 Dirty State 관련
   private changeTracker: ChangeTracker;
   private undoStack: UndoStack;
   private keyboardShortcutManager: KeyboardShortcutManager;
+
+  // 성능 측정
+  private performanceTimings: Map<string, number> = new Map();
 
   /**
    * PureSheet 생성자
@@ -130,13 +138,26 @@ export class PureSheet {
       }
     }
 
-    // GridCore 초기화
+    // GridCore 초기화 (engine, useWorker 옵션 지원)
     this.gridCore = new GridCore({
       columns: this.options.columns,
+      engine: config.engine,
+      useWorker: config.useWorker,
+      api: config.api,
     });
 
     // GridCore Worker 초기화 (Promise 저장하여 나중에 await 가능)
-    this.initPromise = this.gridCore.initialize();
+    this.initPromise = this.gridCore.initialize().then(async () => {
+      // API 페칭이 설정되어 있고 초기화가 완료되면 자동 렌더링
+      if (this.options.api) {
+        // 피벗 모드면 피벗 적용
+        if (this.gridMode === 'pivot' && this.pivotConfig) {
+          await this.applyPivot();
+        } else {
+          this.gridRenderer.refresh();
+        }
+      }
+    });
 
     // ColumnManager 초기화
     this.columnManager = new ColumnManager({
@@ -256,6 +277,17 @@ export class PureSheet {
     // 초기 데이터 로드
     if (this.options.data) {
       void this.loadData(this.options.data);
+    } else if (this.options.api) {
+      // API 설정이 있으면 초기화(페칭) 완료 후 렌더링
+      void this.initPromise.then(() => {
+        // GridCore.initialize()에서 페칭이 완료되었으므로 바로 렌더링
+        this.gridRenderer.refresh();
+        this.updateStatusBarRowCount();
+        this.emitEvent('data:loaded', {
+          rowCount: this.gridCore.getDataStore().getRowCount(),
+          columnCount: this.options.columns.length,
+        });
+      });
     }
   }
 
@@ -264,23 +296,50 @@ export class PureSheet {
   // ===========================================================================
 
   /**
+   * 초기화 완료 대기
+   *
+   * api config를 사용하는 경우, fetch + 엔진 로드가 완료될 때까지 대기합니다.
+   */
+  async waitForReady(): Promise<void> {
+    await this.initPromise;
+  }
+
+  /**
    * 데이터 로드
-   * 
+   *
    * 피벗 모드일 때 pivotConfig가 설정되어 있으면 자동으로 피벗 적용
    */
   async loadData(data: RowData[]): Promise<void> {
+    // 타이밍 초기화
+    this.clearTimings();
+    const totalStart = performance.now();
+
     // GridCore 초기화 완료 대기
+    const initStart = performance.now();
     await this.initPromise;
+    this.addTiming('Init', performance.now() - initStart);
 
     // DataStore에 원본 데이터 저장 (source + view 모두 설정)
+    const loadStart = performance.now();
     await this.gridCore.loadData(data);
+    this.addTiming('Load', performance.now() - loadStart);
 
     // 피벗 모드이고 pivotConfig가 있으면 피벗 적용
     if (this.gridMode === 'pivot' && this.pivotConfig) {
+      const pivotStart = performance.now();
       await this.applyPivot();
+      this.addTiming('Pivot', performance.now() - pivotStart);
     } else {
+      const renderStart = performance.now();
       this.gridRenderer.refresh();
+      this.addTiming('Render', performance.now() - renderStart);
     }
+
+    // 총 시간
+    this.addTiming('Total', performance.now() - totalStart);
+
+    // StatusBar 행 수 업데이트
+    this.updateStatusBarRowCount();
 
     this.emitEvent('data:loaded', {
       rowCount: data.length,
@@ -322,7 +381,7 @@ export class PureSheet {
    * 모든 데이터 가져오기
    */
   getAllData(): RowData[] {
-    return this.gridCore.getAllData();
+    return [...this.gridCore.getAllData()];
   }
 
   /**
@@ -344,45 +403,63 @@ export class PureSheet {
 
   /**
    * 정렬 적용
-   * 
-   * GridCore에서 정렬을 처리하고, 피벗 모드일 때는 
+   *
+   * GridCore에서 정렬을 처리하고, 피벗 모드일 때는
    * 정렬된 결과를 기반으로 피벗을 다시 적용합니다.
-   * 
+   *
    * 처리 순서: GridCore(필터 → 정렬) → 피벗
    */
   async sort(sorts: SortState[]): Promise<void> {
+    this.clearTimings();
+    const sortStart = performance.now();
+
     // GridCore에서 정렬 처리 (IndexManager 업데이트)
     await this.gridCore.sort(sorts);
+    this.addTiming('Sort', performance.now() - sortStart);
 
     // 피벗 모드면 정렬된 데이터로 피벗 재적용
     if (this.gridMode === 'pivot' && this.pivotConfig) {
+      const pivotStart = performance.now();
       await this.applyPivot();
+      this.addTiming('Pivot', performance.now() - pivotStart);
     } else {
+      const renderStart = performance.now();
       this.gridRenderer.refresh();
+      this.addTiming('Render', performance.now() - renderStart);
     }
 
+    this.updateStatusBarRowCount();
     this.emitEvent('sort:changed', { sorts });
   }
 
   /**
    * 필터 적용
-   * 
-   * GridCore에서 필터를 처리하고, 피벗 모드일 때는 
+   *
+   * GridCore에서 필터를 처리하고, 피벗 모드일 때는
    * 필터링된 결과를 기반으로 피벗을 다시 적용합니다.
-   * 
+   *
    * 처리 순서: GridCore(필터 → 정렬) → 피벗
    */
   async filter(filters: FilterState[]): Promise<void> {
+    this.clearTimings();
+    const filterStart = performance.now();
+
     // GridCore에서 필터 처리 (IndexManager 업데이트)
     await this.gridCore.filter(filters);
+    this.addTiming('Filter', performance.now() - filterStart);
 
     // 피벗 모드면 필터링된 데이터로 피벗 재적용
     if (this.gridMode === 'pivot' && this.pivotConfig) {
+      const pivotStart = performance.now();
       await this.applyPivot();
+      this.addTiming('Pivot', performance.now() - pivotStart);
     } else {
+      const renderStart = performance.now();
       this.gridRenderer.refresh();
+      this.addTiming('Render', performance.now() - renderStart);
     }
 
+    this.updateStatusBarRowCount();
     this.emitEvent('filter:changed', { filters });
   }
 
@@ -1278,7 +1355,7 @@ export class PureSheet {
    * 컬럼 정의 가져오기
    */
   getColumns(): ColumnDef[] {
-    return this.gridCore.getColumns();
+    return [...this.gridCore.getColumns()];
   }
 
   /**
@@ -1343,6 +1420,7 @@ export class PureSheet {
    * @param config - 피벗 설정
    */
   async setPivotConfig(config: PivotConfig): Promise<void> {
+    // 피벗 모드에서는 config를 그대로 사용 (rowFields, columnFields, valueFields 모두 객체 배열)
     this.pivotConfig = config;
 
     if (this.gridMode === 'pivot') {
@@ -1365,10 +1443,73 @@ export class PureSheet {
   }
 
   /**
-   * 필드 정의 가져오기 (새 API 사용 시)
+   * 필드 정의 가져오기 (Flat 모드에서만 사용 가능)
    */
   getFields(): FieldDef[] | null {
-    return this.originalConfig?.fields ?? null;
+    if (this.originalConfig && isFlatMode(this.originalConfig)) {
+      return this.originalConfig.fields;
+    }
+    return null;
+  }
+
+  // ===========================================================================
+  // 성능 측정 API
+  // ===========================================================================
+
+  /**
+   * 타이밍 추가/업데이트
+   *
+   * @param name - 측정 항목 이름
+   * @param duration - 소요 시간 (ms)
+   */
+  addTiming(name: string, duration: number): void {
+    this.performanceTimings.set(name, duration);
+    this.gridRenderer.addTiming(name, duration);
+  }
+
+  /**
+   * 타이밍 초기화
+   */
+  clearTimings(): void {
+    this.performanceTimings.clear();
+    this.gridRenderer.clearTimings();
+  }
+
+  /**
+   * 타이밍 일괄 설정
+   */
+  setTimings(timings: PerformanceTiming[]): void {
+    this.performanceTimings.clear();
+    for (const t of timings) {
+      this.performanceTimings.set(t.name, t.duration);
+    }
+    this.gridRenderer.setTimings(timings);
+  }
+
+  /**
+   * 현재 타이밍 가져오기
+   */
+  getTimings(): PerformanceTiming[] {
+    return Array.from(this.performanceTimings.entries()).map(([name, duration]) => ({
+      name,
+      duration,
+    }));
+  }
+
+  /**
+   * StatusBar 표시/숨김
+   */
+  setStatusBarVisible(visible: boolean): void {
+    this.gridRenderer.setStatusBarVisible(visible);
+  }
+
+  /**
+   * StatusBar 행 수 업데이트
+   */
+  private updateStatusBarRowCount(): void {
+    const total = this.getTotalRowCount();
+    const visible = this.getVisibleRowCount();
+    this.gridRenderer.setStatusRowCount(total, visible);
   }
 
   // ===========================================================================
@@ -1392,6 +1533,9 @@ export class PureSheet {
    */
   private async applyPivot(): Promise<void> {
     if (!this.pivotConfig) return;
+
+    // 세대 카운터 증가 (이전 진행 중인 applyPivot 무효화)
+    const currentGeneration = ++this.pivotApplyGeneration;
 
     // PivotProcessor 생성 (없으면)
     if (!this.pivotProcessor) {
@@ -1423,43 +1567,76 @@ export class PureSheet {
       filteredData = [...sourceData];
     }
 
+    // 더 새로운 applyPivot이 시작되었으면 이 연산은 중단
+    if (currentGeneration !== this.pivotApplyGeneration) return;
+
     // 필터링된 데이터로 피벗 연산 수행
     // sorts를 PivotConfig에 전달하여 피벗 결과의 행 순서에 반영
-    await this.pivotProcessor.initialize(filteredData);
     const pivotConfigWithSorts = {
       ...this.pivotConfig,
+      filters: viewState.filters,
       sorts: viewState.sorts,
     };
-    this.pivotResult = await this.pivotProcessor.pivot(pivotConfigWithSorts);
+
+    if (this.gridCore.isUsingWorker()) {
+      // Worker 모드: GridCore(→WorkerProcessor)를 통해 피벗 수행
+      console.log('PureSheet: Requesting pivot from worker...');
+      this.pivotResult = await this.gridCore.pivot(pivotConfigWithSorts);
+
+      // Worker 모드에서는 대용량 데이터 전송을 피하기 위해 pivotedData가 비어있을 수 있음
+      // pivotRowCount 메타데이터 활용
+    } else {
+      // Main Thread 모드: 로컬 PivotProcessor 사용
+      await this.pivotProcessor.initialize(filteredData);
+      this.pivotResult = await this.pivotProcessor.pivot(pivotConfigWithSorts);
+    }
+
+    // 비동기 연산 후 다시 세대 확인 (연산 중 새 요청이 들어왔으면 중단)
+    if (currentGeneration !== this.pivotApplyGeneration) return;
+
+    // 피벗 데이터 평탄화 (Main Thread 모드에서만 수행하거나, Worker가 보낸 소량 데이터만 처리)
+    let flattenedData: RowData[] = [];
+    if (this.pivotResult.pivotedData && this.pivotResult.pivotedData.length > 0) {
+      flattenedData = this.pivotResult.pivotedData.map(pivotRow => ({
+        ...pivotRow.rowHeaders,
+        ...pivotRow.values,
+        __pivotType: pivotRow.type,
+      })) as RowData[];
+    }
+
+    // Worker 모드인 경우 pivotRowCount 사용, 아니면 length 사용
+    const rowCount = this.pivotResult.pivotRowCount ?? flattenedData.length;
+
+    console.log('PureSheet: Setting view data to GridCore', rowCount);
+
+    // 뷰 데이터 설정 (Worker 모드면 flattenedData는 빈 배열일 수 있음 - Lazy Loading)
+    // 하지만 컬럼 정보는 필수
+    this.gridCore.getDataStore().setViewData(flattenedData, [...this.pivotResult.rowHeaderColumns, ...this.pivotResult.columns]);
+    this.gridCore.getIndexManager().initialize(rowCount);
 
     // 피벗 헤더로 교체 (HeaderRenderer → PivotHeaderRenderer)
     this.gridRenderer.switchToPivotHeader(this.pivotResult);
 
-    // 피벗 데이터 평탄화 (PivotRow → Row 형식으로 변환)
-    const flattenedData = this.pivotResult.pivotedData.map(pivotRow => ({
-      ...pivotRow.rowHeaders,
-      ...pivotRow.values,
-      __pivotType: pivotRow.type,
-    }));
-
-    // DEBUG: 평탄화된 소계 행 확인
-    const subtotalFlattened = flattenedData.filter(r => r.__pivotType === 'subtotal');
-    console.log('[applyPivot] flattened subtotal rows:', subtotalFlattened.length);
-    if (subtotalFlattened.length > 0) {
-      console.log('[applyPivot] first flattened subtotal:', subtotalFlattened[0]);
-    }
-
-    // 피벗 컬럼
-    const allColumns = [...this.pivotResult.rowHeaderColumns, ...this.pivotResult.columns];
-
-    // 뷰 데이터만 업데이트 (원본 sourceRows는 유지됨!)
-    this.gridCore.getDataStore().setViewData(flattenedData, allColumns);
-    this.gridCore.getIndexManager().initialize(flattenedData.length);
-
-    // rowHeaderColumns에 계층적 병합 자동 적용
-    // 피벗의 행 헤더는 계층 구조를 가지므로 HierarchicalMergeManager 사용
+    // rowHeaderColumns에 병합 적용
+    // Worker에서 계산된 rowMergeInfo가 있으면 PrecalculatedMergeManager 사용
+    // (Lazy Loading 대응: 데이터가 없어도 병합 정보는 정확함)
     const rowHeaderKeys = this.pivotResult.rowHeaderColumns.map(col => col.key);
-    if (rowHeaderKeys.length > 0) {
+
+    if (this.pivotResult.rowMergeInfo && Object.keys(this.pivotResult.rowMergeInfo).length > 0) {
+      console.log('PureSheet: Using PrecalculatedMergeManager with info', this.pivotResult.rowMergeInfo);
+      const mergeManager = new PrecalculatedMergeManager(this.pivotResult.rowMergeInfo, {
+        columns: rowHeaderKeys
+      });
+      this.setMergeManager(mergeManager);
+    } else if (rowHeaderKeys.length > 0) {
+      // fallback: 로컬 데이터 기반 계층 병합
+      // 하지만 로컬 PivotProcessor도 rowMergeInfo를 생성하므로 여기 올 일은 거의 없음.
+      // 혹시라도 rowMergeInfo가 없으면 HierarchicalMergeManager 사용
+      console.log('PureSheet: Using HierarchicalMergeManager (fallback)');
+
+      // FIXME: HierarchicalMergeManager는 전체 데이터를 필요로 하는데, 
+      // 만약 flattenedData가 부분적이라면(그럴 일은 없어야 함) 문제될 수 있음.
+      // 로컬 모드에서는 flattenedData가 전체이므로 괜찮음.
       const mergeManager = new HierarchicalMergeManager(rowHeaderKeys);
       this.setMergeManager(mergeManager);
     }

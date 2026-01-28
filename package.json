@@ -36,6 +36,8 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@duckdb/duckdb-wasm": "1.33.1-dev18.0",
+    "apache-arrow": "^21.1.0",
     "arquero": "^6.0.1"
   },
   "devDependencies": {

@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <link rel="stylesheet" href="../shared/styles.css">
+    <link rel="stylesheet" href="../../src/ui/style/default.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PureSheet - Web Worker 대용량 피벗 Demo</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        h1 {
+            margin-bottom: 10px;
+        }
+
+        .description {
+            color: #666;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            padding: 12px 16px;
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-bottom: none;
+            flex-wrap: wrap;
+        }
+
+        .toolbar-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .toolbar-group label {
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .toolbar-group select {
+            padding: 6px 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .toolbar-divider {
+            width: 1px;
+            height: 24px;
+            background: #ddd;
+        }
+
+        #grid-container {
+            height: 600px;
+            border: 1px solid #ddd;
+        }
+
+        .status-bar {
+            padding: 8px 16px;
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            border-top: none;
+            font-size: 13px;
+            color: #666;
+        }
+
+        .checkbox-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        button {
+            padding: 6px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background: white;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        button:hover {
+            background: #f0f0f0;
+        }
+
+        .info-panel {
+            margin-top: 20px;
+            padding: 16px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+
+        .info-panel h3 {
+            margin: 0 0 12px 0;
+            font-size: 14px;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+        }
+
+        .info-item {
+            background: white;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+        }
+
+        .info-item .label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 4px;
+        }
+
+        .info-item .value {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }
+    </style>
+    <script src="../shared/nav-sidebar.js" defer></script>
+</head>
+
+<body>
+    <!-- 사이드바 네비게이션 -->
+    <nav-sidebar></nav-sidebar>
+
+    <h1>🚀 Web Worker 대용량 피벗 (5백만 건)</h1>
+    <p class="description">
+        Web Worker를 사용하여 메인 스레드 블로킹 없이 대용량 데이터를 피벗 처리합니다.
+        5백만 건의 판매 데이터를 제품/지역/월별로 집계합니다.
+    </p>
+
+    <div class="toolbar">
+        <div class="toolbar-group">
+            <label>📊 데이터 수:</label>
+            <select id="dataCountSelect">
+                <option value="100000">10만건</option>
+                <option value="500000">50만건</option>
+                <option value="1000000">100만건</option>
+                <option value="2000000">200만건</option>
+                <option value="5000000" selected>500만건</option>
+            </select>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <div class="toolbar-group">
+            <label>행 축:</label>
+            <select id="rowFieldSelect">
+                <option value="product" selected>제품</option>
+                <option value="region">지역</option>
+                <option value="product,region">제품 → 지역</option>
+            </select>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <div class="toolbar-group">
+            <label>열 축:</label>
+            <select id="columnFieldSelect">
+                <option value="month" selected>월</option>
+                <option value="quarter">분기</option>
+                <option value="quarter,month">분기 → 월</option>
+            </select>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <div class="toolbar-group">
+            <label>값:</label>
+            <select id="valueFieldSelect">
+                <option value="sales" selected>판매량</option>
+                <option value="profit">수익</option>
+                <option value="sales,profit">판매량 + 수익</option>
+            </select>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <div class="toolbar-group">
+            <label>🔧 엔진:</label>
+            <select id="engineSelect">
+                <option value="aq" selected>Arquero</option>
+                <option value="db">DuckDB-Wasm</option>
+            </select>
+            <label class="checkbox-label">
+                <input type="checkbox" id="useWorkerCheckbox" checked>
+                Web Worker
+            </label>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <div class="toolbar-group">
+            <button onclick="regenerateData()">🔄 데이터 재생성</button>
+        </div>
+    </div>
+
+    <!-- 필터/정렬 툴바 -->
+    <div class="toolbar" style="border-top: none; background: #f0f4f8;">
+        <div class="toolbar-group">
+            <label>🔍 필터:</label>
+            <select id="filterColumn">
+                <option value="">없음</option>
+                <option value="product">제품</option>
+                <option value="region">지역</option>
+                <option value="month">월</option>
+                <option value="quarter">분기</option>
+            </select>
+            <select id="filterOperator">
+                <option value="eq">= 같음</option>
+                <option value="contains">포함</option>
+                <option value="neq">≠ 다름</option>
+            </select>
+            <input type="text" id="filterValue" placeholder="값 입력"
+                style="width: 100px; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px;">
+            <button onclick="applyFilter()">적용</button>
+            <button onclick="clearFilter()">초기화</button>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <div class="toolbar-group">
+            <label>↕️ 정렬:</label>
+            <select id="sortColumn">
+                <option value="">없음</option>
+                <option value="product">제품</option>
+                <option value="region">지역</option>
+                <option value="sales">판매량</option>
+                <option value="profit">수익</option>
+                <option value="month">월</option>
+            </select>
+            <select id="sortDirection">
+                <option value="asc">오름차순 ↑</option>
+                <option value="desc">내림차순 ↓</option>
+            </select>
+            <button onclick="applySort()">적용</button>
+            <button onclick="clearSort()">초기화</button>
+        </div>
+    </div>
+
+    <div id="grid-container"></div>
+    <div class="status-bar" id="status">초기화 중...</div>
+
+    <!-- 성능 정보 패널 -->
+    <div class="info-panel">
+        <h3>📈 성능 측정</h3>
+        <div class="info-grid">
+            <div class="info-item">
+                <div class="label">데이터 생성</div>
+                <div class="value" id="genTime">-</div>
+            </div>
+            <div class="info-item">
+                <div class="label">피벗 처리</div>
+                <div class="value" id="pivotTime">-</div>
+            </div>
+            <div class="info-item">
+                <div class="label">총 소요 시간</div>
+                <div class="value" id="totalTime">-</div>
+            </div>
+            <div class="info-item">
+                <div class="label">원본 데이터</div>
+                <div class="value" id="sourceRows">-</div>
+            </div>
+            <div class="info-item">
+                <div class="label">피벗 결과 행</div>
+                <div class="value" id="pivotRows">-</div>
+            </div>
+            <div class="info-item">
+                <div class="label">엔진/모드</div>
+                <div class="value" id="engineMode">-</div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { PureSheet } from '../../src/index.ts';
+
+        let sheet = null;
+        let sampleData = [];
+
+        // 데이터 생성용 배열
+        const months = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
+        const quarters = ['Q1', 'Q1', 'Q1', 'Q2', 'Q2', 'Q2', 'Q3', 'Q3', 'Q3', 'Q4', 'Q4', 'Q4'];
+        const products = ['노트북', '스마트폰', '태블릿', '모니터', '키보드', '마우스', '헤드폰', '스피커', '웹캠', '프린터'];
+        const regions = ['서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종', '경기', '강원'];
+
+        // 상태 업데이트
+        function updateStatus(message) {
+            document.getElementById('status').textContent = message;
+        }
+
+        // 성능 정보 업데이트
+        function updatePerformance(info) {
+            if (info.genTime !== undefined) {
+                document.getElementById('genTime').textContent = `${info.genTime.toLocaleString()}ms`;
+            }
+            if (info.pivotTime !== undefined) {
+                document.getElementById('pivotTime').textContent = `${info.pivotTime.toLocaleString()}ms`;
+            }
+            if (info.totalTime !== undefined) {
+                document.getElementById('totalTime').textContent = `${info.totalTime.toLocaleString()}ms`;
+            }
+            if (info.sourceRows !== undefined) {
+                document.getElementById('sourceRows').textContent = `${info.sourceRows.toLocaleString()}건`;
+            }
+            if (info.pivotRows !== undefined) {
+                document.getElementById('pivotRows').textContent = `${info.pivotRows.toLocaleString()}행`;
+            }
+            if (info.engineMode !== undefined) {
+                document.getElementById('engineMode').textContent = info.engineMode;
+            }
+        }
+
+        // 대용량 데이터 생성
+        function generateData(targetCount) {
+            const startTime = performance.now();
+            updateStatus(`⏳ ${targetCount.toLocaleString()}건 데이터 생성 중...`);
+
+            const data = [];
+            let id = 1;
+
+            // 기본 조합 수: products × regions × months = 10 × 10 × 12 = 1200
+            const baseComboCount = products.length * regions.length * months.length;
+            const iterations = Math.ceil(targetCount / baseComboCount);
+
+            for (let iter = 0; iter < iterations && data.length < targetCount; iter++) {
+                for (const product of products) {
+                    if (data.length >= targetCount) break;
+                    for (const region of regions) {
+                        if (data.length >= targetCount) break;
+                        for (let i = 0; i < months.length; i++) {
+                            if (data.length >= targetCount) break;
+
+                            const baseSales = Math.floor(Math.random() * 100) + 50;
+                            const baseProfit = Math.floor(baseSales * (Math.random() * 0.3 + 0.1));
+
+                            data.push({
+                                id: id++,
+                                month: months[i],
+                                quarter: quarters[i],
+                                product,
+                                region,
+                                sales: baseSales,
+                                profit: baseProfit,
+                            });
+                        }
+                    }
+                }
+            }
+
+            const duration = performance.now() - startTime;
+            console.log(`데이터 생성 완료: ${data.length.toLocaleString()}건 (${duration.toFixed(0)}ms)`);
+
+            return { data, duration };
+        }
+
+        // 피벗 설정 파싱
+        function parsePivotConfig() {
+            const rowFieldSelect = document.getElementById('rowFieldSelect');
+            const columnFieldSelect = document.getElementById('columnFieldSelect');
+            const valueFieldSelect = document.getElementById('valueFieldSelect');
+
+            // rowFields를 객체 배열로 변환
+            const rowFieldsArr = rowFieldSelect.value.split(',').map(field => {
+                const headerMap = { product: '제품', region: '지역' };
+                return { field, header: headerMap[field] || field };
+            });
+
+            // columnFields를 객체 배열로 변환
+            const columnFieldsArr = columnFieldSelect.value.split(',').map(field => {
+                const headerMap = { month: '월', quarter: '분기' };
+                return { field, header: headerMap[field] || field };
+            });
+
+            // valueFields를 객체 배열로 변환
+            const valueFieldsArr = valueFieldSelect.value.split(',').map(field => ({
+                field,
+                aggregate: 'sum',
+                header: field === 'sales' ? '판매량' : '수익',
+            }));
+
+            return {
+                rowFields: rowFieldsArr,
+                columnFields: columnFieldsArr,
+                valueFields: valueFieldsArr,
+            };
+        }
+
+        // 그리드 초기화
+        async function initGrid() {
+            const container = document.getElementById('grid-container');
+            const totalStart = performance.now();
+
+            // 데이터 생성
+            const dataCount = parseInt(document.getElementById('dataCountSelect').value);
+            const { data, duration: genTime } = generateData(dataCount);
+            sampleData = data;
+
+            updatePerformance({ genTime: Math.round(genTime), sourceRows: sampleData.length });
+
+            // 엔진 옵션
+            const engine = document.getElementById('engineSelect').value;
+            const useWorker = document.getElementById('useWorkerCheckbox').checked;
+            const engineLabel = engine === 'aq' ? 'Arquero' : 'DuckDB';
+            const workerLabel = useWorker ? ' + Worker' : '';
+
+            updatePerformance({ engineMode: `${engineLabel}${workerLabel}` });
+            updateStatus(`⏳ ${engineLabel}${workerLabel} 엔진 초기화 중...`);
+
+            const pivotConfig = parsePivotConfig();
+
+            try {
+                // 기존 그리드 제거
+                if (sheet) {
+                    sheet.destroy();
+                    sheet = null;
+                }
+
+                const pivotStart = performance.now();
+
+                sheet = new PureSheet(container, {
+                    mode: 'pivot',
+                    rowFields: pivotConfig.rowFields,
+                    columnFields: pivotConfig.columnFields,
+                    valueFields: pivotConfig.valueFields,
+                    engine,
+                    useWorker,
+                    theme: 'light',
+                });
+
+                // 데이터 로드 및 피벗 적용
+                await sheet.loadData(sampleData);
+                await sheet.setPivotConfig(pivotConfig);
+
+                const pivotTime = performance.now() - pivotStart;
+                const totalTime = performance.now() - totalStart;
+
+                updatePerformance({
+                    pivotTime: Math.round(pivotTime),
+                    totalTime: Math.round(totalTime),
+                    pivotRows: sheet.getVisibleRowCount(),
+                });
+
+                updateStatus(`✅ 완료 [${engineLabel}${workerLabel}] - ${sampleData.length.toLocaleString()}건 → ${sheet.getVisibleRowCount()}행 피벗 결과`);
+
+            } catch (error) {
+                console.error('Grid initialization error:', error);
+                updateStatus(`❌ 오류 [${engineLabel}${workerLabel}]: ${error.message}`);
+
+                // DuckDB 실패 시 Arquero로 폴백
+                if (engine === 'db') {
+                    document.getElementById('engineSelect').value = 'aq';
+                    updateStatus(`❌ DuckDB 초기화 실패. Arquero로 재시도...`);
+                    await new Promise(r => setTimeout(r, 100));
+                    await initGrid();
+                }
+            }
+        }
+
+        // 데이터 재생성
+        window.regenerateData = async function() {
+            await initGrid();
+        };
+
+        // 셀렉트 변경 시 피벗 업데이트
+        document.getElementById('rowFieldSelect').addEventListener('change', async () => {
+            if (!sheet) return;
+            const pivotConfig = parsePivotConfig();
+            updateStatus('⏳ 피벗 재계산 중...');
+            const start = performance.now();
+            await sheet.setPivotConfig(pivotConfig);
+            const duration = performance.now() - start;
+            updatePerformance({ pivotTime: Math.round(duration), pivotRows: sheet.getVisibleRowCount() });
+            updateStatus(`✅ 피벗 완료 (${Math.round(duration)}ms)`);
+        });
+
+        document.getElementById('columnFieldSelect').addEventListener('change', async () => {
+            if (!sheet) return;
+            const pivotConfig = parsePivotConfig();
+            updateStatus('⏳ 피벗 재계산 중...');
+            const start = performance.now();
+            await sheet.setPivotConfig(pivotConfig);
+            const duration = performance.now() - start;
+            updatePerformance({ pivotTime: Math.round(duration), pivotRows: sheet.getVisibleRowCount() });
+            updateStatus(`✅ 피벗 완료 (${Math.round(duration)}ms)`);
+        });
+
+        document.getElementById('valueFieldSelect').addEventListener('change', async () => {
+            if (!sheet) return;
+            const pivotConfig = parsePivotConfig();
+            updateStatus('⏳ 피벗 재계산 중...');
+            const start = performance.now();
+            await sheet.setPivotConfig(pivotConfig);
+            const duration = performance.now() - start;
+            updatePerformance({ pivotTime: Math.round(duration), pivotRows: sheet.getVisibleRowCount() });
+            updateStatus(`✅ 피벗 완료 (${Math.round(duration)}ms)`);
+        });
+
+        // 엔진/Worker 변경 시 그리드 재생성
+        document.getElementById('engineSelect').addEventListener('change', initGrid);
+        document.getElementById('useWorkerCheckbox').addEventListener('change', initGrid);
+        document.getElementById('dataCountSelect').addEventListener('change', initGrid);
+
+        // 필터 적용 (피벗 모드에서는 filter() 내부에서 자동으로 피벗 재적용)
+        window.applyFilter = async function () {
+            if (!sheet) return;
+            const col = document.getElementById('filterColumn').value;
+            if (!col) return;
+            const op = document.getElementById('filterOperator').value;
+            const val = document.getElementById('filterValue').value;
+            if (!val) return;
+
+            updateStatus('⏳ 필터 적용 중...');
+            const start = performance.now();
+            await sheet.filter([{ columnKey: col, operator: op, value: val }]);
+            const duration = performance.now() - start;
+            updatePerformance({ pivotTime: Math.round(duration), pivotRows: sheet.getVisibleRowCount() });
+            updateStatus(`✅ 필터 완료 (${Math.round(duration)}ms) - ${sheet.getVisibleRowCount().toLocaleString()}행`);
+        };
+
+        window.clearFilter = async function () {
+            if (!sheet) return;
+            updateStatus('⏳ 필터 초기화 중...');
+            const start = performance.now();
+            await sheet.filter([]);
+            const duration = performance.now() - start;
+            updatePerformance({ pivotTime: Math.round(duration), pivotRows: sheet.getVisibleRowCount() });
+            updateStatus(`✅ 필터 초기화 (${Math.round(duration)}ms)`);
+            document.getElementById('filterValue').value = '';
+        };
+
+        // 정렬 적용 (피벗 모드에서는 sort() 내부에서 자동으로 피벗 재적용)
+        window.applySort = async function () {
+            if (!sheet) return;
+            const col = document.getElementById('sortColumn').value;
+            if (!col) return;
+            const dir = document.getElementById('sortDirection').value;
+
+            updateStatus('⏳ 정렬 적용 중...');
+            const start = performance.now();
+            await sheet.sort([{ columnKey: col, direction: dir }]);
+            const duration = performance.now() - start;
+            updateStatus(`✅ 정렬 완료 (${Math.round(duration)}ms)`);
+        };
+
+        window.clearSort = async function () {
+            if (!sheet) return;
+            updateStatus('⏳ 정렬 초기화 중...');
+            const start = performance.now();
+            await sheet.sort([]);
+            const duration = performance.now() - start;
+            updateStatus(`✅ 정렬 초기화 (${Math.round(duration)}ms)`);
+        };
+
+        // 초기화
+        initGrid().catch(console.error);
+    </script>
+</body>
+
+</html>
