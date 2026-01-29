@@ -129,22 +129,12 @@
       }
     }
   </style>
+  <script src="../shared/nav-sidebar.js" defer></script>
 </head>
 
 <body>
-  <!-- 네비게이션 -->
-  <nav class="demo-nav">
-    <a href="../index.html">🏠 홈</a>
-    <a href="pinning.html">📌 행/컬럼 고정</a>
-    <a href="multi-row.html">📑 Multi-Row</a>
-    <a href="grouping.html">📂 행 그룹화</a>
-    <a href="merge.html">🔗 셀 병합</a>
-    <a href="selection-modes.html">🎯 선택 모드</a>
-    <a href="pivot.html">📊 피벗</a>
-    <a href="format-row.html" class="active">🎨 formatRow</a>
-    <a href="crud.html">✏️ CRUD</a>
-    <a href="column-visibility.html">👁️ 필드 선택</a>
-  </nav>
+  <!-- 사이드바 네비게이션 -->
+  <nav-sidebar></nav-sidebar>
 
   <!-- 헤더 -->
   <div class="demo-header">
@@ -520,10 +510,9 @@ grid.<span class="function">setFormatRow</span>(<span class="keyword">null</span
 
       pivotGrid = new PureSheet(container, {
         mode: 'pivot',
-        fields,
-        rowFields: ['product'],
-        columnFields: ['month'],
-        valueFields: ['sales'],
+        rowFields: [{ field: 'product', header: '제품' }],
+        columnFields: [{ field: 'month', header: '월' }],
+        valueFields: [{ field: 'sales', aggregate: 'sum', header: '판매량' }],
         formatRow: pivotFormatRow,
         theme: 'light',
       });
@@ -559,8 +548,8 @@ grid.<span class="function">setFormatRow</span>(<span class="keyword">null</span
       const values = valueSelect.value.split(',');
 
       pivotGrid.setPivotConfig({
-        rowFields: ['product'],
-        columnFields: ['month'],
+        rowFields: [{ field: 'product', header: '제품' }],
+        columnFields: [{ field: 'month', header: '월' }],
         valueFields: values.map(v => ({
           field: v,
           aggregate: 'sum',

@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API 대용량 플랫 그리드 - PureSheet Demo</title>
+    <link rel="stylesheet" href="../shared/styles.css">
+    <link rel="stylesheet" href="../../src/ui/style/default.css">
+    <style>
+        .api-input-group {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex: 1;
+            min-width: 300px;
+        }
+
+        .api-input-group input {
+            flex: 1;
+            padding: 6px 10px;
+            border: 1px solid var(--demo-border);
+            border-radius: 4px;
+            font-size: 13px;
+            font-family: 'Fira Code', 'Consolas', monospace;
+        }
+
+        .api-input-group input::placeholder {
+            color: #aaa;
+        }
+
+        .preset-buttons {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .preset-buttons button {
+            padding: 5px 10px;
+            font-size: 12px;
+            border: 1px solid var(--demo-border);
+            border-radius: 4px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.15s;
+            white-space: nowrap;
+        }
+
+        .preset-buttons button:hover {
+            background: var(--demo-primary);
+            color: white;
+            border-color: var(--demo-primary);
+        }
+
+        .preset-buttons button.active {
+            background: var(--demo-primary);
+            color: white;
+            border-color: var(--demo-primary);
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+        }
+
+        .info-item {
+            background: white;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid var(--demo-border);
+        }
+
+        .info-item .label {
+            font-size: 12px;
+            color: var(--demo-text-secondary);
+            margin-bottom: 4px;
+        }
+
+        .info-item .value {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--demo-text);
+        }
+
+        #grid {
+            height: 600px;
+        }
+    </style>
+    <script src="../shared/nav-sidebar.js" defer></script>
+</head>
+
+<body>
+    <!-- 사이드바 네비게이션 -->
+    <nav-sidebar></nav-sidebar>
+
+    <!-- 헤더 -->
+    <div class="demo-header">
+        <h1>🌐 API 대용량 플랫 그리드</h1>
+        <span class="badge badge-implemented">구현됨</span>
+    </div>
+
+    <!-- 설명 -->
+    <div class="demo-description">
+        <p>
+            <strong>PureSheet의 <code>api</code> config</strong>를 사용하여 외부 REST API에서 데이터를 직접 페칭합니다.
+            Web Worker 내부에서 fetch가 실행되므로 메인 스레드가 블로킹되지 않습니다.
+            아래 프리셋을 선택하거나 직접 URL을 입력해 보세요.
+        </p>
+    </div>
+
+    <div class="demo-container">
+        <!-- 툴바 -->
+        <div class="toolbar" style="flex-direction: column; align-items: stretch; gap: 10px;">
+            <!-- 1행: 프리셋 -->
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <label style="font-weight: 600; white-space: nowrap;">프리셋:</label>
+                <div class="preset-buttons" id="presets">
+                    <button data-preset="photos" class="active">📷 Photos (5,000건)</button>
+                    <button data-preset="comments">💬 Comments (500건)</button>
+                    <button data-preset="todos">✅ Todos (200건)</button>
+                    <button data-preset="users">👤 Users (30건)</button>
+                    <button data-preset="products">🛒 Products (194건)</button>
+                </div>
+            </div>
+
+            <!-- 2행: URL 입력 + fetch 버튼 -->
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <div class="api-input-group">
+                    <label style="white-space: nowrap; font-weight: 500;">URL:</label>
+                    <input type="text" id="apiUrl" placeholder="https://api.example.com/data" />
+                </div>
+                <div class="toolbar-group">
+                    <label style="white-space: nowrap;">dataProperty:</label>
+                    <input type="text" id="dataProp" placeholder="(비워두면 응답 자체가 배열)"
+                        style="width: 140px; padding: 6px 10px; border: 1px solid var(--demo-border); border-radius: 4px; font-size: 13px;" />
+                </div>
+                <button onclick="fetchFromApi()" style="padding: 8px 20px; background: var(--demo-primary); color: white; border: none; border-radius: 4px; font-weight: 500; cursor: pointer;">
+                    🚀 Fetch & Load
+                </button>
+            </div>
+        </div>
+
+        <!-- 필터/정렬 툴바 -->
+        <div class="toolbar" style="border-top: none; background: #f0f4f8;">
+            <div class="toolbar-group">
+                <label>🔍 필터:</label>
+                <select id="filterColumn">
+                    <option value="">컬럼 선택</option>
+                </select>
+                <select id="filterOperator">
+                    <option value="eq">= 같음</option>
+                    <option value="contains">포함</option>
+                    <option value="neq">≠ 다름</option>
+                    <option value="gt">&gt; 초과</option>
+                    <option value="gte">≥ 이상</option>
+                    <option value="lt">&lt; 미만</option>
+                    <option value="lte">≤ 이하</option>
+                    <option value="startsWith">시작</option>
+                    <option value="endsWith">끝</option>
+                </select>
+                <input type="text" id="filterValue" placeholder="값 입력"
+                    style="width: 120px; padding: 6px 10px; border: 1px solid var(--demo-border); border-radius: 4px; font-size: 13px;">
+                <button onclick="applyFilter()"
+                    style="padding: 6px 12px; background: var(--demo-primary); color: white; border: none; border-radius: 4px; cursor: pointer;">
+                    적용
+                </button>
+                <button onclick="clearFilter()"
+                    style="padding: 6px 12px; border: 1px solid var(--demo-border); border-radius: 4px; background: white; cursor: pointer;">
+                    초기화
+                </button>
+            </div>
+
+            <div class="toolbar-divider" style="width:1px;height:24px;background:var(--demo-border);margin:0 8px;"></div>
+
+            <div class="toolbar-group">
+                <label>↕️ 정렬:</label>
+                <select id="sortColumn">
+                    <option value="">컬럼 선택</option>
+                </select>
+                <select id="sortDirection">
+                    <option value="asc">오름차순 ↑</option>
+                    <option value="desc">내림차순 ↓</option>
+                </select>
+                <button onclick="applySort()"
+                    style="padding: 6px 12px; background: var(--demo-primary); color: white; border: none; border-radius: 4px; cursor: pointer;">
+                    적용
+                </button>
+                <button onclick="clearSort()"
+                    style="padding: 6px 12px; border: 1px solid var(--demo-border); border-radius: 4px; background: white; cursor: pointer;">
+                    초기화
+                </button>
+            </div>
+        </div>
+
+        <!-- 그리드 -->
+        <div id="grid"></div>
+
+        <!-- 상태바 -->
+        <div class="status-bar" id="status">프리셋을 선택하거나 URL을 입력한 후 Fetch 버튼을 누르세요.</div>
+    </div>
+
+    <!-- 성능 정보 패널 -->
+    <div class="info-panel">
+        <h3>📈 성능 측정</h3>
+        <div class="info-grid">
+            <div class="info-item">
+                <div class="label">API 페칭 + 엔진 로드</div>
+                <div class="value" id="fetchTime">-</div>
+            </div>
+            <div class="info-item">
+                <div class="label">렌더링</div>
+                <div class="value" id="renderTime">-</div>
+            </div>
+            <div class="info-item">
+                <div class="label">총 소요 시간</div>
+                <div class="value" id="totalTime">-</div>
+            </div>
+            <div class="info-item">
+                <div class="label">로드된 행 수</div>
+                <div class="value" id="rowCount">-</div>
+            </div>
+            <div class="info-item">
+                <div class="label">컬럼 수</div>
+                <div class="value" id="colCount">-</div>
+            </div>
+            <div class="info-item">
+                <div class="label">모드</div>
+                <div class="value" id="modeInfo">-</div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { PureSheet } from '../../src/index.ts';
+
+        let sheet = null;
+
+        // 프리셋 정의
+        const PRESETS = {
+            photos: {
+                url: 'https://jsonplaceholder.typicode.com/photos',
+                dataProp: '',
+                fields: [
+                    { key: 'id', header: 'ID', width: 70 },
+                    { key: 'albumId', header: 'Album ID', width: 90 },
+                    { key: 'title', header: 'Title', width: 400 },
+                    { key: 'url', header: 'URL', width: 300 },
+                    { key: 'thumbnailUrl', header: 'Thumbnail', width: 300 },
+                ],
+            },
+            comments: {
+                url: 'https://jsonplaceholder.typicode.com/comments',
+                dataProp: '',
+                fields: [
+                    { key: 'id', header: 'ID', width: 60 },
+                    { key: 'postId', header: 'Post ID', width: 80 },
+                    { key: 'name', header: 'Name', width: 250 },
+                    { key: 'email', header: 'Email', width: 200 },
+                    { key: 'body', header: 'Body', width: 500 },
+                ],
+            },
+            todos: {
+                url: 'https://jsonplaceholder.typicode.com/todos',
+                dataProp: '',
+                fields: [
+                    { key: 'id', header: 'ID', width: 60 },
+                    { key: 'userId', header: 'User ID', width: 80 },
+                    { key: 'title', header: 'Title', width: 500 },
+                    { key: 'completed', header: 'Completed', width: 100 },
+                ],
+            },
+            users: {
+                url: 'https://dummyjson.com/users?limit=30',
+                dataProp: 'users',
+                fields: [
+                    { key: 'id', header: 'ID', width: 60 },
+                    { key: 'firstName', header: 'First Name', width: 120 },
+                    { key: 'lastName', header: 'Last Name', width: 120 },
+                    { key: 'email', header: 'Email', width: 250 },
+                    { key: 'age', header: 'Age', width: 60 },
+                    { key: 'gender', header: 'Gender', width: 80 },
+                    { key: 'phone', header: 'Phone', width: 150 },
+                    { key: 'birthDate', header: 'Birth Date', width: 120 },
+                    { key: 'university', header: 'University', width: 250 },
+                ],
+            },
+            products: {
+                url: 'https://dummyjson.com/products?limit=194',
+                dataProp: 'products',
+                fields: [
+                    { key: 'id', header: 'ID', width: 60 },
+                    { key: 'title', header: 'Title', width: 250 },
+                    { key: 'brand', header: 'Brand', width: 120 },
+                    { key: 'category', header: 'Category', width: 150 },
+                    { key: 'price', header: 'Price', width: 80 },
+                    { key: 'discountPercentage', header: 'Discount %', width: 100 },
+                    { key: 'rating', header: 'Rating', width: 70 },
+                    { key: 'stock', header: 'Stock', width: 70 },
+                    { key: 'description', header: 'Description', width: 400 },
+                ],
+            },
+        };
+
+        // 상태 업데이트
+        function updateStatus(msg) {
+            document.getElementById('status').textContent = msg;
+        }
+
+        function updatePerf(info) {
+            for (const [key, val] of Object.entries(info)) {
+                const el = document.getElementById(key);
+                if (el) el.textContent = val;
+            }
+        }
+
+        // 프리셋 버튼 핸들러
+        document.getElementById('presets').addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-preset]');
+            if (!btn) return;
+            const preset = PRESETS[btn.dataset.preset];
+            if (!preset) return;
+
+            // active 토글
+            document.querySelectorAll('#presets button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            document.getElementById('apiUrl').value = preset.url;
+            document.getElementById('dataProp').value = preset.dataProp;
+        });
+
+        // 초기 프리셋 세팅
+        const defaultPreset = PRESETS.photos;
+        document.getElementById('apiUrl').value = defaultPreset.url;
+        document.getElementById('dataProp').value = defaultPreset.dataProp;
+
+        // API 페칭 & 그리드 생성
+        window.fetchFromApi = async function () {
+            const url = document.getElementById('apiUrl').value.trim();
+            if (!url) {
+                updateStatus('URL을 입력해주세요.');
+                return;
+            }
+
+            const dataProp = document.getElementById('dataProp').value.trim();
+            const totalStart = performance.now();
+
+            updateStatus(`⏳ ${url} 에서 데이터 페칭 중...`);
+            updatePerf({
+                fetchTime: '...', renderTime: '-', totalTime: '-',
+                rowCount: '-', colCount: '-', modeInfo: 'Worker + Arquero',
+            });
+
+            // 현재 활성 프리셋의 fields 가져오기
+            const activeBtn = document.querySelector('#presets button.active');
+            const presetKey = activeBtn?.dataset.preset;
+            const presetFields = presetKey ? PRESETS[presetKey].fields : null;
+
+            try {
+                // 기존 그리드 파괴
+                if (sheet) {
+                    sheet.destroy();
+                    sheet = null;
+                }
+
+                const fetchStart = performance.now();
+
+                // PureSheet api config로 직접 페칭
+                const apiConfig = {
+                    url,
+                    method: 'GET',
+                    ...(dataProp ? { dataProperty: dataProp } : {}),
+                };
+
+                const config = {
+                    mode: 'flat',
+                    useWorker: true,
+                    engine: 'aq',
+                    api: apiConfig,
+                    theme: 'light',
+                    rowHeight: 36,
+                    headerHeight: 40,
+                };
+
+                // 프리셋 fields가 있으면 사용
+                if (presetFields) {
+                    config.fields = presetFields;
+                }
+
+                const container = document.getElementById('grid');
+                sheet = new PureSheet(container, config);
+
+                // initPromise 대기 (api fetch + engine load 완료)
+                await sheet.waitForReady();
+
+                const fetchTime = performance.now() - fetchStart;
+
+                const renderStart = performance.now();
+                // 렌더링은 waitForReady 내부에서 이미 실행됨
+                const renderTime = performance.now() - renderStart;
+
+                const totalTime = performance.now() - totalStart;
+
+                const rowCount = sheet.getVisibleRowCount();
+                const colCount = sheet.getColumns().length;
+
+                updatePerf({
+                    fetchTime: `${Math.round(fetchTime)}ms`,
+                    renderTime: `${Math.round(renderTime)}ms`,
+                    totalTime: `${Math.round(totalTime)}ms`,
+                    rowCount: `${rowCount.toLocaleString()}건`,
+                    colCount: `${colCount}개`,
+                    modeInfo: 'Worker + Arquero',
+                });
+
+                updateStatus(`✅ 완료 - ${rowCount.toLocaleString()}건 로드됨 (${Math.round(totalTime)}ms)`);
+
+                // 필터/정렬 컬럼 셀렉트 동적 채우기
+                populateColumnSelects(sheet.getColumns());
+
+            } catch (err) {
+                console.error('Fetch error:', err);
+                updateStatus(`❌ 오류: ${err.message}`);
+            }
+        };
+
+        // 필터/정렬 셀렉트에 컬럼 목록 채우기
+        function populateColumnSelects(columns) {
+            const filterSel = document.getElementById('filterColumn');
+            const sortSel = document.getElementById('sortColumn');
+
+            // 기존 옵션 초기화 (첫 번째 "컬럼 선택" 유지)
+            filterSel.innerHTML = '<option value="">컬럼 선택</option>';
+            sortSel.innerHTML = '<option value="">컬럼 선택</option>';
+
+            for (const col of columns) {
+                const key = col.key || col;
+                const header = col.header || key;
+                filterSel.innerHTML += `<option value="${key}">${header}</option>`;
+                sortSel.innerHTML += `<option value="${key}">${header}</option>`;
+            }
+        }
+
+        // 필터 적용
+        window.applyFilter = async function () {
+            if (!sheet) return;
+            const col = document.getElementById('filterColumn').value;
+            if (!col) { updateStatus('필터할 컬럼을 선택하세요.'); return; }
+            const op = document.getElementById('filterOperator').value;
+            const val = document.getElementById('filterValue').value;
+            if (!val) { updateStatus('필터 값을 입력하세요.'); return; }
+
+            // 숫자형 값 자동 변환
+            const numVal = Number(val);
+            const filterValue = !isNaN(numVal) && val.trim() !== '' ? numVal : val;
+
+            updateStatus('⏳ 필터 적용 중...');
+            const start = performance.now();
+            await sheet.filter([{ columnKey: col, operator: op, value: filterValue }]);
+            const duration = performance.now() - start;
+            updatePerf({ rowCount: `${sheet.getVisibleRowCount().toLocaleString()}건` });
+            updateStatus(`✅ 필터 완료 (${Math.round(duration)}ms) - ${sheet.getVisibleRowCount().toLocaleString()}건 표시`);
+        };
+
+        window.clearFilter = async function () {
+            if (!sheet) return;
+            updateStatus('⏳ 필터 초기화 중...');
+            const start = performance.now();
+            await sheet.filter([]);
+            const duration = performance.now() - start;
+            updatePerf({ rowCount: `${sheet.getVisibleRowCount().toLocaleString()}건` });
+            updateStatus(`✅ 필터 초기화 (${Math.round(duration)}ms) - ${sheet.getVisibleRowCount().toLocaleString()}건 표시`);
+            document.getElementById('filterValue').value = '';
+        };
+
+        // 정렬 적용
+        window.applySort = async function () {
+            if (!sheet) return;
+            const col = document.getElementById('sortColumn').value;
+            if (!col) { updateStatus('정렬할 컬럼을 선택하세요.'); return; }
+            const dir = document.getElementById('sortDirection').value;
+
+            updateStatus('⏳ 정렬 적용 중...');
+            const start = performance.now();
+            await sheet.sort([{ columnKey: col, direction: dir }]);
+            const duration = performance.now() - start;
+            updateStatus(`✅ 정렬 완료 (${Math.round(duration)}ms)`);
+        };
+
+        window.clearSort = async function () {
+            if (!sheet) return;
+            updateStatus('⏳ 정렬 초기화 중...');
+            const start = performance.now();
+            await sheet.sort([]);
+            const duration = performance.now() - start;
+            updateStatus(`✅ 정렬 초기화 (${Math.round(duration)}ms)`);
+        };
+
+        // 페이지 로드 시 자동 페칭
+        fetchFromApi().catch(console.error);
+    </script>
+</body>
+
+</html>

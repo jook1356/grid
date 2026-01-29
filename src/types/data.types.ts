@@ -116,6 +116,9 @@ export interface ColumnDef {
   /** 셀 값 포맷터 */
   formatter?: (value: CellValue) => string;
 
+  /** 집계 함수 (피벗/그룹핑용) */
+  aggregate?: 'sum' | 'avg' | 'min' | 'max' | 'count' | 'first' | 'last';
+
   /** 병합 전략 (피벗용) */
   mergeStrategy?: 'same-value' | 'none';
 

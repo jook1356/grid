@@ -3,10 +3,14 @@
  *
  * 새로운 플랫 구조의 PureSheet 설정 타입입니다.
  * 피벗 그리드와 일반 그리드 모두 지원합니다.
+ *
+ * @see docs/decisions/023-pivot-field-type-unification.md
  */
 
 import type { Row, CellValue } from './data.types';
 import type { RowState } from './grouping.types';
+import type { EngineType } from '../processor/engines/IEngine';
+import type { PivotRowField, PivotColumnField, PivotValueField } from './pivot.types';
 
 // ============================================================================
 // 기본 타입
@@ -223,6 +227,33 @@ export interface GroupConfig {
 }
 
 // ============================================================================
+// API 설정
+// ============================================================================
+
+/**
+ * 데이터 페칭 API 설정
+ */
+export interface ApiConfig {
+  /** API 엔드포인트 URL */
+  url: string;
+
+  /** HTTP 메서드 (기본값: 'GET') */
+  method?: string;
+
+  /** 요청 헤더 */
+  headers?: Record<string, string>;
+
+  /** 요청 본문 (POST/PUT 등에서 사용) */
+  body?: any;
+
+  /**
+   * 응답 JSON에서 데이터 배열이 위치한 경로 (예: 'data.items')
+   * 지정하지 않으면 응답 본문 자체를 데이터 배열로 간주합니다.
+   */
+  dataProperty?: string;
+}
+
+// ============================================================================
 // PureSheet Config
 // ============================================================================
 
@@ -234,8 +265,28 @@ export interface PureSheetConfigBase {
   /** 데이터 */
   data?: Row[];
 
+  /** API 설정 (데이터 페칭) */
+  api?: ApiConfig;
+
   /** 필드 정의 */
   fields: FieldDef[];
+
+  // === 엔진 옵션 (021-engine-abstraction-architecture) ===
+  /**
+   * 데이터 처리 엔진
+   * - 'aq': Arquero (기본값) - 필터/정렬 위주, 번들 사이즈 민감
+   * - 'db': DuckDB-Wasm - 복잡 집계 반복, 서버가 Arrow 제공
+   * @default 'aq'
+   */
+  engine?: EngineType;
+
+  /**
+   * Web Worker 사용 여부
+   * - false (기본값): 메인 스레드에서 실행
+   * - true: Web Worker에서 실행 (UI 블로킹 방지)
+   * @default false
+   */
+  useWorker?: boolean;
 
   // === UI 옵션 ===
   /** 테마 @default 'light' */
@@ -321,19 +372,24 @@ export interface FlatModeConfig extends PureSheetConfigBase {
 
 /**
  * Pivot 모드 설정
+ *
+ * 피벗 모드에서는 fields 대신 rowFields, columnFields, valueFields만 사용합니다.
+ * 각 필드는 객체 배열로 정의합니다.
+ *
+ * @see docs/decisions/023-pivot-field-type-unification.md
  */
-export interface PivotModeConfig extends PureSheetConfigBase {
+export interface PivotModeConfig extends Omit<PureSheetConfigBase, 'fields'> {
   /** 그리드 모드 */
   mode: 'pivot';
 
-  /** 행 축 필드 */
-  rowFields?: string[];
+  /** 행 축 필드 배열 */
+  rowFields: PivotRowField[];
 
-  /** 열 축 필드 (피벗되는 필드) */
-  columnFields: string[];
+  /** 열 축 필드 배열 (피벗되는 필드) */
+  columnFields: PivotColumnField[];
 
-  /** 값 필드 */
-  valueFields: string[];
+  /** 값 필드 배열 */
+  valueFields: PivotValueField[];
 }
 
 /**

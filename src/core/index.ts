@@ -15,6 +15,8 @@ export { SimpleEventEmitter } from './SimpleEventEmitter';
 export { DataStore } from './DataStore';
 export type { DataStoreOptions } from './DataStore';
 export { IndexManager } from './IndexManager';
+export { RowCache } from './RowCache';
+export type { RowCacheConfig, RangeResult } from './RowCache';
 
 // CRUD 및 Undo/Redo
 export { ChangeTracker } from './ChangeTracker';

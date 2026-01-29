@@ -5,13 +5,14 @@
  * 구버전 API(columns 기반)는 더 이상 지원하지 않습니다.
  */
 
-import type { ColumnDef } from '../../types';
+import type { ColumnDef, Row } from '../../types';
 import type {
   FieldDef,
   PureSheetConfig,
   FlatModeConfig,
   PivotModeConfig,
   FormatRowCallback,
+  ApiConfig,
 } from '../../types/field.types';
 import { isFlatMode } from '../../types/field.types';
 import type { GroupingConfig, RowTemplate } from '../../types/grouping.types';
@@ -21,7 +22,8 @@ import type { GroupingConfig, RowTemplate } from '../../types/grouping.types';
  */
 export interface InternalOptions {
   columns: ColumnDef[];
-  data?: Record<string, unknown>[];
+  data?: Row[];
+  api?: ApiConfig;
   rowHeight: number;
   headerHeight: number;
   selectionMode: 'none' | 'row' | 'range' | 'all';
@@ -58,6 +60,7 @@ export function fieldToColumn(field: FieldDef): ColumnDef {
     hidden: field.hidden,
     frozen: field.pinned,
     formatter: field.formatter,
+    aggregate: field.aggregate,
   };
 }
 
@@ -65,23 +68,26 @@ export function fieldToColumn(field: FieldDef): ColumnDef {
  * PureSheetConfig를 내부 옵션으로 변환
  */
 export function configToInternalOptions(config: PureSheetConfig): InternalOptions {
-  // fields → columns 변환 (pinned 속성은 fieldToColumn에서 frozen으로 변환됨)
-  const columns: ColumnDef[] = config.fields.map(fieldToColumn);
+  // 피벗 모드에서는 fields가 없으므로 빈 배열 사용
+  // 피벗 모드에서 컬럼 정의는 피벗 결과에서 동적으로 생성됨
+  const columns: ColumnDef[] = isFlatMode(config)
+    ? config.fields.map(fieldToColumn)
+    : [];
 
   // 행 높이 처리
   let rowHeight = config.rowHeight;
-  if (!rowHeight && config.rowStyle) {
+  if (!rowHeight && typeof config.rowStyle === 'string') {
     const heightMatch = config.rowStyle.match(/height:\s*(\d+)px/);
-    if (heightMatch) {
+    if (heightMatch && heightMatch[1]) {
       rowHeight = parseInt(heightMatch[1], 10);
     }
   }
 
   // 헤더 높이 처리
   let headerHeight = config.headerHeight;
-  if (!headerHeight && config.headerStyle) {
+  if (!headerHeight && typeof config.headerStyle === 'string') {
     const heightMatch = config.headerStyle.match(/height:\s*(\d+)px/);
-    if (heightMatch) {
+    if (heightMatch && heightMatch[1]) {
       headerHeight = parseInt(heightMatch[1], 10);
     }
   }
@@ -90,6 +96,7 @@ export function configToInternalOptions(config: PureSheetConfig): InternalOption
   const options: InternalOptions = {
     columns,
     data: config.data,
+    api: config.api,
     rowHeight: rowHeight ?? 36,
     headerHeight: headerHeight ?? 40,
     selectionMode: (config.selectionMode as InternalOptions['selectionMode']) ?? 'row',
@@ -138,8 +145,11 @@ export function getGridMode(config: PureSheetConfig): 'flat' | 'pivot' {
 
 /**
  * Pivot Config 추출 (Pivot 모드일 때만)
- * 
- * PivotModeConfig(사용자 설정)를 PivotConfig(내부용)로 변환합니다.
+ *
+ * PivotModeConfig에서 PivotConfig를 추출합니다.
+ * 피벗 모드에서는 rowFields, columnFields, valueFields가 이미 객체 배열입니다.
+ *
+ * @see docs/decisions/023-pivot-field-type-unification.md
  */
 export function getPivotConfig(config: PureSheetConfig): import('../../types/pivot.types').PivotConfig | null {
   if (isFlatMode(config)) {
@@ -147,25 +157,11 @@ export function getPivotConfig(config: PureSheetConfig): import('../../types/piv
   }
 
   const pivotMode = config as PivotModeConfig;
-  const fields = pivotMode.fields || [];
 
-  // valueFields: string[] → PivotValueField[]
-  const valueFields = (pivotMode.valueFields || []).map((fieldKey) => {
-    const fieldDef = fields.find((f) => f.key === fieldKey);
-    return {
-      field: fieldKey,
-      aggregate: fieldDef?.aggregate || 'sum',
-      header: fieldDef?.header || fieldKey,
-      width: fieldDef?.width,
-      minWidth: fieldDef?.minWidth,
-      maxWidth: fieldDef?.maxWidth,
-      formatter: fieldDef?.formatter,
-    };
-  });
-
+  // 피벗 모드에서는 rowFields, columnFields, valueFields가 이미 객체 배열
   return {
-    rowFields: pivotMode.rowFields || [],
-    columnFields: pivotMode.columnFields || [],
-    valueFields,
+    rowFields: pivotMode.rowFields,
+    columnFields: pivotMode.columnFields,
+    valueFields: pivotMode.valueFields,
   };
 }

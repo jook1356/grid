@@ -30,7 +30,7 @@ export type RowState =
 /**
  * 내장 집계 함수
  */
-export type AggregateType = 'sum' | 'avg' | 'count' | 'min' | 'max';
+export type AggregateType = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'first' | 'last';
 
 /**
  * 커스텀 집계 함수

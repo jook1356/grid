@@ -551,6 +551,10 @@ export class BodyRenderer {
     // 이전 데이터를 참조하는 것을 방지
     this.virtualRowBuilder.invalidate();
 
+    // RowPool 초기화: 이전 데이터가 남아있는 DOM 요소를 모두 제거
+    // 피벗 설정 변경 시 컬럼 구조가 완전히 바뀌므로 기존 셀을 재활용할 수 없음
+    this.rowPool.clear();
+
     this.updateVirtualRows();
     this.renderVisibleRows();
     this.renderPinnedRows(); // 고정 행도 다시 렌더링 (집계 재계산)
@@ -1091,6 +1095,26 @@ export class BodyRenderer {
    * ChangeTracker의 pending 변경사항을 병합합니다.
    */
   private updateVirtualRows(): void {
+    // Worker 모드 처리: 데이터가 비동기로 로드되므로, 행 수만으로 가상 행 생성
+    if (this.gridCore.isUsingWorker()) {
+      const rowCount = this.gridCore.getVisibleRowCount();
+
+      // 가상 행 생성 (데이터는 페칭 전까지 비어있음)
+      this.virtualRows = Array.from({ length: rowCount }, (_, i) => ({
+        type: 'data',
+        rowId: `virtual-${i}`, // 임시 ID
+        dataIndex: i, // IndexManager 기준 인덱스
+        data: {} as RowData, // 로딩 전 빈 데이터
+        groupPath: [],
+        rowState: 'pristine',
+      }));
+
+      // Multi-Row 모드인 경우에도 totalRows 설정
+      this.virtualScroller.setTotalRows(rowCount);
+      return;
+    }
+
+    // Flat/Grouped 모드 (Main Thread): 기존 로직 유지
     // 필터/정렬이 적용된 데이터 사용
     const baseData = this.gridCore.getVisibleData();
 
@@ -1196,6 +1220,26 @@ export class BodyRenderer {
   private renderVisibleRows(): void {
     const state = this.virtualScroller.getState();
 
+    // Worker 모드: 데이터 비동기 페칭 요청
+    if (this.gridCore.isUsingWorker()) {
+      // 현재 범위의 데이터가 캐시에 있는지 확인하고, 없으면 요청
+      this.gridCore.getVisibleRowsAsync(state.startIndex, state.endIndex)
+        .then(() => {
+          // 데이터가 로드되면 강제 렌더링 (여기서 무한 루프 방지가 중요)
+          // 하지만 getVisibleRowsAsync는 캐시에 있으면 즉시 반환하므로,
+          // 렌더링 루프 내에서 호출하지 않고, 별도의 완료 콜백으로 처리해야 함.
+          // 여기서는 '데이터 로드 후 렌더링'을 위해 refresh() 호출 X (너무 잦은 호출 방지)
+          // 대신 rowCache.get으로 가져와서 렌더링하므로, 다음 프레임이나 스크롤 이벤트에서 자연스럽게 렌더링됨.
+          // 단, 최초 로드 시에는 명시적 업데이트가 필요할 수 있음.
+
+          // 누락된 데이터가 채워졌는지 확인하고, 필요한 경우에만 제한적으로 렌더링 업데이트
+          // (구현 복잡도상 일단 생략하고, 스크롤 이벤트에 맡김.
+          //  단, 멈춰있을 때 로드 완료되면 안 보일 수 있으니 1회 재시도)
+          // requestAnimationFrame(() => this.renderPinnedRows()); // 화면 갱신 유도
+        })
+        .catch(console.error);
+    }
+
     const columnGroups = this.getColumnGroups();
     const totalRowCount = this.virtualRows.length;
 
@@ -1225,6 +1269,7 @@ export class BodyRenderer {
 
     // 일반 모드
     const activeRows = this.rowPool.updateVisibleRange(state.startIndex, state.endIndex);
+    let dirty = false; // 데이터가 로딩되어 다시 그려야 하는지 여부
 
     for (const [rowIndex, rowElement] of activeRows) {
       if (rowIndex >= totalRowCount) {
@@ -1232,16 +1277,47 @@ export class BodyRenderer {
         continue;
       }
 
-      const virtualRow = this.virtualRows[rowIndex];
+      let virtualRow = this.virtualRows[rowIndex];
       if (!virtualRow) continue;
+
+      // Worker 모드: 실제 데이터 주입
+      if (this.gridCore.isUsingWorker() && virtualRow.type === 'data') {
+        const realRow = this.gridCore.getRowByVisibleIndex(rowIndex);
+        if (realRow) {
+          // 데이터가 있으면 가상 행 객체에 주입
+          const rowId = (realRow['id'] as string | number) ?? virtualRow.rowId;
+          virtualRow = {
+            ...virtualRow,
+            data: realRow,
+            rowId: String(rowId)
+          };
+          // virtualRows 배열에도 반영 (다음 렌더링에서 재사용)
+          this.virtualRows[rowIndex] = virtualRow;
+        } else {
+          // 데이터가 없으면 로딩 중 표시 필요 (스타일 등)
+          // 일단 빈 데이터로 렌더링되거나 스킵
+          dirty = true; // 데이터가 비어있으므로 로딩 완료 후 다시 그려야 함
+        }
+      }
 
       // VirtualRow 타입에 따라 Row 인스턴스 생성 및 렌더링
       if (virtualRow.type === 'group-header') {
-        this.renderGroupHeaderRow(rowElement, rowIndex, virtualRow, baseContext);
+        this.renderGroupHeaderRow(rowElement, rowIndex, virtualRow as GroupHeaderRow, baseContext);
       } else if (virtualRow.type === 'data') {
-        this.renderDataRowWithRowClass(rowElement, rowIndex, virtualRow, baseContext);
+        this.renderDataRowWithRowClass(rowElement, rowIndex, virtualRow as DataRow, baseContext);
       }
       // TODO: group-footer, subtotal, grand-total 행 렌더링 (향후 구현)
+    }
+
+    // 데이터가 누락되어 있다면 (로딩 중), 로드 완료 후 다시 그리기
+    if (dirty && this.gridCore.isUsingWorker()) {
+      this.gridCore.getVisibleRowsAsync(state.startIndex, state.endIndex)
+        .then(() => {
+          // 데이터 로드 완료 시 재렌더링
+          // dirty 플래그 덕분에 데이터가 모두 로드되면 루프가 종료됨
+          requestAnimationFrame(() => this.renderVisibleRows());
+        })
+        .catch(console.error);
     }
   }
 

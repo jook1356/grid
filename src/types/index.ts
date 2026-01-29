@@ -49,6 +49,9 @@ export type {
   WorkerResponse,
 } from './processor.types';
 
+// 엔진 타입 (021-engine-abstraction-architecture)
+export type { EngineType, IEngine, IEngineFactory } from '../processor/engines/IEngine';
+
 // 그룹화 및 Multi-Row 타입
 export type {
   AggregateType,
@@ -81,6 +84,7 @@ export type {
   GridMode,
   FieldDef,
   GroupConfig,
+  ApiConfig,
   PureSheetConfigBase,
   FlatModeConfig,
   PivotModeConfig,
