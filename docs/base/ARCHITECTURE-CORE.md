@@ -10,21 +10,32 @@ flowchart TB
         AngularGrid[Angular Grid]
     end
     
-    subgraph Core [Grid Core - 이번에 구현]
+    subgraph Core [Grid Core]
         subgraph DataLayer [Data Layer]
             DS[DataStore]
             IM[IndexManager]
             EM[EventEmitter]
+            RC[RowCache]
         end
-        
+
         subgraph ProcessorLayer [Processor Layer]
-            DP[ArqueroProcessor]
+            PF[ProcessorFactory]
+            MTP[MainThreadProcessor]
+            WP[WorkerProcessor]
+            subgraph Engines [Engine Layer]
+                AE[ArqueroEngine]
+                DE[DuckDBEngine]
+            end
         end
-        
+
         GC[GridCore] --> DS
         GC --> IM
-        GC --> DP
-        DP --> IM
+        GC --> RC
+        GC --> PF
+        PF --> MTP
+        PF --> WP
+        MTP --> Engines
+        WP -->|Worker| Engines
     end
     
     subgraph DOMLayer [DOM Layer - 구현됨]
@@ -68,6 +79,9 @@ grid/
 │   │   ├── data.types.ts         # Row, Column, CellValue
 │   │   ├── state.types.ts        # SortState, FilterState
 │   │   ├── event.types.ts        # 이벤트 타입
+│   │   ├── field.types.ts        # FieldDef, PureSheetConfig
+│   │   ├── pivot.types.ts        # PivotConfig, PivotResult
+│   │   ├── grouping.types.ts     # 그룹핑 타입
 │   │   └── processor.types.ts    # IDataProcessor 인터페이스
 │   │
 │   ├── core/                     # 핵심 모듈 (프레임워크 무관)
@@ -75,26 +89,42 @@ grid/
 │   │   ├── GridCore.ts           # 메인 파사드 클래스
 │   │   ├── DataStore.ts          # 원본 데이터 관리
 │   │   ├── IndexManager.ts       # 인덱스 배열 관리
-│   │   └── EventEmitter.ts       # 이벤트 시스템
+│   │   ├── EventEmitter.ts       # 이벤트 시스템
+│   │   └── RowCache.ts           # Worker 가상 데이터 캐시 (LRU)
 │   │
-│   ├── processor/                # 데이터 가공 모듈
+│   ├── processor/                # 데이터 가공 모듈 (엔진 추상화 + Worker)
 │   │   ├── index.ts
-│   │   └── ArqueroProcessor.ts   # Arquero 기반 구현 (메인 스레드)
+│   │   ├── engines/
+│   │   │   ├── IEngine.ts              # 공통 엔진 인터페이스
+│   │   │   ├── ArqueroEngine.ts        # Arquero 엔진 구현
+│   │   │   ├── _deprecated/DuckDBEngine.ts  # DuckDB 엔진 구현
+│   │   │   └── index.ts
+│   │   ├── MainThreadProcessor.ts      # 메인 스레드 실행
+│   │   ├── WorkerProcessor.ts          # Worker 브릿지
+│   │   ├── processorWorker.ts          # Worker 스크립트
+│   │   ├── ProcessorFactory.ts         # 프로세서 팩토리
+│   │   ├── ArqueroProcessor.ts         # 레거시 (엔진 기반으로 전환 중)
+│   │   └── PivotProcessor.ts           # 피벗 처리
 │   │
 │   ├── ui/                       # UI 렌더링 모듈
 │   │   ├── PureSheet.ts          # UI 파사드
 │   │   ├── GridRenderer.ts       # 그리드 렌더러
 │   │   ├── VirtualScroller.ts    # 가상 스크롤
+│   │   ├── StatusBar.ts          # 하단 상태 표시줄
 │   │   ├── header/               # 헤더 렌더러
 │   │   ├── body/                 # 바디 렌더러
-│   │   └── row/                  # 행 클래스
+│   │   ├── row/                  # 행 클래스
+│   │   ├── pivot/                # 피벗 헤더 렌더러
+│   │   ├── merge/                # 셀 병합 관리자
+│   │   ├── style/                # CSS 스타일
+│   │   └── utils/                # UI 유틸리티
 │   │
 │   └── utils/                    # 유틸리티
 │       └── id.ts                 # ID 생성
 │
 └── tests/
     ├── core/
-    └── processor/
+    └── processor/engines/
 ```
 
 ---
@@ -413,9 +443,52 @@ export class IndexManager {
 
 ---
 
-### 3.5 ArqueroProcessor (`processor/ArqueroProcessor.ts`)
+### 3.5 Processor Layer (엔진 추상화 + Worker)
 
-Arquero를 사용한 IDataProcessor 구현체입니다. **메인 스레드에서 직접 실행됩니다.**
+> 상세 결정 과정: [엔진 추상화 아키텍처](../decisions/021-engine-abstraction-architecture.md), [Worker 가상 데이터 로딩](../decisions/022-worker-virtual-data-loading.md)
+
+#### 아키텍처 개요
+
+```
+PureSheet / GridCore
+       ↓
+ProcessorFactory.createProcessor({ engine, useWorker })
+       ↓
+┌──────────────────────┬──────────────────────┐
+│ MainThreadProcessor  │  WorkerProcessor     │
+│ (메인 스레드 실행)     │  (Worker 브릿지)      │
+└──────┬───────────────┘──────┬───────────────┘
+       ↓                      ↓ (postMessage)
+┌──────────────────────────────────────────────┐
+│         IEngine 인터페이스                      │
+│  ┌─────────────────┬──────────────────┐      │
+│  │ ArqueroEngine   │  DuckDBEngine    │      │
+│  │ (필터/정렬 강점)  │  (집계/SQL 강점)  │      │
+│  └─────────────────┴──────────────────┘      │
+└──────────────────────────────────────────────┘
+```
+
+#### 4가지 실행 조합
+
+| engine | useWorker | 실행 방식 | 사용 케이스 |
+|--------|-----------|----------|------------|
+| `'aq'` | `false` | Main + Arquero | 기본값, 소량 데이터 |
+| `'aq'` | `true` | Worker + Arquero | UI 블로킹 방지 |
+| `'db'` | `false` | Main + DuckDB | 테스트/디버깅 |
+| `'db'` | `true` | Worker + DuckDB | 대량 데이터 + 복잡 집계 |
+
+#### Worker 가상 데이터 로딩
+
+Worker 모드에서는 전체 데이터를 메인 스레드로 복사하지 않고, `RowCache`를 통해 보이는 행만 요청합니다:
+
+```
+스크롤 → RowCache 확인 → 캐시 히트: 즉시 반환
+                       → 캐시 미스: fetchVisibleRows() → Worker 요청 → 캐시 저장
+```
+
+#### ArqueroProcessor (레거시)
+
+Arquero를 사용한 IDataProcessor 구현체입니다. 엔진 기반 구조로 전환 중이며, 기존 호환성을 위해 유지됩니다.
 
 ```typescript
 import * as aq from 'arquero';
@@ -565,7 +638,7 @@ export class ArqueroProcessor implements IDataProcessor {
 
 ### 3.6 GridCore (`core/GridCore.ts`) - 파사드
 
-모든 모듈을 통합하는 메인 클래스입니다. **ArqueroProcessor를 직접 사용합니다.**
+모든 모듈을 통합하는 메인 클래스입니다. **ProcessorFactory를 통해 엔진/Worker 조합을 선택합니다.**
 
 ```typescript
 export interface GridCoreOptions {
@@ -578,8 +651,9 @@ export class GridCore {
   private events: EventEmitter;
   private dataStore: DataStore;
   private indexManager: IndexManager;
-  private processor: ArqueroProcessor;
-  
+  private processor: IDataProcessor;
+  private rowCache: RowCache;
+
   private viewState: ViewState = {
     sorts: [],
     filters: [],
@@ -591,7 +665,11 @@ export class GridCore {
     this.events = new EventEmitter();
     this.dataStore = new DataStore(this.events);
     this.indexManager = new IndexManager(this.events);
-    this.processor = new ArqueroProcessor();
+    this.processor = createProcessor({
+      engine: options.engine,
+      useWorker: options.useWorker,
+    });
+    this.rowCache = new RowCache();
     
     // 컬럼 설정
     this.dataStore.setColumns(options.columns);
@@ -733,12 +811,13 @@ export class GridCore {
 
 ### 4.1 데이터 규모별 처리 방식
 
-| 규모 | 처리 방식 | 예상 시간 |
+| 규모 | 처리 방식 | 권장 설정 |
 |------|----------|----------|
-| 1만 건 이하 | 메인 스레드 | ~10ms |
-| 1-10만 건 | 메인 스레드 + 인덱싱 | ~50-100ms |
-| 10-50만 건 | 메인 스레드 + 최적화 | ~100-300ms |
-| 50만+ 건 | **서버 사이드 권장** | - |
+| 1만 건 이하 | 메인 스레드 | `engine: 'aq', useWorker: false` |
+| 1-10만 건 | 메인 스레드 + 인덱싱 | `engine: 'aq', useWorker: false` |
+| 10-100만 건 | Worker + 가상 데이터 로딩 | `engine: 'aq', useWorker: true` |
+| 10-100만 건 (복잡 집계) | Worker + DuckDB | `engine: 'db', useWorker: true` |
+| 100만+ 건 | Worker + DuckDB 또는 서버 사이드 | `engine: 'db', useWorker: true` |
 
 ### 4.2 최적화 기법
 
@@ -777,24 +856,41 @@ const visibleRows = grid.getRowsInRange(startRow, endRow);
 
 ---
 
-## 6. Worker를 제거한 이유
+## 6. Worker 아키텍처 변천사
 
-### 상용 그리드 분석 결과
+### 6.1 초기: Worker 제거 (009 결정)
 
-| 라이브러리 | Worker | 서버 사이드 |
-|-----------|--------|------------|
-| AG Grid | ❌ | ✅ |
-| Handsontable | ❌ | ✅ |
-| DevExtreme | ❌ | ✅ |
-| Kendo UI | ❌ | ✅ |
-
-### 핵심 이유
-
-1. **데이터 전송 비용 > 연산 비용**: postMessage 직렬화가 UI 블로킹 유발
-2. **가상화로 충분**: 10만 건도 화면에 보이는 50줄만 렌더링
-3. **대용량은 서버가 답**: 50만+ 건은 DB 인덱스 활용이 효율적
+상용 그리드 분석 결과, 대부분 메인 스레드에서 처리하고 대용량은 서버 사이드로 위임하는 방식을 채택. Worker의 데이터 전송 비용이 연산 비용을 초과하는 문제.
 
 자세한 내용은 [009-remove-worker-architecture.md](../decisions/009-remove-worker-architecture.md) 참조.
+
+### 6.2 현재: 선택적 Worker 재도입 (021, 022 결정)
+
+엔진 추상화 아키텍처를 통해 Worker를 **선택적 옵션**으로 재도입:
+
+```typescript
+const sheet = new PureSheet(container, {
+  engine: 'aq',        // 'aq' | 'db'
+  useWorker: true,     // Worker에서 실행 (기본: false)
+});
+```
+
+**Worker 재도입이 가능해진 이유:**
+1. **가상 데이터 로딩**: 전체 데이터를 전송하지 않고, 보이는 행만 요청 (RowCache)
+2. **Transferable**: 인덱스 배열을 복사 없이 전송
+3. **엔진 추상화**: 동일 IEngine 인터페이스로 Main/Worker 모두 지원
+4. **선택적**: 기본값은 여전히 메인 스레드 (`useWorker: false`)
+
+### 6.3 권장 설정
+
+| 데이터 규모 | 주요 작업 | 권장 설정 |
+|------------|----------|----------|
+| < 10만 건 | 필터/정렬 | `engine: 'aq', useWorker: false` |
+| 10-100만 건 | 필터/정렬 | `engine: 'aq', useWorker: true` |
+| 10-100만 건 | 피벗+부분합 | `engine: 'db', useWorker: true` |
+| > 100만 건 | 모든 작업 | `engine: 'db', useWorker: true` |
+
+자세한 내용은 [021-engine-abstraction-architecture.md](../decisions/021-engine-abstraction-architecture.md), [022-worker-virtual-data-loading.md](../decisions/022-worker-virtual-data-loading.md) 참조.
 
 ---
 
@@ -868,4 +964,5 @@ export function useGrid(options: GridCoreOptions) {
 | 6 | ArqueroProcessor | ✅ 완료 |
 | 7 | GridCore | ✅ 완료 |
 | 8 | UI Layer | ✅ 완료 |
-| 9 | Worker 제거 | 🔜 진행 중 |
+| 9 | 엔진 추상화 (IEngine, ArqueroEngine, DuckDBEngine) | ✅ 완료 |
+| 10 | Worker 재도입 (ProcessorFactory, WorkerProcessor, RowCache) | ✅ 완료 |

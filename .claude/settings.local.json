@@ -14,7 +14,8 @@
       "WebFetch(domain:gemini.google.com)",
       "WebFetch(domain:qkrdkwl9090.tistory.com)",
       "Bash(npx vitest:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(git show:*)"
     ]
   }
 }
